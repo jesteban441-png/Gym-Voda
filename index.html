@@ -1,0 +1,1945 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Fierros</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fierros">
+<meta name="theme-color" content="#171412">
+<meta name="description" content="Rutina, registro de pesos y cronómetro para el gimnasio">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F1F0EC;
+    --surface:#FFFFFF;
+    --surface-2:#E8E6E0;
+    --text:#1B1917;
+    --text-muted:#6B6560;
+    --border:#DBD8D1;
+    --accent:#C84A22;
+    --accent-strong:#B8431D;
+    --accent-on:#FFFFFF;
+    --accent-soft:#FBE3D8;
+    --secondary:#2A5FD9;
+    --secondary-soft:#DCE6FB;
+    --success:#2E9E5B;
+    --success-soft:#DCF3E6;
+    --danger:#C13B3B;
+    --danger-soft:#FBE0DF;
+    --shadow: 0 1px 2px rgba(20,15,10,.06), 0 6px 16px -8px rgba(20,15,10,.15);
+    --radius-s: 10px;
+    --radius-m: 16px;
+    --radius-l: 22px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15130F;
+      --surface:#211D18;
+      --surface-2:#2A2520;
+      --text:#F3EFE9;
+      --text-muted:#A79E93;
+      --border:#3A342D;
+      --accent:#FF7A47;
+      --accent-strong:#FF8E5E;
+      --accent-on:#1B1210;
+      --accent-soft:#3A2116;
+      --secondary:#7EA0FF;
+      --secondary-soft:#1E2740;
+      --success:#59C68A;
+      --success-soft:#173425;
+      --danger:#FF8A80;
+      --danger-soft:#3A1F1E;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.5);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15130F;
+    --surface:#211D18;
+    --surface-2:#2A2520;
+    --text:#F3EFE9;
+    --text-muted:#A79E93;
+    --border:#3A342D;
+    --accent:#FF7A47;
+    --accent-strong:#FF8E5E;
+    --accent-on:#1B1210;
+    --accent-soft:#3A2116;
+    --secondary:#7EA0FF;
+    --secondary-soft:#1E2740;
+    --success:#59C68A;
+    --success-soft:#173425;
+    --danger:#FF8A80;
+    --danger-soft:#3A1F1E;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.5);
+    color-scheme: dark;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Work Sans", system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+  h1,h2,h3,.display{
+    font-family:"Barlow Condensed", "Work Sans", sans-serif;
+    text-transform:uppercase;
+    letter-spacing:.02em;
+    font-weight:700;
+    text-wrap:balance;
+    margin:0;
+  }
+  .num{ font-variant-numeric: tabular-nums; }
+  button{ font-family:inherit; }
+  input,select{ font-family:inherit; }
+  ::selection{ background:var(--accent-soft); }
+
+  #app{
+    max-width:480px;
+    margin:0 auto;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    padding-bottom: calc(78px + env(safe-area-inset-bottom));
+    position:relative;
+  }
+
+  .topbar{
+    position:sticky; top:0; z-index:5;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px calc(10px);
+    padding-top: calc(14px + env(safe-area-inset-top));
+    background:var(--bg);
+    border-bottom:1px solid var(--border);
+  }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand-mark{
+    width:30px;height:30px;border-radius:9px;background:var(--accent);
+    display:flex;align-items:center;justify-content:center;flex:none;
+  }
+  .brand-mark svg{ width:18px; height:18px; }
+  .brand h1{ font-size:22px; line-height:1; color:var(--text); }
+  .profile-chip{
+    display:flex; align-items:center; gap:8px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:999px; padding:6px 12px 6px 6px;
+    cursor:pointer;
+  }
+  .avatar{
+    width:24px;height:24px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px; font-weight:700; color:var(--accent-on);
+    background:var(--accent); flex:none;
+  }
+  .profile-chip span{ font-size:13px; font-weight:600; }
+
+  main{ flex:1; padding:16px 18px 8px; }
+  .screen{ display:flex; flex-direction:column; gap:14px; animation: fade .18s ease; }
+  @keyframes fade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  .section-title{ display:flex; align-items:baseline; justify-content:space-between; margin-top:4px; }
+  .section-title h2{ font-size:20px; color:var(--text); }
+  .section-title .muted{ font-size:12px; color:var(--text-muted); text-transform:none; letter-spacing:0; font-family:"Work Sans",sans-serif; font-weight:500; }
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-m);
+    box-shadow:var(--shadow);
+    padding:14px;
+  }
+  .card + .card{ margin-top:0; }
+  .stack{ display:flex; flex-direction:column; gap:10px; }
+  .row{ display:flex; align-items:center; gap:10px; }
+  .row.between{ justify-content:space-between; }
+  .wrap{ display:flex; flex-wrap:wrap; gap:8px; }
+
+  .day-card .day-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .day-head h3{ font-size:18px; color:var(--text); }
+  .day-head .actions{ display:flex; gap:6px; }
+  .exlist{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+  .exrow{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:9px 10px; background:var(--surface-2); border-radius:var(--radius-s);
+  }
+  .exrow .exname{ font-weight:600; font-size:14.5px; }
+  .exrow .exmeta{ font-size:12.5px; color:var(--text-muted); }
+  .exrow .actions{ display:flex; gap:4px; flex:none; }
+
+  .iconbtn{
+    width:30px;height:30px; border-radius:9px; border:1px solid var(--border);
+    background:var(--surface); color:var(--text-muted);
+    display:flex;align-items:center;justify-content:center; cursor:pointer;
+  }
+  .iconbtn:active{ transform:scale(.94); }
+  .iconbtn svg{ width:15px; height:15px; }
+  .iconbtn.danger{ color:var(--danger); }
+
+  .btn{
+    appearance:none; border:none; border-radius:12px; padding:12px 16px;
+    font-weight:700; font-size:14.5px; cursor:pointer; text-align:center;
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .btn:active{ transform:scale(.98); }
+  .btn svg{ width:17px; height:17px; flex:none; }
+  .btn-primary{ background:var(--accent); color:var(--accent-on); }
+  .btn-secondary{ background:var(--secondary-soft); color:var(--secondary); }
+  .btn-ghost{ background:var(--surface-2); color:var(--text); }
+  .btn-outline{ background:transparent; color:var(--text); border:1px solid var(--border); }
+  .btn-block{ width:100%; }
+  .btn-sm{ padding:8px 12px; font-size:13px; border-radius:10px; }
+  .btn-danger{ background:var(--danger-soft); color:var(--danger); }
+
+  .field{ display:flex; flex-direction:column; gap:5px; }
+  .field label{ font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
+  .field input, .field select, .field textarea{
+    background:var(--surface-2); border:1px solid var(--border); color:var(--text);
+    border-radius:10px; padding:10px 12px; font-size:15px; width:100%;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+  .field-row{ display:flex; gap:10px; }
+  .field-row .field{ flex:1; min-width:0; }
+
+  .ac-wrap{ position:relative; }
+  .ac-list{
+    position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:6;
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    box-shadow:var(--shadow); max-height:210px; overflow-y:auto; display:none;
+  }
+  .ac-item{ padding:10px 12px; font-size:14px; cursor:pointer; }
+  .ac-item + .ac-item{ border-top:1px solid var(--border); }
+  .ac-item:hover, .ac-item:active{ background:var(--surface-2); }
+
+  .empty{
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    gap:10px; padding:34px 16px; color:var(--text-muted);
+  }
+  .empty svg{ width:40px; height:40px; opacity:.5; }
+  .empty h3{ color:var(--text); font-size:18px; }
+  .empty p{ margin:0; font-size:13.5px; max-width:30ch; }
+
+  .badge{ font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:.03em; }
+  .badge.pin{ background:var(--secondary-soft); color:var(--secondary); }
+  .badge.pr{ background:var(--success-soft); color:var(--success); }
+
+  .bottomnav{
+    position:fixed; left:0; right:0; bottom:0; z-index:10;
+    background:var(--surface); border-top:1px solid var(--border);
+    padding: 8px max(10px, calc(50% - 240px + 10px)) calc(8px + env(safe-area-inset-bottom));
+    display:flex; justify-content:space-around;
+  }
+  .navbtn{
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    background:none; border:none; color:var(--text-muted); cursor:pointer;
+    padding:6px 14px; border-radius:12px; flex:1; max-width:110px;
+  }
+  .navbtn svg{ width:22px; height:22px; }
+  .navbtn span{ font-size:11px; font-weight:600; }
+  .navbtn.active{ color:var(--accent); }
+
+  .banner{
+    display:flex; gap:10px; align-items:flex-start;
+    background:var(--secondary-soft); color:var(--secondary);
+    border-radius:var(--radius-s); padding:10px 12px; font-size:12.5px; line-height:1.4;
+  }
+  .banner svg{ width:16px; height:16px; flex:none; margin-top:1px; }
+  .banner.warn{ background:var(--accent-soft); color:var(--accent-strong); }
+
+  .modal-back{
+    position:fixed; inset:0; background:rgba(10,8,6,.5); backdrop-filter:blur(2px);
+    display:flex; align-items:flex-end; justify-content:center; z-index:50;
+    animation: fadeIn .15s ease;
+  }
+  @keyframes fadeIn{ from{opacity:0} to{opacity:1} }
+  .modal{
+    background:var(--surface); width:100%; max-width:480px;
+    border-radius:20px 20px 0 0; padding:18px 18px calc(18px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; gap:14px;
+    max-height:88vh; overflow-y:auto;
+    animation: up .18s ease;
+  }
+  @keyframes up{ from{transform:translateY(16px); opacity:.6} to{transform:none; opacity:1} }
+  .modal h3{ font-size:20px; }
+  .modal-actions{ display:flex; gap:10px; margin-top:4px; }
+  .modal-actions .btn{ flex:1; }
+
+  .profilegrid{ display:flex; flex-direction:column; gap:8px; }
+  .profileopt{
+    display:flex; align-items:center; gap:12px; padding:11px 12px;
+    background:var(--surface-2); border-radius:var(--radius-s); border:1px solid transparent;
+    cursor:pointer;
+  }
+  .profileopt.current{ border-color:var(--accent); }
+  .profileopt .avatar{ width:34px; height:34px; font-size:14px; }
+  .profileopt .info{ flex:1; }
+  .profileopt .info b{ font-size:14.5px; display:block; }
+  .profileopt .info small{ color:var(--text-muted); font-size:12px; }
+  .profileopt > svg{ width:16px; height:16px; color:var(--text-muted); flex:none; }
+
+  .pindots{ display:flex; gap:10px; justify-content:center; margin:6px 0; }
+  .pindots .d{ width:14px; height:14px; border-radius:50%; border:2px solid var(--border); }
+  .pindots .d.on{ background:var(--accent); border-color:var(--accent); }
+  .keypad{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .keypad button{
+    padding:16px; font-size:20px; font-weight:700; border-radius:14px;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text);
+  }
+  .keypad button:active{ transform:scale(.95); }
+
+  /* Cronometro */
+  .timer-wrap{ display:flex; flex-direction:column; align-items:center; gap:20px; padding:10px 0 4px; }
+  .ring-box{ position:relative; width:240px; height:240px; }
+  .ring-box svg{ width:100%; height:100%; transform:rotate(-90deg); }
+  .ring-bg{ fill:none; stroke:var(--surface-2); stroke-width:14; }
+  .ring-fg{ fill:none; stroke:var(--accent); stroke-width:14; stroke-linecap:round; transition: stroke .2s ease; }
+  .ring-fg.done{ stroke:var(--success); }
+  .ring-label{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:2px;
+  }
+  .ring-label .time{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:54px; line-height:1; }
+  .ring-label .state{ font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em; font-weight:600; }
+  .presets{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+  .preset{
+    padding:9px 14px; border-radius:999px; border:1px solid var(--border);
+    background:var(--surface); color:var(--text); font-weight:600; font-size:13.5px; cursor:pointer;
+  }
+  .preset.active{ background:var(--accent); border-color:var(--accent); color:var(--accent-on); }
+  .timer-controls{ display:flex; gap:12px; }
+  .timer-controls .btn{ width:76px; height:76px; border-radius:50%; font-size:13px; flex-direction:column; }
+  .timer-controls .btn svg{ width:24px; height:24px; }
+
+  /* Sparkline */
+  .spark-row{ display:flex; align-items:center; gap:12px; }
+  .spark-stats{ flex:none; text-align:right; }
+  .spark-stats .best{ font-size:20px; font-weight:700; font-family:"Barlow Condensed",sans-serif; color:var(--text); }
+  .spark-stats .lbl{ font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
+  svg.spark{ flex:1; min-width:0; height:44px; width:100%; overflow:visible; }
+
+  .loglist{ display:flex; flex-direction:column; gap:8px; }
+  .logrow{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:10px 12px; border-radius:var(--radius-s); background:var(--surface-2);
+  }
+  .logrow .lex{ font-weight:600; font-size:14px; }
+  .logrow .ldate{ font-size:11.5px; color:var(--text-muted); }
+  .logrow .lval{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:18px; text-align:right; }
+  .logrow .lsub{ font-size:11.5px; color:var(--text-muted); text-align:right; }
+
+  .segmented{ display:flex; background:var(--surface-2); border-radius:12px; padding:3px; }
+  .segmented button{
+    flex:1; border:none; background:none; padding:9px 6px; border-radius:9px;
+    font-weight:600; font-size:13px; color:var(--text-muted); cursor:pointer;
+  }
+  .segmented button.active{ background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
+
+  a.linklike{ color:var(--secondary); font-weight:600; cursor:pointer; }
+  .helptext{ font-size:12px; color:var(--text-muted); line-height:1.4; }
+
+  .setrow{ display:flex; flex-wrap:wrap; gap:8px; }
+  .setdot{
+    width:36px; height:36px; border-radius:50%; border:2px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;
+    color:var(--text-muted); cursor:pointer; background:var(--surface-2); flex:none;
+  }
+  .setdot.done{ background:var(--success); border-color:var(--success); color:#fff; }
+  .setdot:active{ transform:scale(.93); }
+
+  .racha-card{ display:flex; flex-direction:column; gap:8px; }
+  .racha-top{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .racha-count{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:23px; }
+  .racha-streak{ text-align:right; }
+  .racha-streak .fire{ font-size:22px; line-height:1; }
+
+  @media (max-width:360px){
+    .ring-box{ width:200px; height:200px; }
+    .ring-label .time{ font-size:44px; }
+    .timer-controls .btn{ width:66px; height:66px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- Conexión a Supabase ---------- */
+  const SUPABASE_URL = "https://wfuxtbxrjkjtdumgylrt.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_9NehCfiZ-MxRZ8eZmnAQUw_p-O0XIuA";
+
+  /* ---------- Icons (inline SVG, currentColor) ---------- */
+  const ICONS = {
+    dumbbell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 3 10l4 4M17.5 17.5 21 14l-4-4M2 10l4-4M22 14l-4 4M9 6l9 9M6 9l9 9"/></svg>',
+    routine:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+    log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
+    timer:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M18 4l1.5 1.5"/></svg>',
+    user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4.5 5-6 8-6s6.5 1.5 8 6"/></svg>',
+    plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+    trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+    chevronDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+    play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    pause:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
+    reset:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>',
+    info:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>',
+    lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+    arrowUp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+    arrowDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>',
+    back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>',
+    check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 21h16"/></svg>',
+  };
+  function icon(name){ return ICONS[name] || ""; }
+
+  /* ---------- Base de ejercicios comunes (para autocompletar) ---------- */
+  const EXERCISES = [
+    // Pecho
+    "Press banca plano","Press banca inclinado","Press banca declinado",
+    "Press con mancuernas plano","Press con mancuernas inclinado","Press con mancuernas declinado",
+    "Aperturas con mancuernas","Cruce de poleas (aperturas en polea)","Pec deck (contractora)",
+    "Fondos en paralelas","Flexiones de brazos","Press en máquina Smith","Pullover con mancuerna",
+    // Espalda
+    "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
+    "Remo con barra","Remo con mancuerna","Remo en polea baja","Remo en máquina","Remo en T",
+    "Peso muerto","Peso muerto rumano","Peso muerto sumo","Hiperextensiones","Face pull",
+    // Piernas
+    "Sentadilla","Sentadilla frontal","Sentadilla búlgara","Sentadilla sumo","Sentadilla hack",
+    "Prensa de piernas","Extensión de cuádriceps","Curl femoral acostado","Curl femoral sentado",
+    "Zancadas","Zancadas con mancuernas","Hip thrust","Puente de glúteo",
+    "Elevación de talones de pie","Elevación de talones sentado","Abductores en máquina",
+    "Aductores en máquina","Step up","Peso muerto piernas rígidas",
+    // Hombros
+    "Press militar con barra","Press militar con mancuernas","Press Arnold","Press tras nuca",
+    "Elevaciones laterales","Elevaciones frontales","Pájaro (deltoide posterior)",
+    "Remo al mentón","Encogimientos de hombros",
+    // Brazos
+    "Curl con barra","Curl con mancuernas alternado","Curl martillo","Curl concentrado",
+    "Curl en polea","Curl Scott (predicador)","Press francés","Extensión de tríceps en polea",
+    "Fondos de tríceps en banco","Patada de tríceps","Extensión de tríceps con mancuerna",
+    "Press cerrado",
+    // Core
+    "Abdominales crunch","Elevación de piernas colgado","Plancha","Plancha lateral",
+    "Rueda abdominal","Crunch en polea","Giro ruso (russian twist)","Mountain climbers",
+    // Cardio / funcional
+    "Cinta (caminar/correr)","Bicicleta fija","Elíptico","Máquina de remo","Escaladora",
+    "Salto de soga","Burpees","Kettlebell swing","Battle rope","Trineo (sled)",
+    "Patada de glúteo en polea",
+  ];
+
+  function normalizeTxt(s){
+    return (s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+  }
+
+  function exerciseSuggestions(query, extra){
+    const q = normalizeTxt(query);
+    if(!q) return [];
+    const pool = new Set();
+    (extra||[]).forEach(n=> n && pool.add(n));
+    EXERCISES.forEach(n=> pool.add(n));
+    const starts = [], contains = [];
+    pool.forEach(name=>{
+      const nn = normalizeTxt(name);
+      if(nn===q) return;
+      if(nn.startsWith(q)) starts.push(name);
+      else if(nn.includes(q)) contains.push(name);
+    });
+    starts.sort((a,b)=>a.localeCompare(b,"es"));
+    contains.sort((a,b)=>a.localeCompare(b,"es"));
+    return starts.concat(contains).slice(0,6);
+  }
+
+  function attachAutocomplete(input, listEl, extraProvider){
+    if(!input || !listEl) return;
+    function update(){
+      const q = input.value;
+      const sugg = q.trim() ? exerciseSuggestions(q, extraProvider?extraProvider():[]) : [];
+      if(sugg.length===0){ listEl.innerHTML=""; listEl.style.display="none"; return; }
+      listEl.innerHTML = sugg.map(s=>`<div class="ac-item" data-val="${esc(s)}">${esc(s)}</div>`).join("");
+      listEl.style.display = "block";
+      listEl.querySelectorAll(".ac-item").forEach(it=>{
+        it.addEventListener("mousedown", (e)=>{
+          e.preventDefault();
+          input.value = it.dataset.val;
+          listEl.innerHTML = ""; listEl.style.display = "none";
+          input.focus();
+        });
+      });
+    }
+    input.addEventListener("input", update);
+    input.addEventListener("focus", update);
+    input.addEventListener("blur", ()=>{ setTimeout(()=>{ listEl.style.display="none"; }, 120); });
+  }
+
+  /* ---------- Utilities ---------- */
+  function uid(){ return Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4); }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+  function todayStr(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+  function fmtDate(s){
+    if(!s) return "";
+    const [y,m,d]=s.split("-");
+    const meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    return `${parseInt(d,10)} ${meses[parseInt(m,10)-1]}`;
+  }
+  function initials(name){
+    return (name||"?").trim().split(/\s+/).slice(0,2).map(w=>w[0]).join("").toUpperCase();
+  }
+  function lsGet(k, fallback){ try{ const v = localStorage.getItem(k); return v===null?fallback:JSON.parse(v);}catch(e){ return fallback; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function deepClone(o){
+    try{ return structuredClone(o); }catch(e){ return JSON.parse(JSON.stringify(o)); }
+  }
+
+  /* ---------- Frases motivacionales ---------- */
+  const FRASES = [
+    "Cada serie cuenta, aunque hoy rindas menos.",
+    "La constancia le gana al talento.",
+    "Un entrenamiento más cerca de tu objetivo.",
+    "Nadie dijo que iba a ser fácil, pero vale la pena.",
+    "Tu único rival sos vos de la semana pasada.",
+    "Menos excusas, más series.",
+    "El descanso también es parte del plan.",
+    "Progreso, no perfección.",
+    "Vení como estés, entrená como puedas.",
+    "Lo que no se mide, no mejora — por eso registrás cada peso.",
+    "Hoy simplemente no aflojes.",
+    "Un día a la vez, un entrenamiento a la vez.",
+    "La motivación te trae, el hábito te sostiene.",
+    "No tiene que ser perfecto, tiene que ser hoy.",
+    "Cada kilo que sumaste, lo sumaste vos.",
+    "La disciplina es elegir entre lo que querés ahora y lo que querés más.",
+    "Entrenar mal un día es mejor que no entrenar ninguno.",
+    "Vas a agradecerle a la versión de hoy más adelante.",
+    "El cuerpo logra lo que la mente cree.",
+    "Fierros no se levantan solos.",
+  ];
+  function fraseDelDia(){
+    const start = new Date(new Date().getFullYear(),0,0);
+    const dayOfYear = Math.floor((new Date()-start)/86400000);
+    return FRASES[dayOfYear % FRASES.length];
+  }
+
+  /* ---------- Racha / meta semanal ---------- */
+  function isoWeekMonday(d){
+    const day = (d.getDay()+6)%7; // 0=lunes .. 6=domingo
+    const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate()-day);
+    return monday;
+  }
+  function ymd(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+  function computeRacha(entrenos, metaSemanal){
+    const goal = metaSemanal>0 ? metaSemanal : 3;
+    const today = new Date();
+    const curMonday = isoWeekMonday(today);
+    const byWeek = {};
+    (entrenos||[]).forEach(e=>{
+      if(!e.date) return;
+      const parts = e.date.split("-").map(n=>parseInt(n,10));
+      const d = new Date(parts[0], parts[1]-1, parts[2]);
+      const key = ymd(isoWeekMonday(d));
+      byWeek[key] = (byWeek[key]||0)+1;
+    });
+    const curKey = ymd(curMonday);
+    const thisWeekCount = byWeek[curKey]||0;
+    const remaining = Math.max(0, goal-thisWeekCount);
+    const todayIdx = (today.getDay()+6)%7;
+    const daysLeft = 7-todayIdx;
+    let streak = 0;
+    let cursor = new Date(curMonday.getFullYear(), curMonday.getMonth(), curMonday.getDate()-7);
+    while(streak<104){
+      const key = ymd(cursor);
+      const count = byWeek[key]||0;
+      if(count>=goal){ streak++; cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()-7); }
+      else break;
+    }
+    return { goal, thisWeekCount, remaining, daysLeft, streak };
+  }
+
+  /* ---------- Store abstraction (Supabase, con respaldo en memoria si no hay conexión) ---------- */
+  const Store = (function(){
+    let sb = null;
+    let mem = { profiles: [], rutinas: {}, registros: {}, entrenos: {} }; // fallback
+
+    async function init(){
+      try{
+        if(window.supabase && typeof window.supabase.createClient === "function"){
+          const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+          const { error } = await client.from("profiles").select("id").limit(1);
+          if(error) throw error;
+          sb = client;
+        }
+      }catch(e){ sb = null; }
+      return !!sb;
+    }
+
+    function isOnline(){ return !!sb; }
+
+    function rowToProfile(r){
+      return { id: r.id, name: r.name, pin: r.pin||"", metaSemanal: r.meta_semanal||3, createdAt: r.created_at||0 };
+    }
+    function profileToRow(data){
+      const row = {};
+      if("name" in data) row.name = data.name;
+      if("pin" in data) row.pin = data.pin;
+      if("metaSemanal" in data) row.meta_semanal = data.metaSemanal;
+      if("createdAt" in data) row.created_at = data.createdAt;
+      return row;
+    }
+
+    async function listProfiles(){
+      if(sb){
+        const { data, error } = await sb.from("profiles").select("*").order("created_at",{ascending:true});
+        if(!error) return (data||[]).map(rowToProfile);
+      }
+      return mem.profiles.slice();
+    }
+
+    async function createProfile(data){
+      if(sb){
+        const row = profileToRow(data);
+        const { data: inserted, error } = await sb.from("profiles").insert(row).select().single();
+        if(!error && inserted) return inserted.id;
+      }
+      const id = uid();
+      mem.profiles.push({ id, ...data });
+      return id;
+    }
+
+    async function updateProfile(id, data){
+      if(sb){
+        const row = profileToRow(data);
+        const { error } = await sb.from("profiles").update(row).eq("id", id);
+        if(!error) return;
+      }
+      const p = mem.profiles.find(p=>p.id===id);
+      if(p) Object.assign(p, data);
+    }
+
+    async function deleteProfile(id){
+      if(sb){
+        const { error } = await sb.from("profiles").delete().eq("id", id);
+        if(!error) return;
+      }
+      mem.profiles = mem.profiles.filter(p=>p.id!==id);
+      delete mem.rutinas[id];
+      delete mem.registros[id];
+      delete mem.entrenos[id];
+    }
+
+    async function getRutina(pid){
+      if(sb){
+        const { data, error } = await sb.from("rutinas").select("data").eq("profile_id", pid).maybeSingle();
+        if(!error) return (data && data.data) ? deepClone(data.data) : { days: [] };
+      }
+      return deepClone(mem.rutinas[pid] || { days: [] });
+    }
+
+    async function saveRutina(pid, data){
+      if(sb){
+        const { error } = await sb.from("rutinas").upsert({ profile_id: pid, data: data }, { onConflict: "profile_id" });
+        if(!error) return;
+      }
+      mem.rutinas[pid] = data;
+    }
+
+    function rowToRegistro(r){
+      return { id: r.id, exercise: r.exercise, peso: r.peso, date: r.date, series: r.series||"", reps: r.reps||"", nota: r.nota||"", createdAt: r.created_at||0 };
+    }
+
+    async function addRegistro(pid, data){
+      if(sb){
+        const row = { profile_id: pid, exercise: data.exercise, peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now() };
+        const { error } = await sb.from("registros").insert(row);
+        if(!error) return;
+      }
+      if(!mem.registros[pid]) mem.registros[pid] = [];
+      mem.registros[pid].push({ id: uid(), ...data });
+    }
+
+    async function deleteRegistro(pid, id){
+      if(sb){
+        const { error } = await sb.from("registros").delete().eq("id", id).eq("profile_id", pid);
+        if(!error) return;
+      }
+      if(mem.registros[pid]) mem.registros[pid] = mem.registros[pid].filter(r=>r.id!==id);
+    }
+
+    async function listRegistros(pid){
+      if(sb){
+        const { data, error } = await sb.from("registros").select("*").eq("profile_id", pid)
+          .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(300);
+        if(!error) return (data||[]).map(rowToRegistro);
+      }
+      return (mem.registros[pid]||[]).slice().sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:(b.createdAt||0)-(a.createdAt||0));
+    }
+
+    function rowToEntreno(r){
+      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0 };
+    }
+
+    async function addEntreno(pid, data){
+      if(sb){
+        const row = { profile_id: pid, date: data.date, day_id: data.dayId, day_nombre: data.dayNombre, sets_completados: data.setsCompletados, sets_totales: data.setsTotales, created_at: data.createdAt||Date.now() };
+        const { error } = await sb.from("entrenos").insert(row);
+        if(!error) return;
+      }
+      if(!mem.entrenos[pid]) mem.entrenos[pid] = [];
+      mem.entrenos[pid].push({ id: uid(), ...data });
+    }
+
+    async function listEntrenos(pid){
+      if(sb){
+        const { data, error } = await sb.from("entrenos").select("*").eq("profile_id", pid)
+          .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(200);
+        if(!error) return (data||[]).map(rowToEntreno);
+      }
+      return (mem.entrenos[pid]||[]).slice();
+    }
+
+    return { init, isOnline, listProfiles, createProfile, updateProfile, deleteProfile, getRutina, saveRutina, addRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos };
+  })();
+
+  /* ---------- App state ---------- */
+  const state = {
+    booted:false,
+    offline:false,
+    profiles:[],
+    profile:null,       // current profile object
+    rutina:{days:[]},
+    registros:[],
+    entrenos:[],
+    tab:"rutina",
+    dayOpen:{},          // which day cards are expanded
+    exerciseSelForm:"",  // currently selected exercise name in registro form
+    historyFilter:{ exercise:"", from:"", to:"" },
+    session:null,        // { dayId, sets:{exId:[bool,...]} } while "entrenando"
+  };
+
+  const app = document.getElementById("app");
+
+  /* ---------- Generic modal helper ---------- */
+  function closeModal(){
+    const back = document.querySelector(".modal-back");
+    if(back) back.remove();
+    document.removeEventListener("keydown", escHandler);
+  }
+  function escHandler(e){ if(e.key==="Escape") closeModal(); }
+  function openModal(innerHtml, onMount){
+    closeModal();
+    const back = document.createElement("div");
+    back.className = "modal-back";
+    back.innerHTML = `<div class="modal">${innerHtml}</div>`;
+    back.addEventListener("click", (e)=>{ if(e.target===back) closeModal(); });
+    document.body.appendChild(back);
+    document.addEventListener("keydown", escHandler);
+    if(onMount) onMount(back.querySelector(".modal"));
+    return back.querySelector(".modal");
+  }
+
+  function confirmDialog(title, msg, confirmLabel){
+    return new Promise(resolve=>{
+      const m = openModal(`
+        <h3>${esc(title)}</h3>
+        <p class="helptext" style="font-size:14px;color:var(--text)">${esc(msg)}</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+          <button class="btn btn-danger" data-act="ok">${esc(confirmLabel||"Eliminar")}</button>
+        </div>
+      `);
+      m.querySelector('[data-act="cancel"]').onclick = ()=>{ closeModal(); resolve(false); };
+      m.querySelector('[data-act="ok"]').onclick = ()=>{ closeModal(); resolve(true); };
+    });
+  }
+
+  /* ---------- Rendering shell ---------- */
+  function render(){
+    if(!state.booted){
+      app.innerHTML = `
+        <div class="topbar">
+          <div class="brand">
+            <div class="brand-mark">${icon("dumbbell")}</div>
+            <h1>Fierros</h1>
+          </div>
+        </div>
+        <main><div class="screen"><div class="empty"><p>Cargando...</p></div></div></main>
+      `;
+      return;
+    }
+
+    if(!state.profile){
+      renderProfilePicker();
+      return;
+    }
+
+    if(state.tab==="sesion" && state.session){
+      renderSession();
+      return;
+    }
+
+    app.innerHTML = `
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">${icon("dumbbell")}</div>
+          <h1>Fierros</h1>
+        </div>
+        <div class="profile-chip" id="chip-profile">
+          <div class="avatar">${esc(initials(state.profile.name))}</div>
+          <span>${esc(state.profile.name)}</span>
+        </div>
+      </div>
+      <main><div class="screen" id="screen"></div></main>
+      <nav class="bottomnav">
+        ${navBtn("rutina","routine","Rutina")}
+        ${navBtn("registro","log","Registro")}
+        ${navBtn("cronometro","timer","Timer")}
+        ${navBtn("perfil","user","Perfil")}
+      </nav>
+    `;
+    document.getElementById("chip-profile").onclick = ()=> setTab("perfil");
+    app.querySelectorAll(".navbtn").forEach(b=>{
+      b.onclick = ()=> setTab(b.dataset.tab);
+    });
+    renderScreen();
+  }
+
+  function navBtn(tab, iconName, label){
+    return `<button class="navbtn ${state.tab===tab?"active":""}" data-tab="${tab}">${icon(iconName)}<span>${label}</span></button>`;
+  }
+
+  function setTab(t){
+    state.tab = t;
+    render();
+  }
+
+  function renderScreen(){
+    const el = document.getElementById("screen");
+    if(!el) return;
+    if(state.tab==="rutina") el.innerHTML = screenRutina();
+    else if(state.tab==="registro") el.innerHTML = screenRegistro();
+    else if(state.tab==="cronometro") el.innerHTML = screenCronometro();
+    else if(state.tab==="perfil") el.innerHTML = screenPerfil();
+    afterScreenMount();
+  }
+
+  /* ---------- Onboarding / profile picker ---------- */
+  function renderProfilePicker(){
+    const hasProfiles = state.profiles.length>0;
+    app.innerHTML = `
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">${icon("dumbbell")}</div>
+          <h1>Fierros</h1>
+        </div>
+      </div>
+      <main>
+        <div class="screen">
+          ${state.offline ? `<div class="banner warn">${icon("info")}<span>No se pudo conectar con el guardado en la nube. Podés usar la app, pero los datos no se van a guardar al recargar la página.</span></div>` : ""}
+          <div class="card stack">
+            <h2 style="font-size:19px">${hasProfiles ? "¿Quién entrena hoy?" : "Creemos tu primer perfil"}</h2>
+            ${hasProfiles ? `<div class="profilegrid" id="picker-list">
+              ${state.profiles.map(p=>`
+                <div class="profileopt" data-id="${p.id}">
+                  <div class="avatar">${esc(initials(p.name))}</div>
+                  <div class="info"><b>${esc(p.name)}</b><small>${p.pin? "Con PIN":"Sin PIN"}</small></div>
+                  ${p.pin? icon("lock") : ""}
+                </div>`).join("")}
+            </div>` : `<p class="helptext">Cada persona que entrena puede tener su propio perfil con su rutina y su registro de pesos.</p>`}
+            <button class="btn btn-primary btn-block" id="btn-new-profile">${icon("plus")} Crear perfil</button>
+          </div>
+          <p class="helptext" style="text-align:center">Los perfiles con PIN son solo para no mezclar los registros en un celu compartido — no es un sistema de seguridad.</p>
+        </div>
+      </main>
+    `;
+    document.getElementById("btn-new-profile").onclick = openNewProfileModal;
+    const list = document.getElementById("picker-list");
+    if(list){
+      list.querySelectorAll(".profileopt").forEach(elx=>{
+        elx.onclick = ()=> trySelectProfile(elx.dataset.id);
+      });
+    }
+  }
+
+  function openNewProfileModal(){
+    const m = openModal(`
+      <h3>Nuevo perfil</h3>
+      <div class="field">
+        <label>Nombre</label>
+        <input type="text" id="np-name" placeholder="Ej: Juan" maxlength="24" autofocus>
+      </div>
+      <div class="field">
+        <label>PIN de 4 dígitos (opcional)</label>
+        <input type="text" id="np-pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Dejalo vacío si no querés PIN">
+      </div>
+      <p class="helptext">El PIN evita que se mezclen los registros en un celular compartido en el gimnasio o en casa. No es una contraseña segura.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="save">Crear</button>
+      </div>
+    `);
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    m.querySelector('[data-act="save"]').onclick = async ()=>{
+      const name = m.querySelector("#np-name").value.trim();
+      const pin = m.querySelector("#np-pin").value.trim();
+      if(!name){ m.querySelector("#np-name").focus(); return; }
+      if(pin && !/^\d{4}$/.test(pin)){ m.querySelector("#np-pin").focus(); return; }
+      const btn = m.querySelector('[data-act="save"]');
+      btn.disabled = true; btn.textContent = "Creando...";
+      const data = { name, pin: pin||"", metaSemanal: 3, createdAt: Date.now() };
+      const id = await Store.createProfile(data);
+      state.profiles.push({ id, ...data });
+      closeModal();
+      await selectProfile({ id, ...data });
+    };
+  }
+
+  async function trySelectProfile(id){
+    const p = state.profiles.find(x=>x.id===id);
+    if(!p) return;
+    if(p.pin){
+      openPinModal(p);
+    } else {
+      await selectProfile(p);
+    }
+  }
+
+  function openPinModal(profile){
+    let entered = "";
+    const m = openModal(`
+      <h3>Ingresá el PIN de ${esc(profile.name)}</h3>
+      <div class="pindots" id="pin-dots">
+        ${[0,1,2,3].map(()=>'<div class="d"></div>').join("")}
+      </div>
+      <div class="keypad" id="keypad">
+        ${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-n="${n}">${n}</button>`).join("")}
+        <button data-n="clear" style="font-size:13px">Borrar</button>
+        <button data-n="0">0</button>
+        <button data-n="cancel" style="font-size:13px">Cancelar</button>
+      </div>
+      <p class="helptext" id="pin-error" style="color:var(--danger); text-align:center; min-height:16px"></p>
+    `);
+    const dots = m.querySelectorAll("#pin-dots .d");
+    function refresh(){ dots.forEach((d,i)=> d.classList.toggle("on", i<entered.length)); }
+    m.querySelector("#keypad").addEventListener("click", async (e)=>{
+      const btn = e.target.closest("button"); if(!btn) return;
+      const n = btn.dataset.n;
+      if(n==="cancel"){ closeModal(); return; }
+      if(n==="clear"){ entered=""; refresh(); m.querySelector("#pin-error").textContent=""; return; }
+      if(entered.length<4){ entered+=n; refresh(); }
+      if(entered.length===4){
+        if(entered===profile.pin){
+          closeModal();
+          await selectProfile(profile);
+        } else {
+          m.querySelector("#pin-error").textContent = "PIN incorrecto";
+          entered=""; refresh();
+        }
+      }
+    });
+  }
+
+  async function selectProfile(profile){
+    state.profile = profile;
+    lsSet("fierros:lastProfile", profile.id);
+    state.tab = "rutina";
+    await loadProfileData();
+    render();
+  }
+
+  async function loadProfileData(){
+    if(!state.profile) return;
+    const [rutina, registros, entrenos] = await Promise.all([
+      Store.getRutina(state.profile.id),
+      Store.listRegistros(state.profile.id),
+      Store.listEntrenos(state.profile.id),
+    ]);
+    state.rutina = rutina && rutina.days ? rutina : { days: [] };
+    state.registros = registros || [];
+    state.entrenos = entrenos || [];
+  }
+
+  /* ================= RUTINA ================= */
+  function allExerciseNames(){
+    const set = new Set();
+    (state.rutina.days||[]).forEach(d=> (d.exercises||[]).forEach(ex=> set.add(ex.nombre)));
+    return Array.from(set);
+  }
+
+  function screenRutina(){
+    const days = state.rutina.days||[];
+    return `
+      ${rachaCardHtml()}
+      ${state.session ? sessionResumeBannerHtml() : ""}
+      <div class="section-title">
+        <h2>Tu rutina</h2>
+        <span class="muted">${days.length} día${days.length===1?"":"s"}</span>
+      </div>
+      ${days.length===0 ? `
+        <div class="card empty">
+          ${icon("routine")}
+          <h3>Todavía no armaste tu rutina</h3>
+          <p>Agregá un día (por ejemplo "Día 1 — Pecho y tríceps") y después sumale los ejercicios con series y repeticiones.</p>
+          <button class="btn btn-primary" id="btn-add-day">${icon("plus")} Agregar día</button>
+        </div>
+      ` : `
+        ${days.map((d,i)=> dayCard(d,i)).join("")}
+        <button class="btn btn-outline btn-block" id="btn-add-day">${icon("plus")} Agregar día</button>
+      `}
+    `;
+  }
+
+  function rachaCardHtml(){
+    const goal = state.profile.metaSemanal || 3;
+    const r = computeRacha(state.entrenos||[], goal);
+    const frase = fraseDelDia();
+    const met = r.remaining<=0;
+    return `
+      <div class="card racha-card" style="${met?"background:var(--success-soft)":""}">
+        <div class="racha-top">
+          <div>
+            <div class="helptext" style="text-transform:uppercase; letter-spacing:.04em; font-weight:700; ${met?"color:var(--success)":""}">Esta semana</div>
+            <div class="racha-count num">${r.thisWeekCount} / ${goal} entrenamientos</div>
+          </div>
+          ${r.streak>0 ? `<div class="racha-streak"><div class="fire">🔥${r.streak}</div><div class="helptext">semana${r.streak===1?"":"s"} seguida${r.streak===1?"":"s"}</div></div>` : ""}
+        </div>
+        <p class="helptext" style="font-size:13px; color:var(--text)">${
+          met ? "¡Meta semanal cumplida! 🎉"
+              : `Te ${r.remaining===1?"falta":"faltan"} ${r.remaining} entrenamiento${r.remaining===1?"":"s"} — tenés ${r.daysLeft} día${r.daysLeft===1?"":"s"} para lograrlo.`
+        }</p>
+        <p class="helptext" style="font-style:italic">${esc(frase)}</p>
+      </div>
+    `;
+  }
+
+  function sessionResumeBannerHtml(){
+    const day = state.rutina.days.find(d=>d.id===state.session.dayId);
+    return `
+      <div class="card row between" style="border-color:var(--accent)">
+        <div>
+          <div style="font-weight:700">Entrenamiento en curso</div>
+          <div class="helptext">${esc(day?day.nombre:"")}</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-resume-session">Continuar</button>
+      </div>
+    `;
+  }
+
+  function dayCard(day, idx){
+    const open = state.dayOpen[day.id] !== false; // default open
+    const exs = day.exercises||[];
+    return `
+      <div class="card day-card" data-day="${day.id}">
+        <div class="day-head" data-toggle="${day.id}" style="cursor:pointer">
+          <h3>${esc(day.nombre)}</h3>
+          <div class="actions">
+            <span class="iconbtn" data-edit-day="${day.id}">${icon("edit")}</span>
+            <span class="iconbtn danger" data-del-day="${day.id}">${icon("trash")}</span>
+            <span class="iconbtn" style="transform:rotate(${open?"180":"0"}deg)">${icon("chevronDown")}</span>
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-start-session="${day.id}" style="margin-top:8px">${icon("play")} Entrenar este día</button>
+        ${open ? `
+          <div class="exlist">
+            ${exs.length===0 ? `<p class="helptext">Sin ejercicios todavía.</p>` : exs.map(ex=>`
+              <div class="exrow">
+                <div>
+                  <div class="exname">${esc(ex.nombre)}</div>
+                  <div class="exmeta">${esc(ex.series)} series × ${esc(ex.reps)} reps${ex.notas? " · "+esc(ex.notas):""}</div>
+                </div>
+                <div class="actions">
+                  <span class="iconbtn" data-log-ex="${esc(ex.nombre)}" title="Registrar peso">${icon("log")}</span>
+                  <span class="iconbtn" data-edit-ex="${day.id}|${ex.id}">${icon("edit")}</span>
+                  <span class="iconbtn danger" data-del-ex="${day.id}|${ex.id}">${icon("trash")}</span>
+                </div>
+              </div>
+            `).join("")}
+          </div>
+          <button class="btn btn-ghost btn-sm" data-add-ex="${day.id}">${icon("plus")} Ejercicio</button>
+        ` : ""}
+      </div>
+    `;
+  }
+
+  function openDayModal(existing){
+    const m = openModal(`
+      <h3>${existing? "Editar día" : "Nuevo día"}</h3>
+      <div class="field">
+        <label>Nombre del día</label>
+        <input type="text" id="day-name" placeholder='Ej: Día 1 — Pecho y tríceps' maxlength="40" value="${existing?esc(existing.nombre):""}">
+      </div>
+      ${existing ? `
+        <div class="row" style="gap:8px">
+          <button class="btn btn-ghost btn-sm" data-act="move-up" style="flex:1">${icon("arrowUp")} Subir</button>
+          <button class="btn btn-ghost btn-sm" data-act="move-down" style="flex:1">${icon("arrowDown")} Bajar</button>
+        </div>
+      ` : ""}
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="save">Guardar</button>
+      </div>
+    `);
+    m.querySelector("#day-name").focus();
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    const upBtn = m.querySelector('[data-act="move-up"]');
+    const downBtn = m.querySelector('[data-act="move-down"]');
+    if(upBtn) upBtn.onclick = async ()=>{ await moveDay(existing.id,-1); closeModal(); };
+    if(downBtn) downBtn.onclick = async ()=>{ await moveDay(existing.id,1); closeModal(); };
+    m.querySelector('[data-act="save"]').onclick = async ()=>{
+      const nombre = m.querySelector("#day-name").value.trim();
+      if(!nombre) return;
+      if(existing){
+        existing.nombre = nombre;
+      } else {
+        state.rutina.days.push({ id:uid(), nombre, exercises:[] });
+      }
+      await Store.saveRutina(state.profile.id, state.rutina);
+      closeModal();
+      renderScreen();
+    };
+  }
+
+  async function moveDay(id, dir){
+    const arr = state.rutina.days;
+    const i = arr.findIndex(d=>d.id===id);
+    const j = i+dir;
+    if(i<0||j<0||j>=arr.length) return;
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+    await Store.saveRutina(state.profile.id, state.rutina);
+    renderScreen();
+  }
+
+  async function moveExercise(day, exId, dir){
+    const arr = day.exercises;
+    const i = arr.findIndex(x=>x.id===exId);
+    const j = i+dir;
+    if(i<0||j<0||j>=arr.length) return;
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+    await Store.saveRutina(state.profile.id, state.rutina);
+    renderScreen();
+  }
+
+  function openExerciseModal(day, existing){
+    const m = openModal(`
+      <h3>${existing? "Editar ejercicio":"Nuevo ejercicio"}</h3>
+      <div class="field">
+        <label>Ejercicio</label>
+        <div class="ac-wrap">
+          <input type="text" id="ex-name" placeholder="Ej: Press banca" maxlength="40" value="${existing?esc(existing.nombre):""}" autocomplete="off">
+          <div class="ac-list" id="ex-name-ac"></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Series</label>
+          <input type="number" id="ex-series" min="1" max="20" value="${existing?esc(existing.series):"3"}">
+        </div>
+        <div class="field">
+          <label>Repeticiones</label>
+          <input type="text" id="ex-reps" placeholder="Ej: 10 o 8-12" maxlength="12" value="${existing?esc(existing.reps):"10"}">
+        </div>
+      </div>
+      <div class="field">
+        <label>Notas (opcional)</label>
+        <input type="text" id="ex-notas" placeholder="Ej: al fallo, con pausa..." maxlength="60" value="${existing?esc(existing.notas||""):""}">
+      </div>
+      ${existing ? `
+        <div class="row" style="gap:8px">
+          <button class="btn btn-ghost btn-sm" data-act="move-up" style="flex:1">${icon("arrowUp")} Subir</button>
+          <button class="btn btn-ghost btn-sm" data-act="move-down" style="flex:1">${icon("arrowDown")} Bajar</button>
+        </div>
+      ` : ""}
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="save">Guardar</button>
+      </div>
+    `);
+    m.querySelector("#ex-name").focus();
+    attachAutocomplete(m.querySelector("#ex-name"), m.querySelector("#ex-name-ac"), allExerciseNames);
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    const upBtn = m.querySelector('[data-act="move-up"]');
+    const downBtn = m.querySelector('[data-act="move-down"]');
+    if(upBtn) upBtn.onclick = async ()=>{ await moveExercise(day, existing.id,-1); closeModal(); };
+    if(downBtn) downBtn.onclick = async ()=>{ await moveExercise(day, existing.id,1); closeModal(); };
+    m.querySelector('[data-act="save"]').onclick = async ()=>{
+      const nombre = m.querySelector("#ex-name").value.trim();
+      const series = m.querySelector("#ex-series").value.trim() || "3";
+      const reps = m.querySelector("#ex-reps").value.trim() || "10";
+      const notas = m.querySelector("#ex-notas").value.trim();
+      if(!nombre) return;
+      if(existing){
+        Object.assign(existing, { nombre, series, reps, notas });
+      } else {
+        day.exercises.push({ id:uid(), nombre, series, reps, notas });
+      }
+      await Store.saveRutina(state.profile.id, state.rutina);
+      closeModal();
+      renderScreen();
+    };
+  }
+
+  function afterScreenMount(){
+    if(state.tab==="rutina") mountRutina();
+    else if(state.tab==="registro") mountRegistro();
+    else if(state.tab==="cronometro") mountCronometro();
+    else if(state.tab==="perfil") mountPerfil();
+  }
+
+  function mountRutina(){
+    const el = document.getElementById("screen");
+    const addDayBtn = el.querySelector("#btn-add-day");
+    if(addDayBtn) addDayBtn.onclick = ()=> openDayModal(null);
+
+    el.querySelectorAll("[data-toggle]").forEach(h=>{
+      h.onclick = ()=>{
+        const id = h.dataset.toggle;
+        state.dayOpen[id] = !(state.dayOpen[id] !== false);
+        renderScreen();
+      };
+    });
+    el.querySelectorAll("[data-edit-day]").forEach(b=>{
+      b.onclick = (e)=>{ e.stopPropagation(); const day = state.rutina.days.find(d=>d.id===b.dataset.editDay); openDayModal(day); };
+    });
+    el.querySelectorAll("[data-del-day]").forEach(b=>{
+      b.onclick = async (e)=>{
+        e.stopPropagation();
+        const day = state.rutina.days.find(d=>d.id===b.dataset.delDay);
+        const ok = await confirmDialog("Eliminar día", `¿Eliminar "${day.nombre}" y todos sus ejercicios?`);
+        if(!ok) return;
+        state.rutina.days = state.rutina.days.filter(d=>d.id!==day.id);
+        await Store.saveRutina(state.profile.id, state.rutina);
+        renderScreen();
+      };
+    });
+    el.querySelectorAll("[data-add-ex]").forEach(b=>{
+      b.onclick = ()=>{ const day = state.rutina.days.find(d=>d.id===b.dataset.addEx); openExerciseModal(day, null); };
+    });
+    el.querySelectorAll("[data-edit-ex]").forEach(b=>{
+      b.onclick = ()=>{
+        const [dayId, exId] = b.dataset.editEx.split("|");
+        const day = state.rutina.days.find(d=>d.id===dayId);
+        const ex = day.exercises.find(x=>x.id===exId);
+        openExerciseModal(day, ex);
+      };
+    });
+    el.querySelectorAll("[data-del-ex]").forEach(b=>{
+      b.onclick = async ()=>{
+        const [dayId, exId] = b.dataset.delEx.split("|");
+        const day = state.rutina.days.find(d=>d.id===dayId);
+        const ex = day.exercises.find(x=>x.id===exId);
+        const ok = await confirmDialog("Eliminar ejercicio", `¿Eliminar "${ex.nombre}" de este día?`);
+        if(!ok) return;
+        day.exercises = day.exercises.filter(x=>x.id!==exId);
+        await Store.saveRutina(state.profile.id, state.rutina);
+        renderScreen();
+      };
+    });
+    el.querySelectorAll("[data-log-ex]").forEach(b=>{
+      b.onclick = ()=>{ state.exerciseSelForm = b.dataset.logEx; setTab("registro"); };
+    });
+    el.querySelectorAll("[data-start-session]").forEach(b=>{
+      b.onclick = (e)=>{
+        e.stopPropagation();
+        const day = state.rutina.days.find(d=>d.id===b.dataset.startSession);
+        startSession(day);
+      };
+    });
+    const resumeBtn = el.querySelector("#btn-resume-session");
+    if(resumeBtn) resumeBtn.onclick = ()=>{ state.tab = "sesion"; render(); };
+  }
+
+  /* ================= MODO ENTRENANDO ================= */
+  function startSession(day){
+    const sets = {};
+    (day.exercises||[]).forEach(ex=>{
+      const n = Math.max(1, Math.min(12, parseInt(ex.series,10)||1));
+      sets[ex.id] = new Array(n).fill(false);
+    });
+    state.session = { dayId: day.id, sets };
+    state.tab = "sesion";
+    render();
+  }
+
+  function renderSession(){
+    const day = state.rutina.days.find(d=>d.id===state.session.dayId);
+    if(!day){ state.session=null; state.tab="rutina"; render(); return; }
+    app.innerHTML = `
+      <div class="topbar">
+        <span class="iconbtn" id="btn-session-back">${icon("back")}</span>
+        <h1 style="font-size:18px; flex:1; text-align:center">${esc(day.nombre)}</h1>
+        <span style="width:30px"></span>
+      </div>
+      <main><div class="screen" id="screen"></div></main>
+      <nav class="bottomnav">
+        <button class="btn btn-primary btn-block" id="btn-finish-session" style="max-width:444px; margin:0 auto">${icon("check")} Terminar entrenamiento</button>
+      </nav>
+    `;
+    document.getElementById("btn-session-back").onclick = ()=>{ state.tab="rutina"; render(); };
+    document.getElementById("screen").innerHTML = screenSession(day);
+    mountSession(day);
+    document.getElementById("btn-finish-session").onclick = ()=> finishSession(day);
+  }
+
+  function screenSession(day){
+    const exs = day.exercises||[];
+    if(exs.length===0){
+      return `<div class="card empty">${icon("routine")}<h3>Este día no tiene ejercicios</h3><p>Agregale ejercicios desde "Rutina" antes de entrenar.</p></div>`;
+    }
+    return exs.map(ex=>{
+      const done = state.session.sets[ex.id] || [];
+      return `
+        <div class="card stack">
+          <div class="row between">
+            <div>
+              <div class="exname" style="font-size:16px">${esc(ex.nombre)}</div>
+              <div class="exmeta">${esc(ex.series)} series × ${esc(ex.reps)} reps${ex.notas? " · "+esc(ex.notas):""}</div>
+            </div>
+            <span class="iconbtn" data-rest-btn title="Descansar">${icon("timer")}</span>
+          </div>
+          <div class="setrow">
+            ${done.map((v,i)=>`<div class="setdot ${v?"done":""}" data-ex="${ex.id}" data-idx="${i}">${i+1}</div>`).join("")}
+          </div>
+        </div>
+      `;
+    }).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
+  }
+
+  function mountSession(day){
+    const el = document.getElementById("screen");
+    el.querySelectorAll(".setdot").forEach(dot=>{
+      dot.onclick = ()=>{
+        const exId = dot.dataset.ex, idx = parseInt(dot.dataset.idx,10);
+        state.session.sets[exId][idx] = !state.session.sets[exId][idx];
+        dot.classList.toggle("done");
+      };
+    });
+    el.querySelectorAll("[data-rest-btn]").forEach(b=>{
+      b.onclick = ()=> openRestModal();
+    });
+    const cancelBtn = el.querySelector("#btn-cancel-session");
+    if(cancelBtn) cancelBtn.onclick = async ()=>{
+      const ok = await confirmDialog("Cancelar entrenamiento", "¿Salir sin registrar este entrenamiento?");
+      if(!ok) return;
+      state.session = null;
+      state.tab = "rutina";
+      render();
+    };
+  }
+
+  async function finishSession(day){
+    const setsObj = state.session.sets;
+    let total=0, done=0;
+    Object.keys(setsObj).forEach(exId=>{ setsObj[exId].forEach(v=>{ total++; if(v) done++; }); });
+    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: done, setsTotales: total, createdAt: Date.now() };
+    await Store.addEntreno(state.profile.id, data);
+    state.entrenos = await Store.listEntrenos(state.profile.id);
+    state.session = null;
+    state.tab = "rutina";
+    render();
+    const m = openModal(`
+      <h3>¡Entrenamiento registrado! 💪</h3>
+      <p style="font-size:14px; color:var(--text)">${esc(fraseDelDia())}</p>
+      <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Dale</button></div>
+    `);
+    m.querySelector('[data-act="ok"]').onclick = closeModal;
+  }
+
+  /* ================= REGISTRO ================= */
+  function filterHistory(list){
+    const f = state.historyFilter;
+    return list.filter(r=>{
+      if(f.exercise && r.exercise!==f.exercise) return false;
+      if(f.from && r.date < f.from) return false;
+      if(f.to && r.date > f.to) return false;
+      return true;
+    });
+  }
+
+  function toCSV(rows){
+    const header = ["Fecha","Ejercicio","Peso (kg)","Series","Reps","Nota"];
+    const escCsv = (v)=>{
+      const s = String(v==null?"":v);
+      return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+    };
+    const lines = [header.map(escCsv).join(",")];
+    rows.forEach(r=> lines.push([r.date, r.exercise, r.peso, r.series||"", r.reps||"", r.nota||""].map(escCsv).join(",")));
+    return lines.join("\r\n");
+  }
+
+  function exportCSV(rows){
+    const csv = toCSV(rows);
+    const blob = new Blob(["﻿"+csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fierros-historial-${(state.profile.name||"perfil").toLowerCase().replace(/\s+/g,"-")}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=> URL.revokeObjectURL(url), 1000);
+  }
+
+  function screenRegistro(){
+    const names = allExerciseNames();
+    const sel = state.exerciseSelForm && (names.includes(state.exerciseSelForm) || state.exerciseSelForm==="__otro__")
+      ? state.exerciseSelForm : (names[0]||"__otro__");
+    state.exerciseSelForm = sel;
+
+    const forExercise = sel==="__otro__" ? null : sel;
+    const historyAll = state.registros;
+    const historyForSel = forExercise ? historyAll.filter(r=>r.exercise===forExercise) : [];
+    const spark = forExercise ? sparklineFor(historyForSel) : "";
+
+    return `
+      <div class="section-title"><h2>Registrar peso</h2></div>
+      <div class="card stack">
+        <div class="field">
+          <label>Ejercicio</label>
+          <select id="reg-exercise">
+            ${names.map(n=>`<option value="${esc(n)}" ${n===sel?"selected":""}>${esc(n)}</option>`).join("")}
+            <option value="__otro__" ${sel==="__otro__"?"selected":""}>Otro / nuevo ejercicio...</option>
+          </select>
+        </div>
+        <div id="reg-other-wrap" style="${sel==="__otro__"?"":"display:none"}" class="field">
+          <label>Nombre del ejercicio</label>
+          <div class="ac-wrap">
+            <input type="text" id="reg-other-name" maxlength="40" placeholder="Ej: Remo con barra" autocomplete="off">
+            <div class="ac-list" id="reg-other-name-ac"></div>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Fecha</label>
+            <input type="date" id="reg-date" value="${todayStr()}">
+          </div>
+          <div class="field">
+            <label>Peso (kg)</label>
+            <input type="number" id="reg-peso" step="0.5" min="0" placeholder="Ej: 40">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Series</label>
+            <input type="number" id="reg-series" min="1" max="20" placeholder="3">
+          </div>
+          <div class="field">
+            <label>Reps</label>
+            <input type="text" id="reg-reps" maxlength="12" placeholder="10">
+          </div>
+        </div>
+        <div class="field">
+          <label>Nota (opcional)</label>
+          <input type="text" id="reg-nota" maxlength="60" placeholder="Ej: sentí bien la técnica">
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-save-reg">${icon("plus")} Guardar registro</button>
+      </div>
+
+      ${forExercise ? `
+        <div class="card">
+          <div class="row between" style="margin-bottom:8px">
+            <h3 style="font-size:15px; text-transform:none; letter-spacing:0; font-family:'Work Sans'">Progreso · ${esc(forExercise)}</h3>
+          </div>
+          ${spark}
+        </div>
+      ` : ""}
+
+      ${(()=>{
+        const filtered = filterHistory(historyAll);
+        const hasFilter = !!(state.historyFilter.exercise || state.historyFilter.from || state.historyFilter.to);
+        return `
+          <div class="section-title"><h2>Historial</h2><span class="muted">${filtered.length} registro${filtered.length===1?"":"s"}</span></div>
+          <div class="card stack">
+            <div class="field">
+              <label>Filtrar por ejercicio</label>
+              <select id="hist-filter-ex">
+                <option value="">Todos</option>
+                ${names.map(n=>`<option value="${esc(n)}" ${state.historyFilter.exercise===n?"selected":""}>${esc(n)}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Desde</label><input type="date" id="hist-from" value="${state.historyFilter.from}"></div>
+              <div class="field"><label>Hasta</label><input type="date" id="hist-to" value="${state.historyFilter.to}"></div>
+            </div>
+            <div class="row between">
+              ${hasFilter ? `<a class="linklike" id="btn-clear-filter" style="font-size:13px">Limpiar filtro</a>` : `<span></span>`}
+              <button class="btn btn-outline btn-sm" id="btn-export-csv">${icon("download")} Exportar CSV</button>
+            </div>
+          </div>
+          ${filtered.length===0 ? `
+            <div class="card empty">${icon("log")}<h3>Sin registros para este filtro</h3><p>Probá cambiar el ejercicio o el rango de fechas.</p></div>
+          ` : `
+        <div class="loglist">
+          ${filtered.slice(0,60).map(r=>`
+            <div class="logrow" data-del-log="${r.id}">
+              <div>
+                <div class="lex">${esc(r.exercise)}</div>
+                <div class="ldate">${fmtDate(r.date)}${r.nota?" · "+esc(r.nota):""}</div>
+              </div>
+              <div>
+                <div class="lval num">${esc(r.peso)} kg</div>
+                <div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `}
+        `;
+      })()}
+    `;
+  }
+
+  function sparklineFor(history){
+    const asc = history.slice().sort((a,b)=> a.date<b.date?-1:1).slice(-10);
+    if(asc.length===0) return `<p class="helptext">Todavía no hay registros de este ejercicio.</p>`;
+    const weights = asc.map(r=> parseFloat(r.peso)||0);
+    const best = Math.max(...weights);
+    const min = Math.min(...weights);
+    const w = 260, h = 40, pad = 6;
+    const range = (best-min)||1;
+    const pts = weights.map((val,i)=>{
+      const x = weights.length===1 ? w/2 : (i/(weights.length-1))*(w-pad*2)+pad;
+      const y = h - pad - ((val-min)/range)*(h-pad*2);
+      return [x,y];
+    });
+    const path = pts.map((p,i)=> (i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+    const last = pts[pts.length-1];
+    return `
+      <div class="spark-row">
+        <svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <line x1="0" y1="${h-pad}" x2="${w}" y2="${h-pad}" stroke="var(--border)" stroke-width="1"/>
+          <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="var(--accent)"/>
+        </svg>
+        <div class="spark-stats">
+          <div class="best num">${best} kg</div>
+          <div class="lbl">Mejor marca</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function mountRegistro(){
+    const el = document.getElementById("screen");
+    const selEx = el.querySelector("#reg-exercise");
+    selEx.onchange = ()=>{
+      state.exerciseSelForm = selEx.value;
+      renderScreen();
+    };
+    const otherWrap = el.querySelector("#reg-other-wrap");
+    if(selEx.value==="__otro__") otherWrap.style.display = "";
+    attachAutocomplete(el.querySelector("#reg-other-name"), el.querySelector("#reg-other-name-ac"), allExerciseNames);
+
+    el.querySelector("#btn-save-reg").onclick = async ()=>{
+      let exercise = selEx.value;
+      if(exercise==="__otro__"){
+        exercise = el.querySelector("#reg-other-name").value.trim();
+      }
+      const peso = el.querySelector("#reg-peso").value;
+      const date = el.querySelector("#reg-date").value || todayStr();
+      const series = el.querySelector("#reg-series").value;
+      const reps = el.querySelector("#reg-reps").value;
+      const nota = el.querySelector("#reg-nota").value.trim();
+      if(!exercise){ el.querySelector(selEx.value==="__otro__"?"#reg-other-name":"#reg-exercise").focus(); return; }
+      if(peso===""){ el.querySelector("#reg-peso").focus(); return; }
+      const btn = el.querySelector("#btn-save-reg");
+      btn.disabled = true;
+      const data = { exercise, peso: parseFloat(peso), date, series: series||"", reps: reps||"", nota, createdAt: Date.now() };
+      await Store.addRegistro(state.profile.id, data);
+      state.registros = await Store.listRegistros(state.profile.id);
+      state.exerciseSelForm = exercise;
+      renderScreen();
+    };
+
+    const histEx = el.querySelector("#hist-filter-ex");
+    if(histEx) histEx.onchange = ()=>{ state.historyFilter.exercise = histEx.value; renderScreen(); };
+    const histFrom = el.querySelector("#hist-from");
+    if(histFrom) histFrom.onchange = ()=>{ state.historyFilter.from = histFrom.value; renderScreen(); };
+    const histTo = el.querySelector("#hist-to");
+    if(histTo) histTo.onchange = ()=>{ state.historyFilter.to = histTo.value; renderScreen(); };
+    const clearFilterBtn = el.querySelector("#btn-clear-filter");
+    if(clearFilterBtn) clearFilterBtn.onclick = ()=>{ state.historyFilter = { exercise:"", from:"", to:"" }; renderScreen(); };
+    const exportBtn = el.querySelector("#btn-export-csv");
+    if(exportBtn) exportBtn.onclick = ()=> exportCSV(filterHistory(state.registros));
+
+    el.querySelectorAll("[data-del-log]").forEach(row=>{
+      row.addEventListener("contextmenu", (e)=> e.preventDefault());
+    });
+    // long-press / click-hold not implemented; provide delete via tap-and-hold alternative: simple click on date area triggers confirm
+    el.querySelectorAll(".logrow").forEach(row=>{
+      row.style.cursor = "pointer";
+      row.title = "Tocá para eliminar este registro";
+      row.onclick = async ()=>{
+        const id = row.dataset.delLog;
+        const ok = await confirmDialog("Eliminar registro", "¿Eliminar este registro del historial?");
+        if(!ok) return;
+        await Store.deleteRegistro(state.profile.id, id);
+        state.registros = await Store.listRegistros(state.profile.id);
+        renderScreen();
+      };
+    });
+  }
+
+  /* ================= CRONOMETRO ================= */
+  const timer = {
+    total: lsGet("fierros:timerDefault", 90),
+    remaining: null,
+    running: false,
+    intervalId: null,
+    endAt: null,
+    audioCtx: null,
+  };
+
+  let timerRerender = () => renderScreen();
+
+  function timerBlockHtml(){
+    const presets = [30,45,60,90,120,180];
+    const remaining = timer.remaining==null ? timer.total : timer.remaining;
+    const pct = Math.max(0, Math.min(1, remaining/timer.total));
+    const R = 100, C = 2*Math.PI*R;
+    const dash = C*pct;
+    const mm = Math.floor(remaining/60), ss = Math.floor(remaining%60);
+    const label = timer.running ? "Descansando" : (remaining===0 ? "¡Listo!" : "Pausado");
+    return `
+      <div class="presets" id="presets">
+        ${presets.map(p=>`<button class="preset ${!timer.running && timer.total===p?"active":""}" data-preset="${p}">${p<60?p+"s":(p/60)+"m"}</button>`).join("")}
+      </div>
+      <div class="ring-box">
+        <svg viewBox="0 0 220 220">
+          <circle class="ring-bg" cx="110" cy="110" r="${R}"/>
+          <circle class="ring-fg ${remaining===0?"done":""}" cx="110" cy="110" r="${R}"
+            stroke-dasharray="${C}" stroke-dashoffset="${C-dash}"/>
+        </svg>
+        <div class="ring-label">
+          <div class="time num" id="time-label">${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}</div>
+          <div class="state">${label}</div>
+        </div>
+      </div>
+      <div class="timer-controls">
+        <button class="btn btn-ghost" id="btn-reset">${icon("reset")}<span>Reiniciar</span></button>
+        <button class="btn btn-primary" id="btn-toggle">${timer.running?icon("pause"):icon("play")}<span>${timer.running?"Pausa":"Iniciar"}</span></button>
+      </div>
+      <div class="field" style="width:100%">
+        <label>Tiempo personalizado (segundos)</label>
+        <input type="number" id="custom-secs" min="5" max="900" value="${timer.total}">
+      </div>
+    `;
+  }
+
+  function wireTimerControls(root){
+    root.querySelectorAll("[data-preset]").forEach(b=>{
+      b.onclick = ()=>{
+        const v = parseInt(b.dataset.preset,10);
+        timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
+        lsSet("fierros:timerDefault", v);
+        timerRerender();
+      };
+    });
+    root.querySelector("#btn-toggle").onclick = ()=>{
+      if(timer.running) pauseTimer(); else startTimer();
+    };
+    root.querySelector("#btn-reset").onclick = resetTimer;
+    const custom = root.querySelector("#custom-secs");
+    custom.onchange = ()=>{
+      const v = Math.max(5, Math.min(900, parseInt(custom.value,10)||90));
+      timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
+      lsSet("fierros:timerDefault", v);
+      timerRerender();
+    };
+  }
+
+  function openRestModal(){
+    const m = openModal(`
+      <h3>Descanso</h3>
+      <div class="timer-wrap timer-modal-body">${timerBlockHtml()}</div>
+      <button class="btn btn-ghost btn-block" data-act="close">Cerrar (sigue corriendo)</button>
+    `);
+    timerRerender = ()=>{
+      if(!document.body.contains(m)){ timerRerender = renderScreen; return; }
+      const body = m.querySelector(".timer-modal-body");
+      body.innerHTML = timerBlockHtml();
+      wireTimerControls(body);
+    };
+    wireTimerControls(m.querySelector(".timer-modal-body"));
+    m.querySelector('[data-act="close"]').onclick = ()=>{ closeModal(); timerRerender = renderScreen; };
+  }
+
+  function screenCronometro(){
+    return `
+      <div class="section-title"><h2>Cronómetro de descanso</h2></div>
+      <div class="card timer-wrap">${timerBlockHtml()}</div>
+      <p class="helptext" style="text-align:center">Cuando termine el descanso vas a escuchar un sonido y (si tu celular lo permite) vibrar.</p>
+    `;
+  }
+
+  function playBeep(){
+    try{
+      if(!timer.audioCtx) timer.audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      const ctx = timer.audioCtx;
+      if(ctx.state==="suspended") ctx.resume();
+      [0,0.18,0.36].forEach((t,i)=>{
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.value = i===2? 1046.5 : 880;
+        g.gain.setValueAtTime(0.0001, ctx.currentTime+t);
+        g.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime+t+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+t+0.16);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(ctx.currentTime+t);
+        o.stop(ctx.currentTime+t+0.18);
+      });
+    }catch(e){}
+    if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
+  }
+
+  function tick(){
+    if(timer.endAt==null) return;
+    const remainingMs = timer.endAt - Date.now();
+    const remaining = Math.max(0, Math.ceil(remainingMs/1000));
+    timer.remaining = remaining;
+    const timeLabel = document.getElementById("time-label");
+    const ring = document.querySelector(".ring-fg");
+    if(timeLabel){
+      const mm=Math.floor(remaining/60), ss=Math.floor(remaining%60);
+      timeLabel.textContent = `${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
+    }
+    if(ring){
+      const R=100, C=2*Math.PI*R;
+      const pct = Math.max(0, Math.min(1, remaining/timer.total));
+      ring.setAttribute("stroke-dashoffset", C-(C*pct));
+    }
+    if(remaining<=0){
+      stopTimer(true);
+      timerRerender();
+    }
+  }
+
+  function startTimer(){
+    if(timer.remaining==null) timer.remaining = timer.total;
+    if(timer.remaining<=0) timer.remaining = timer.total;
+    timer.endAt = Date.now() + timer.remaining*1000;
+    timer.running = true;
+    clearInterval(timer.intervalId);
+    timer.intervalId = setInterval(tick, 250);
+    timerRerender();
+  }
+  function pauseTimer(){
+    timer.running = false;
+    clearInterval(timer.intervalId);
+    timerRerender();
+  }
+  function stopTimer(finished){
+    timer.running = false;
+    clearInterval(timer.intervalId);
+    timer.endAt = null;
+    if(finished){ timer.remaining = 0; playBeep(); }
+  }
+  function resetTimer(){
+    stopTimer(false);
+    timer.remaining = timer.total;
+    timerRerender();
+  }
+
+  function mountCronometro(){
+    timerRerender = renderScreen;
+    wireTimerControls(document.getElementById("screen"));
+  }
+
+  /* ================= PERFIL ================= */
+  function screenPerfil(){
+    return `
+      <div class="section-title"><h2>Perfiles</h2></div>
+      ${state.offline ? `<div class="banner warn">${icon("info")}<span>Sin conexión al guardado: estos datos son solo de esta sesión.</span></div>` : ""}
+      <div class="card profilegrid">
+        ${state.profiles.map(p=>`
+          <div class="profileopt ${p.id===state.profile.id?"current":""}" data-switch="${p.id}">
+            <div class="avatar">${esc(initials(p.name))}</div>
+            <div class="info"><b>${esc(p.name)}</b><small>${p.id===state.profile.id?"Perfil actual":(p.pin?"Con PIN":"Sin PIN")}</small></div>
+            ${p.id===state.profile.id ? "" : `<span class="iconbtn danger" data-del-profile="${p.id}">${icon("trash")}</span>`}
+          </div>
+        `).join("")}
+      </div>
+      <button class="btn btn-outline btn-block" id="btn-add-profile-2">${icon("plus")} Crear otro perfil</button>
+
+      <div class="section-title" style="margin-top:6px"><h2>Este perfil</h2></div>
+      <div class="card stack">
+        <div class="field">
+          <label>Meta semanal (veces por semana)</label>
+          <input type="number" id="meta-semanal" min="1" max="7" value="${state.profile.metaSemanal||3}">
+        </div>
+        <button class="btn btn-ghost btn-block" id="btn-edit-pin">${icon("lock")} ${state.profile.pin? "Cambiar":"Agregar"} PIN</button>
+        <button class="btn btn-ghost btn-block" id="btn-copy-rutina">${icon("routine")} Copiar esta rutina a otro perfil</button>
+        <button class="btn btn-danger btn-block" id="btn-del-current">${icon("trash")} Eliminar este perfil</button>
+      </div>
+
+      <div class="section-title" style="margin-top:6px"><h2>Acerca de Fierros</h2></div>
+      <div class="card stack">
+        <p class="helptext">Rutina, registro de pesos y cronómetro de descanso. Los videos de ejercicios y otras funciones se van a ir sumando más adelante.</p>
+        <div class="row between">
+          <span class="helptext">Tema</span>
+          <div class="segmented" id="theme-seg" style="width:auto">
+            <button data-theme="system" class="${lsGet('fierros:theme','system')==='system'?'active':''}">Auto</button>
+            <button data-theme="light" class="${lsGet('fierros:theme','system')==='light'?'active':''}">Claro</button>
+            <button data-theme="dark" class="${lsGet('fierros:theme','system')==='dark'?'active':''}">Oscuro</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function openCopyRutinaModal(){
+    const others = state.profiles.filter(p=>p.id!==state.profile.id);
+    if(others.length===0){
+      const m0 = openModal(`<h3>Copiar rutina</h3><p style="font-size:14px;color:var(--text)">Todavía no hay otro perfil creado.</p><div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Entendido</button></div>`);
+      m0.querySelector('[data-act="ok"]').onclick = closeModal;
+      return;
+    }
+    const m = openModal(`
+      <h3>Copiar esta rutina a otro perfil</h3>
+      <div class="field">
+        <label>Perfil destino</label>
+        <select id="copy-target">
+          ${others.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("")}
+        </select>
+      </div>
+      <p class="helptext">Esto reemplaza la rutina actual del perfil destino por una copia de la de "${esc(state.profile.name)}".</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="save">Copiar</button>
+      </div>
+    `);
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    m.querySelector('[data-act="save"]').onclick = async ()=>{
+      const targetId = m.querySelector("#copy-target").value;
+      const clone = deepClone(state.rutina);
+      clone.days = (clone.days||[]).map(d=>({
+        ...d, id: uid(),
+        exercises: (d.exercises||[]).map(ex=>({...ex, id: uid()}))
+      }));
+      await Store.saveRutina(targetId, clone);
+      closeModal();
+      const m2 = openModal(`<h3>¡Listo!</h3><p style="font-size:14px;color:var(--text)">Se copió la rutina.</p><div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Cerrar</button></div>`);
+      m2.querySelector('[data-act="ok"]').onclick = closeModal;
+    };
+  }
+
+  function mountPerfil(){
+    const el = document.getElementById("screen");
+    el.querySelector("#btn-add-profile-2").onclick = openNewProfileModal;
+    el.querySelector("#btn-copy-rutina").onclick = openCopyRutinaModal;
+    const metaInput = el.querySelector("#meta-semanal");
+    metaInput.onchange = async ()=>{
+      const v = Math.max(1, Math.min(7, parseInt(metaInput.value,10)||3));
+      metaInput.value = v;
+      state.profile.metaSemanal = v;
+      await Store.updateProfile(state.profile.id, { metaSemanal: v });
+      const p2 = state.profiles.find(x=>x.id===state.profile.id);
+      if(p2) p2.metaSemanal = v;
+    };
+    el.querySelectorAll("[data-switch]").forEach(row=>{
+      row.addEventListener("click", async (e)=>{
+        if(e.target.closest("[data-del-profile]")) return;
+        const id = row.dataset.switch;
+        if(id===state.profile.id) return;
+        await trySelectProfile(id);
+      });
+    });
+    el.querySelectorAll("[data-del-profile]").forEach(b=>{
+      b.onclick = async (e)=>{
+        e.stopPropagation();
+        const p = state.profiles.find(x=>x.id===b.dataset.delProfile);
+        const ok = await confirmDialog("Eliminar perfil", `¿Eliminar el perfil de "${p.name}"? Esto no borra su rutina ni registros guardados en la nube, pero ya no vas a poder acceder fácil desde acá.`);
+        if(!ok) return;
+        await Store.deleteProfile(p.id);
+        state.profiles = state.profiles.filter(x=>x.id!==p.id);
+        renderScreen();
+      };
+    });
+    el.querySelector("#btn-edit-pin").onclick = ()=>{
+      const m = openModal(`
+        <h3>${state.profile.pin?"Cambiar":"Agregar"} PIN</h3>
+        <div class="field">
+          <label>Nuevo PIN (4 dígitos, dejalo vacío para quitar)</label>
+          <input type="text" id="edit-pin" inputmode="numeric" maxlength="4" value="">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+          <button class="btn btn-primary" data-act="save">Guardar</button>
+        </div>
+      `);
+      m.querySelector('[data-act="cancel"]').onclick = closeModal;
+      m.querySelector('[data-act="save"]').onclick = async ()=>{
+        const pin = m.querySelector("#edit-pin").value.trim();
+        if(pin && !/^\d{4}$/.test(pin)) return;
+        state.profile.pin = pin;
+        await Store.updateProfile(state.profile.id, { pin });
+        const p2 = state.profiles.find(x=>x.id===state.profile.id);
+        if(p2) p2.pin = pin;
+        closeModal();
+        renderScreen();
+      };
+    };
+    el.querySelector("#btn-del-current").onclick = async ()=>{
+      const ok = await confirmDialog("Eliminar este perfil", "¿Eliminar tu perfil actual? Vas a volver a la pantalla de selección de perfiles.");
+      if(!ok) return;
+      await Store.deleteProfile(state.profile.id);
+      state.profiles = state.profiles.filter(x=>x.id!==state.profile.id);
+      state.profile = null;
+      lsSet("fierros:lastProfile", null);
+      render();
+    };
+    const seg = el.querySelector("#theme-seg");
+    seg.querySelectorAll("button").forEach(b=>{
+      b.onclick = ()=>{
+        applyTheme(b.dataset.theme);
+        renderScreen();
+      };
+    });
+  }
+
+  function applyTheme(mode){
+    lsSet("fierros:theme", mode);
+    if(mode==="system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", mode);
+  }
+
+  /* ---------- Boot ---------- */
+  async function boot(){
+    applyTheme(lsGet("fierros:theme","system"));
+    const online = await Store.init();
+    state.offline = !online;
+    state.profiles = await Store.listProfiles();
+    state.booted = true;
+
+    const lastId = lsGet("fierros:lastProfile", null);
+    if(lastId){
+      const p = state.profiles.find(x=>x.id===lastId);
+      if(p && !p.pin){
+        state.profile = p;
+        await loadProfileData();
+      }
+    }
+    render();
+
+    // register service worker for installability (best-effort)
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.register("sw.js").catch(()=>{});
+    }
+  }
+
+  render(); // initial loading frame
+  boot();
+
+})();
+</script>
+</body>
+</html>
