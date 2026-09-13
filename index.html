@@ -566,91 +566,67 @@
     return { goal, thisWeekCount, remaining, daysLeft, streak };
   }
 
-  /* ---------- Store abstraction (Supabase, con respaldo en memoria si no hay conexión) ---------- */
+  /* ---------- Store abstraction (Supabase con autenticación real por correo) ---------- */
   const Store = (function(){
     let sb = null;
-    let mem = { profiles: [], rutinas: {}, registros: {}, entrenos: {} }; // fallback
-
-    async function init(){
-      try{
-        if(window.supabase && typeof window.supabase.createClient === "function"){
-          const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-          const { error } = await client.from("profiles").select("id").limit(1);
-          if(error) throw error;
-          sb = client;
-        }
-      }catch(e){ sb = null; }
-      return !!sb;
+    function client(){
+      if(!sb) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      return sb;
     }
 
-    function isOnline(){ return !!sb; }
+    function onAuthStateChange(cb){
+      return client().auth.onAuthStateChange((event, session)=> cb(event, session));
+    }
+
+    async function signUp(email, password, name){
+      return await client().auth.signUp({ email, password, options: { data: { name } } });
+    }
+    async function signIn(email, password){
+      return await client().auth.signInWithPassword({ email, password });
+    }
+    async function signOut(){
+      await client().auth.signOut();
+    }
+    async function resetPassword(email){
+      return await client().auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    }
+    async function updatePassword(newPassword){
+      return await client().auth.updateUser({ password: newPassword });
+    }
 
     function rowToProfile(r){
-      return { id: r.id, name: r.name, pin: r.pin||"", metaSemanal: r.meta_semanal||3, createdAt: r.created_at||0 };
-    }
-    function profileToRow(data){
-      const row = {};
-      if("name" in data) row.name = data.name;
-      if("pin" in data) row.pin = data.pin;
-      if("metaSemanal" in data) row.meta_semanal = data.metaSemanal;
-      if("createdAt" in data) row.created_at = data.createdAt;
-      return row;
+      return { id: r.id, name: r.name, metaSemanal: r.meta_semanal||3, createdAt: r.created_at||0 };
     }
 
-    async function listProfiles(){
-      if(sb){
-        const { data, error } = await sb.from("profiles").select("*").order("created_at",{ascending:true});
-        if(!error) return (data||[]).map(rowToProfile);
-      }
-      return mem.profiles.slice();
-    }
-
-    async function createProfile(data){
-      if(sb){
-        const row = profileToRow(data);
-        const { data: inserted, error } = await sb.from("profiles").insert(row).select().single();
-        if(!error && inserted) return inserted.id;
-      }
-      const id = uid();
-      mem.profiles.push({ id, ...data });
-      return id;
+    async function ensureProfile(user){
+      const sbc = client();
+      const { data, error } = await sbc.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      if(error) throw error;
+      if(data) return rowToProfile(data);
+      const name = (user.user_metadata && user.user_metadata.name) || (user.email ? user.email.split("@")[0] : "Usuario");
+      const row = { id: user.id, name, meta_semanal: 3, created_at: Date.now() };
+      const { data: inserted, error: err2 } = await sbc.from("profiles").insert(row).select().single();
+      if(err2) throw err2;
+      return rowToProfile(inserted);
     }
 
     async function updateProfile(id, data){
-      if(sb){
-        const row = profileToRow(data);
-        const { error } = await sb.from("profiles").update(row).eq("id", id);
-        if(!error) return;
-      }
-      const p = mem.profiles.find(p=>p.id===id);
-      if(p) Object.assign(p, data);
-    }
-
-    async function deleteProfile(id){
-      if(sb){
-        const { error } = await sb.from("profiles").delete().eq("id", id);
-        if(!error) return;
-      }
-      mem.profiles = mem.profiles.filter(p=>p.id!==id);
-      delete mem.rutinas[id];
-      delete mem.registros[id];
-      delete mem.entrenos[id];
+      const row = {};
+      if("name" in data) row.name = data.name;
+      if("metaSemanal" in data) row.meta_semanal = data.metaSemanal;
+      const { error } = await client().from("profiles").update(row).eq("id", id);
+      return !error;
     }
 
     async function getRutina(pid){
-      if(sb){
-        const { data, error } = await sb.from("rutinas").select("data").eq("profile_id", pid).maybeSingle();
-        if(!error) return (data && data.data) ? deepClone(data.data) : { days: [] };
-      }
-      return deepClone(mem.rutinas[pid] || { days: [] });
+      const { data, error } = await client().from("rutinas").select("data").eq("profile_id", pid).maybeSingle();
+      if(error) throw error;
+      return (data && data.data) ? deepClone(data.data) : { days: [] };
     }
 
     async function saveRutina(pid, data){
-      if(sb){
-        const { error } = await sb.from("rutinas").upsert({ profile_id: pid, data: data }, { onConflict: "profile_id" });
-        if(!error) return;
-      }
-      mem.rutinas[pid] = data;
+      const { error } = await client().from("rutinas").upsert({ profile_id: pid, data: data }, { onConflict: "profile_id" });
+      return !error;
     }
 
     function rowToRegistro(r){
@@ -658,30 +634,21 @@
     }
 
     async function addRegistro(pid, data){
-      if(sb){
-        const row = { profile_id: pid, exercise: data.exercise, peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now() };
-        const { error } = await sb.from("registros").insert(row);
-        if(!error) return;
-      }
-      if(!mem.registros[pid]) mem.registros[pid] = [];
-      mem.registros[pid].push({ id: uid(), ...data });
+      const row = { profile_id: pid, exercise: data.exercise, peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now() };
+      const { error } = await client().from("registros").insert(row);
+      return !error;
     }
 
     async function deleteRegistro(pid, id){
-      if(sb){
-        const { error } = await sb.from("registros").delete().eq("id", id).eq("profile_id", pid);
-        if(!error) return;
-      }
-      if(mem.registros[pid]) mem.registros[pid] = mem.registros[pid].filter(r=>r.id!==id);
+      const { error } = await client().from("registros").delete().eq("id", id).eq("profile_id", pid);
+      return !error;
     }
 
     async function listRegistros(pid){
-      if(sb){
-        const { data, error } = await sb.from("registros").select("*").eq("profile_id", pid)
-          .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(300);
-        if(!error) return (data||[]).map(rowToRegistro);
-      }
-      return (mem.registros[pid]||[]).slice().sort((a,b)=> a.date<b.date?1:a.date>b.date?-1:(b.createdAt||0)-(a.createdAt||0));
+      const { data, error } = await client().from("registros").select("*").eq("profile_id", pid)
+        .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(300);
+      if(error) throw error;
+      return (data||[]).map(rowToRegistro);
     }
 
     function rowToEntreno(r){
@@ -689,33 +656,41 @@
     }
 
     async function addEntreno(pid, data){
-      if(sb){
-        const row = { profile_id: pid, date: data.date, day_id: data.dayId, day_nombre: data.dayNombre, sets_completados: data.setsCompletados, sets_totales: data.setsTotales, created_at: data.createdAt||Date.now() };
-        const { error } = await sb.from("entrenos").insert(row);
-        if(!error) return;
-      }
-      if(!mem.entrenos[pid]) mem.entrenos[pid] = [];
-      mem.entrenos[pid].push({ id: uid(), ...data });
+      const row = { profile_id: pid, date: data.date, day_id: data.dayId, day_nombre: data.dayNombre, sets_completados: data.setsCompletados, sets_totales: data.setsTotales, created_at: data.createdAt||Date.now() };
+      const { error } = await client().from("entrenos").insert(row);
+      return !error;
     }
 
     async function listEntrenos(pid){
-      if(sb){
-        const { data, error } = await sb.from("entrenos").select("*").eq("profile_id", pid)
-          .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(200);
-        if(!error) return (data||[]).map(rowToEntreno);
-      }
-      return (mem.entrenos[pid]||[]).slice();
+      const { data, error } = await client().from("entrenos").select("*").eq("profile_id", pid)
+        .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(200);
+      if(error) throw error;
+      return (data||[]).map(rowToEntreno);
     }
 
-    return { init, isOnline, listProfiles, createProfile, updateProfile, deleteProfile, getRutina, saveRutina, addRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos };
+    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos };
   })();
+
+  function mapAuthError(error){
+    const msg = (error && error.message) || "";
+    if(/invalid login credentials/i.test(msg)) return "Correo o contraseña incorrectos.";
+    if(/user already registered/i.test(msg)) return "Ya existe una cuenta con ese correo.";
+    if(/email not confirmed/i.test(msg)) return "Todavía no confirmaste tu correo. Revisá tu bandeja de entrada.";
+    if(/password should be at least/i.test(msg)) return "La contraseña tiene que tener al menos 6 caracteres.";
+    if(/unable to validate email/i.test(msg) || /invalid email/i.test(msg)) return "Ese correo no parece válido.";
+    if(/rate limit/i.test(msg)) return "Demasiados intentos. Esperá un minuto y probá de nuevo.";
+    return msg || "Ocurrió un error. Probá de nuevo.";
+  }
 
   /* ---------- App state ---------- */
   const state = {
     booted:false,
-    offline:false,
-    profiles:[],
-    profile:null,       // current profile object
+    dbError:false,
+    authSession:null,    // sesión de Supabase Auth (null = no logueado)
+    authView:"login",    // "login" | "signup" | "forgot" | "reset"
+    authError:"",
+    authNotice:"",
+    profile:null,        // fila de la tabla profiles del usuario logueado
     rutina:{days:[]},
     registros:[],
     entrenos:[],
@@ -777,8 +752,31 @@
       return;
     }
 
+    if(state.dbError){
+      renderConnectionError();
+      return;
+    }
+
+    if(state.authView==="reset"){
+      renderResetPassword();
+      return;
+    }
+
+    if(!state.authSession || !state.authSession.user){
+      renderAuthScreen();
+      return;
+    }
+
     if(!state.profile){
-      renderProfilePicker();
+      app.innerHTML = `
+        <div class="topbar">
+          <div class="brand">
+            <div class="brand-mark">${icon("dumbbell")}</div>
+            <h1>Fierros</h1>
+          </div>
+        </div>
+        <main><div class="screen"><div class="empty"><p>Cargando tus datos...</p></div></div></main>
+      `;
       return;
     }
 
@@ -832,9 +830,8 @@
     afterScreenMount();
   }
 
-  /* ---------- Onboarding / profile picker ---------- */
-  function renderProfilePicker(){
-    const hasProfiles = state.profiles.length>0;
+  /* ---------- Autenticación (correo y contraseña con Supabase Auth) ---------- */
+  function renderConnectionError(){
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">
@@ -842,118 +839,183 @@
           <h1>Fierros</h1>
         </div>
       </div>
-      <main>
-        <div class="screen">
-          ${state.offline ? `<div class="banner warn">${icon("info")}<span>No se pudo conectar con el guardado en la nube. Podés usar la app, pero los datos no se van a guardar al recargar la página.</span></div>` : ""}
-          <div class="card stack">
-            <h2 style="font-size:19px">${hasProfiles ? "¿Quién entrena hoy?" : "Creemos tu primer perfil"}</h2>
-            ${hasProfiles ? `<div class="profilegrid" id="picker-list">
-              ${state.profiles.map(p=>`
-                <div class="profileopt" data-id="${p.id}">
-                  <div class="avatar">${esc(initials(p.name))}</div>
-                  <div class="info"><b>${esc(p.name)}</b><small>${p.pin? "Con PIN":"Sin PIN"}</small></div>
-                  ${p.pin? icon("lock") : ""}
-                </div>`).join("")}
-            </div>` : `<p class="helptext">Cada persona que entrena puede tener su propio perfil con su rutina y su registro de pesos.</p>`}
-            <button class="btn btn-primary btn-block" id="btn-new-profile">${icon("plus")} Crear perfil</button>
-          </div>
-          <p class="helptext" style="text-align:center">Los perfiles con PIN son solo para no mezclar los registros en un celu compartido — no es un sistema de seguridad.</p>
+      <main><div class="screen">
+        <div class="card empty">
+          ${icon("info")}
+          <h3>No se pudo conectar</h3>
+          <p>Revisá tu conexión a internet y volvé a intentar.</p>
+          <button class="btn btn-primary" id="btn-retry">Reintentar</button>
         </div>
-      </main>
+      </div></main>
     `;
-    document.getElementById("btn-new-profile").onclick = openNewProfileModal;
-    const list = document.getElementById("picker-list");
-    if(list){
-      list.querySelectorAll(".profileopt").forEach(elx=>{
-        elx.onclick = ()=> trySelectProfile(elx.dataset.id);
-      });
-    }
+    document.getElementById("btn-retry").onclick = ()=> window.location.reload();
   }
 
-  function openNewProfileModal(){
-    const m = openModal(`
-      <h3>Nuevo perfil</h3>
-      <div class="field">
-        <label>Nombre</label>
-        <input type="text" id="np-name" placeholder="Ej: Juan" maxlength="24" autofocus>
+  function authMessagesHtml(){
+    return `
+      ${state.authError ? `<div class="banner warn">${icon("info")}<span>${esc(state.authError)}</span></div>` : ""}
+      ${state.authNotice ? `<div class="banner">${icon("info")}<span>${esc(state.authNotice)}</span></div>` : ""}
+    `;
+  }
+
+  function renderAuthScreen(){
+    let body = "";
+    if(state.authView==="signup"){
+      body = `
+        <div class="card stack">
+          <h2 style="font-size:19px">Crear cuenta</h2>
+          ${authMessagesHtml()}
+          <div class="field"><label>Nombre</label><input type="text" id="auth-name" placeholder="Ej: Juan" maxlength="24"></div>
+          <div class="field"><label>Correo</label><input type="email" id="auth-email" placeholder="tu@correo.com" autocomplete="email"></div>
+          <div class="field"><label>Contraseña</label><input type="password" id="auth-password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
+          <button class="btn btn-primary btn-block" id="btn-signup">Crear cuenta</button>
+        </div>
+        <p class="helptext" style="text-align:center">¿Ya tenés cuenta? <a class="linklike" id="link-login">Iniciar sesión</a></p>
+      `;
+    } else if(state.authView==="forgot"){
+      body = `
+        <div class="card stack">
+          <h2 style="font-size:19px">Recuperar contraseña</h2>
+          ${authMessagesHtml()}
+          <div class="field"><label>Correo</label><input type="email" id="auth-email" placeholder="tu@correo.com" autocomplete="email"></div>
+          <button class="btn btn-primary btn-block" id="btn-forgot">Enviar enlace</button>
+        </div>
+        <p class="helptext" style="text-align:center"><a class="linklike" id="link-login">Volver a iniciar sesión</a></p>
+      `;
+    } else {
+      body = `
+        <div class="card stack">
+          <h2 style="font-size:19px">Iniciar sesión</h2>
+          ${authMessagesHtml()}
+          <div class="field"><label>Correo</label><input type="email" id="auth-email" placeholder="tu@correo.com" autocomplete="email"></div>
+          <div class="field"><label>Contraseña</label><input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password"></div>
+          <button class="btn btn-primary btn-block" id="btn-login">Entrar</button>
+          <a class="linklike" id="link-forgot" style="text-align:center; font-size:13px">¿Olvidaste tu contraseña?</a>
+        </div>
+        <p class="helptext" style="text-align:center">¿No tenés cuenta? <a class="linklike" id="link-signup">Creá una</a></p>
+      `;
+    }
+    app.innerHTML = `
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">${icon("dumbbell")}</div>
+          <h1>Fierros</h1>
+        </div>
       </div>
-      <div class="field">
-        <label>PIN de 4 dígitos (opcional)</label>
-        <input type="text" id="np-pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Dejalo vacío si no querés PIN">
-      </div>
-      <p class="helptext">El PIN evita que se mezclen los registros en un celular compartido en el gimnasio o en casa. No es una contraseña segura.</p>
-      <div class="modal-actions">
-        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
-        <button class="btn btn-primary" data-act="save">Crear</button>
-      </div>
-    `);
-    m.querySelector('[data-act="cancel"]').onclick = closeModal;
-    m.querySelector('[data-act="save"]').onclick = async ()=>{
-      const name = m.querySelector("#np-name").value.trim();
-      const pin = m.querySelector("#np-pin").value.trim();
-      if(!name){ m.querySelector("#np-name").focus(); return; }
-      if(pin && !/^\d{4}$/.test(pin)){ m.querySelector("#np-pin").focus(); return; }
-      const btn = m.querySelector('[data-act="save"]');
-      btn.disabled = true; btn.textContent = "Creando...";
-      const data = { name, pin: pin||"", metaSemanal: 3, createdAt: Date.now() };
-      const id = await Store.createProfile(data);
-      state.profiles.push({ id, ...data });
-      closeModal();
-      await selectProfile({ id, ...data });
+      <main><div class="screen">${body}</div></main>
+    `;
+    mountAuthScreen();
+  }
+
+  function goToAuthView(view){
+    state.authView = view;
+    state.authError = "";
+    state.authNotice = "";
+    renderAuthScreen();
+  }
+
+  function mountAuthScreen(){
+    const el = document.querySelector(".screen");
+    const linkLogin = el.querySelector("#link-login");
+    if(linkLogin) linkLogin.onclick = ()=> goToAuthView("login");
+    const linkSignup = el.querySelector("#link-signup");
+    if(linkSignup) linkSignup.onclick = ()=> goToAuthView("signup");
+    const linkForgot = el.querySelector("#link-forgot");
+    if(linkForgot) linkForgot.onclick = ()=> goToAuthView("forgot");
+
+    const btnLogin = el.querySelector("#btn-login");
+    if(btnLogin) btnLogin.onclick = async ()=>{
+      const email = el.querySelector("#auth-email").value.trim();
+      const password = el.querySelector("#auth-password").value;
+      if(!email || !password){ state.authError = "Completá correo y contraseña."; renderAuthScreen(); return; }
+      btnLogin.disabled = true; btnLogin.textContent = "Entrando...";
+      const { error } = await Store.signIn(email, password);
+      if(error){
+        state.authError = mapAuthError(error);
+        renderAuthScreen();
+        return;
+      }
+      state.authError = ""; state.authNotice = "";
+      // el listener onAuthStateChange se encarga de cargar el perfil y renderizar
+    };
+
+    const btnSignup = el.querySelector("#btn-signup");
+    if(btnSignup) btnSignup.onclick = async ()=>{
+      const name = el.querySelector("#auth-name").value.trim();
+      const email = el.querySelector("#auth-email").value.trim();
+      const password = el.querySelector("#auth-password").value;
+      if(!name){ state.authError = "Ingresá tu nombre."; renderAuthScreen(); return; }
+      if(!email || !password){ state.authError = "Completá correo y contraseña."; renderAuthScreen(); return; }
+      if(password.length<6){ state.authError = "La contraseña tiene que tener al menos 6 caracteres."; renderAuthScreen(); return; }
+      btnSignup.disabled = true; btnSignup.textContent = "Creando...";
+      const { data, error } = await Store.signUp(email, password, name);
+      if(error){
+        state.authError = mapAuthError(error);
+        renderAuthScreen();
+        return;
+      }
+      if(data && data.session){
+        state.authError = ""; state.authNotice = "";
+        // ya quedó logueado, el listener hace el resto
+      } else {
+        state.authNotice = "Te enviamos un correo para confirmar tu cuenta. Abrilo y después iniciá sesión.";
+        state.authError = "";
+        state.authView = "login";
+        renderAuthScreen();
+      }
+    };
+
+    const btnForgot = el.querySelector("#btn-forgot");
+    if(btnForgot) btnForgot.onclick = async ()=>{
+      const email = el.querySelector("#auth-email").value.trim();
+      if(!email){ state.authError = "Ingresá tu correo."; renderAuthScreen(); return; }
+      btnForgot.disabled = true; btnForgot.textContent = "Enviando...";
+      const { error } = await Store.resetPassword(email);
+      if(error){
+        state.authError = mapAuthError(error);
+        renderAuthScreen();
+        return;
+      }
+      state.authNotice = "Si el correo existe, te enviamos un enlace para recuperar la contraseña.";
+      state.authError = "";
+      state.authView = "login";
+      renderAuthScreen();
     };
   }
 
-  async function trySelectProfile(id){
-    const p = state.profiles.find(x=>x.id===id);
-    if(!p) return;
-    if(p.pin){
-      openPinModal(p);
-    } else {
-      await selectProfile(p);
-    }
-  }
-
-  function openPinModal(profile){
-    let entered = "";
-    const m = openModal(`
-      <h3>Ingresá el PIN de ${esc(profile.name)}</h3>
-      <div class="pindots" id="pin-dots">
-        ${[0,1,2,3].map(()=>'<div class="d"></div>').join("")}
+  function renderResetPassword(){
+    app.innerHTML = `
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">${icon("dumbbell")}</div>
+          <h1>Fierros</h1>
+        </div>
       </div>
-      <div class="keypad" id="keypad">
-        ${[1,2,3,4,5,6,7,8,9].map(n=>`<button data-n="${n}">${n}</button>`).join("")}
-        <button data-n="clear" style="font-size:13px">Borrar</button>
-        <button data-n="0">0</button>
-        <button data-n="cancel" style="font-size:13px">Cancelar</button>
-      </div>
-      <p class="helptext" id="pin-error" style="color:var(--danger); text-align:center; min-height:16px"></p>
-    `);
-    const dots = m.querySelectorAll("#pin-dots .d");
-    function refresh(){ dots.forEach((d,i)=> d.classList.toggle("on", i<entered.length)); }
-    m.querySelector("#keypad").addEventListener("click", async (e)=>{
-      const btn = e.target.closest("button"); if(!btn) return;
-      const n = btn.dataset.n;
-      if(n==="cancel"){ closeModal(); return; }
-      if(n==="clear"){ entered=""; refresh(); m.querySelector("#pin-error").textContent=""; return; }
-      if(entered.length<4){ entered+=n; refresh(); }
-      if(entered.length===4){
-        if(entered===profile.pin){
-          closeModal();
-          await selectProfile(profile);
-        } else {
-          m.querySelector("#pin-error").textContent = "PIN incorrecto";
-          entered=""; refresh();
-        }
+      <main><div class="screen">
+        <div class="card stack">
+          <h2 style="font-size:19px">Elegí una nueva contraseña</h2>
+          ${authMessagesHtml()}
+          <div class="field"><label>Nueva contraseña</label><input type="password" id="new-password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
+          <button class="btn btn-primary btn-block" id="btn-set-password">Guardar contraseña</button>
+        </div>
+      </div></main>
+    `;
+    const el = document.querySelector(".screen");
+    el.querySelector("#btn-set-password").onclick = async ()=>{
+      const pw = el.querySelector("#new-password").value;
+      if(pw.length<6){ state.authError = "La contraseña tiene que tener al menos 6 caracteres."; renderResetPassword(); return; }
+      const btn = el.querySelector("#btn-set-password");
+      btn.disabled = true; btn.textContent = "Guardando...";
+      const { error } = await Store.updatePassword(pw);
+      if(error){
+        state.authError = mapAuthError(error);
+        renderResetPassword();
+        return;
       }
-    });
-  }
-
-  async function selectProfile(profile){
-    state.profile = profile;
-    lsSet("fierros:lastProfile", profile.id);
-    state.tab = "rutina";
-    await loadProfileData();
-    render();
+      state.authError = "";
+      state.authView = "login";
+      render();
+    };
   }
 
   async function loadProfileData(){
@@ -1756,29 +1818,24 @@
 
   /* ================= PERFIL ================= */
   function screenPerfil(){
+    const email = (state.authSession && state.authSession.user && state.authSession.user.email) || "";
     return `
-      <div class="section-title"><h2>Perfiles</h2></div>
-      ${state.offline ? `<div class="banner warn">${icon("info")}<span>Sin conexión al guardado: estos datos son solo de esta sesión.</span></div>` : ""}
-      <div class="card profilegrid">
-        ${state.profiles.map(p=>`
-          <div class="profileopt ${p.id===state.profile.id?"current":""}" data-switch="${p.id}">
-            <div class="avatar">${esc(initials(p.name))}</div>
-            <div class="info"><b>${esc(p.name)}</b><small>${p.id===state.profile.id?"Perfil actual":(p.pin?"Con PIN":"Sin PIN")}</small></div>
-            ${p.id===state.profile.id ? "" : `<span class="iconbtn danger" data-del-profile="${p.id}">${icon("trash")}</span>`}
-          </div>
-        `).join("")}
+      <div class="section-title"><h2>Tu cuenta</h2></div>
+      <div class="card row" style="gap:12px">
+        <div class="avatar" style="width:40px;height:40px;font-size:16px">${esc(initials(state.profile.name))}</div>
+        <div><b style="font-size:15px">${esc(state.profile.name)}</b><div class="helptext">${esc(email)}</div></div>
       </div>
-      <button class="btn btn-outline btn-block" id="btn-add-profile-2">${icon("plus")} Crear otro perfil</button>
 
-      <div class="section-title" style="margin-top:6px"><h2>Este perfil</h2></div>
+      <div class="section-title" style="margin-top:6px"><h2>Preferencias</h2></div>
       <div class="card stack">
+        <div class="field">
+          <label>Nombre</label>
+          <input type="text" id="perfil-name" maxlength="24" value="${esc(state.profile.name)}">
+        </div>
         <div class="field">
           <label>Meta semanal (veces por semana)</label>
           <input type="number" id="meta-semanal" min="1" max="7" value="${state.profile.metaSemanal||3}">
         </div>
-        <button class="btn btn-ghost btn-block" id="btn-edit-pin">${icon("lock")} ${state.profile.pin? "Cambiar":"Agregar"} PIN</button>
-        <button class="btn btn-ghost btn-block" id="btn-copy-rutina">${icon("routine")} Copiar esta rutina a otro perfil</button>
-        <button class="btn btn-danger btn-block" id="btn-del-current">${icon("trash")} Eliminar este perfil</button>
       </div>
 
       <div class="section-title" style="margin-top:6px"><h2>Acerca de Fierros</h2></div>
@@ -1793,109 +1850,33 @@
           </div>
         </div>
       </div>
-    `;
-  }
 
-  function openCopyRutinaModal(){
-    const others = state.profiles.filter(p=>p.id!==state.profile.id);
-    if(others.length===0){
-      const m0 = openModal(`<h3>Copiar rutina</h3><p style="font-size:14px;color:var(--text)">Todavía no hay otro perfil creado.</p><div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Entendido</button></div>`);
-      m0.querySelector('[data-act="ok"]').onclick = closeModal;
-      return;
-    }
-    const m = openModal(`
-      <h3>Copiar esta rutina a otro perfil</h3>
-      <div class="field">
-        <label>Perfil destino</label>
-        <select id="copy-target">
-          ${others.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("")}
-        </select>
-      </div>
-      <p class="helptext">Esto reemplaza la rutina actual del perfil destino por una copia de la de "${esc(state.profile.name)}".</p>
-      <div class="modal-actions">
-        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
-        <button class="btn btn-primary" data-act="save">Copiar</button>
-      </div>
-    `);
-    m.querySelector('[data-act="cancel"]').onclick = closeModal;
-    m.querySelector('[data-act="save"]').onclick = async ()=>{
-      const targetId = m.querySelector("#copy-target").value;
-      const clone = deepClone(state.rutina);
-      clone.days = (clone.days||[]).map(d=>({
-        ...d, id: uid(),
-        exercises: (d.exercises||[]).map(ex=>({...ex, id: uid()}))
-      }));
-      await Store.saveRutina(targetId, clone);
-      closeModal();
-      const m2 = openModal(`<h3>¡Listo!</h3><p style="font-size:14px;color:var(--text)">Se copió la rutina.</p><div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Cerrar</button></div>`);
-      m2.querySelector('[data-act="ok"]').onclick = closeModal;
-    };
+      <button class="btn btn-outline btn-block" id="btn-logout">${icon("back")} Cerrar sesión</button>
+    `;
   }
 
   function mountPerfil(){
     const el = document.getElementById("screen");
-    el.querySelector("#btn-add-profile-2").onclick = openNewProfileModal;
-    el.querySelector("#btn-copy-rutina").onclick = openCopyRutinaModal;
+    const nameInput = el.querySelector("#perfil-name");
+    nameInput.onchange = async ()=>{
+      const v = nameInput.value.trim() || state.profile.name;
+      nameInput.value = v;
+      state.profile.name = v;
+      await Store.updateProfile(state.profile.id, { name: v });
+      render();
+    };
     const metaInput = el.querySelector("#meta-semanal");
     metaInput.onchange = async ()=>{
       const v = Math.max(1, Math.min(7, parseInt(metaInput.value,10)||3));
       metaInput.value = v;
       state.profile.metaSemanal = v;
       await Store.updateProfile(state.profile.id, { metaSemanal: v });
-      const p2 = state.profiles.find(x=>x.id===state.profile.id);
-      if(p2) p2.metaSemanal = v;
     };
-    el.querySelectorAll("[data-switch]").forEach(row=>{
-      row.addEventListener("click", async (e)=>{
-        if(e.target.closest("[data-del-profile]")) return;
-        const id = row.dataset.switch;
-        if(id===state.profile.id) return;
-        await trySelectProfile(id);
-      });
-    });
-    el.querySelectorAll("[data-del-profile]").forEach(b=>{
-      b.onclick = async (e)=>{
-        e.stopPropagation();
-        const p = state.profiles.find(x=>x.id===b.dataset.delProfile);
-        const ok = await confirmDialog("Eliminar perfil", `¿Eliminar el perfil de "${p.name}"? Esto no borra su rutina ni registros guardados en la nube, pero ya no vas a poder acceder fácil desde acá.`);
-        if(!ok) return;
-        await Store.deleteProfile(p.id);
-        state.profiles = state.profiles.filter(x=>x.id!==p.id);
-        renderScreen();
-      };
-    });
-    el.querySelector("#btn-edit-pin").onclick = ()=>{
-      const m = openModal(`
-        <h3>${state.profile.pin?"Cambiar":"Agregar"} PIN</h3>
-        <div class="field">
-          <label>Nuevo PIN (4 dígitos, dejalo vacío para quitar)</label>
-          <input type="text" id="edit-pin" inputmode="numeric" maxlength="4" value="">
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
-          <button class="btn btn-primary" data-act="save">Guardar</button>
-        </div>
-      `);
-      m.querySelector('[data-act="cancel"]').onclick = closeModal;
-      m.querySelector('[data-act="save"]').onclick = async ()=>{
-        const pin = m.querySelector("#edit-pin").value.trim();
-        if(pin && !/^\d{4}$/.test(pin)) return;
-        state.profile.pin = pin;
-        await Store.updateProfile(state.profile.id, { pin });
-        const p2 = state.profiles.find(x=>x.id===state.profile.id);
-        if(p2) p2.pin = pin;
-        closeModal();
-        renderScreen();
-      };
-    };
-    el.querySelector("#btn-del-current").onclick = async ()=>{
-      const ok = await confirmDialog("Eliminar este perfil", "¿Eliminar tu perfil actual? Vas a volver a la pantalla de selección de perfiles.");
+    el.querySelector("#btn-logout").onclick = async ()=>{
+      const ok = await confirmDialog("Cerrar sesión", "¿Cerrar sesión en este dispositivo?", "Cerrar sesión");
       if(!ok) return;
-      await Store.deleteProfile(state.profile.id);
-      state.profiles = state.profiles.filter(x=>x.id!==state.profile.id);
-      state.profile = null;
-      lsSet("fierros:lastProfile", null);
-      render();
+      await Store.signOut();
+      // el listener onAuthStateChange limpia el estado y muestra la pantalla de login
     };
     const seg = el.querySelector("#theme-seg");
     seg.querySelectorAll("button").forEach(b=>{
@@ -1915,20 +1896,39 @@
   /* ---------- Boot ---------- */
   async function boot(){
     applyTheme(lsGet("fierros:theme","system"));
-    const online = await Store.init();
-    state.offline = !online;
-    state.profiles = await Store.listProfiles();
-    state.booted = true;
 
-    const lastId = lsGet("fierros:lastProfile", null);
-    if(lastId){
-      const p = state.profiles.find(x=>x.id===lastId);
-      if(p && !p.pin){
-        state.profile = p;
-        await loadProfileData();
-      }
+    try{
+      Store.onAuthStateChange(async (event, session)=>{
+        if(event === "PASSWORD_RECOVERY"){
+          state.authView = "reset";
+          state.booted = true;
+          render();
+          return;
+        }
+        state.authSession = session;
+        try{
+          if(session && session.user){
+            if(!state.profile || state.profile.id !== session.user.id){
+              state.profile = await Store.ensureProfile(session.user);
+              await loadProfileData();
+            }
+          } else {
+            state.profile = null;
+            state.authView = "login";
+            state.authError = "";
+          }
+          state.dbError = false;
+        }catch(e){
+          state.dbError = true;
+        }
+        state.booted = true;
+        render();
+      });
+    }catch(e){
+      state.dbError = true;
+      state.booted = true;
+      render();
     }
-    render();
 
     // register service worker for installability (best-effort)
     if("serviceWorker" in navigator){
