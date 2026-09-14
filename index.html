@@ -2,11 +2,11 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>VodaFit</title>
+<title>Fierros</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="VodaFit">
+<meta name="apple-mobile-web-app-title" content="Fierros">
 <meta name="theme-color" content="#171412">
 <meta name="description" content="Rutina, registro de pesos y cronómetro para el gimnasio">
 <link rel="manifest" href="manifest.json">
@@ -241,7 +241,7 @@
   .navbtn{
     display:flex; flex-direction:column; align-items:center; gap:3px;
     background:none; border:none; color:var(--text-muted); cursor:pointer;
-    padding:6px 14px; border-radius:12px; flex:1; max-width:110px;
+    padding:6px 6px; border-radius:12px; flex:1; max-width:110px; min-width:0;
   }
   .navbtn svg{ width:22px; height:22px; }
   .navbtn span{ font-size:11px; font-weight:600; }
@@ -372,10 +372,34 @@
   .tips-box{ background:var(--surface-2); border-radius:var(--radius-s); padding:12px 14px; }
   .tips-list{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13.5px; line-height:1.4; color:var(--text); }
 
+  /* Calendario */
+  .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .cal-weekday{ font-size:11px; color:var(--text-muted); text-align:center; text-transform:uppercase; font-weight:600; padding-bottom:2px; }
+  .cal-cell{
+    aspect-ratio:1; display:flex; align-items:center; justify-content:center;
+    border-radius:10px; font-size:13px; color:var(--text-muted); font-weight:600;
+  }
+  .cal-cell.empty{ visibility:hidden; }
+  .cal-cell.today{ box-shadow: inset 0 0 0 1.5px var(--accent); color:var(--text); }
+  .cal-cell.done{ background:var(--success-soft); color:var(--success); cursor:pointer; }
+  .cal-cell.done:active{ transform:scale(.92); }
+
+  /* Explorador por grupo muscular */
+  .grouptile{
+    flex:1 1 45%; min-width:130px; text-align:left; cursor:pointer;
+  }
+  .grouptile:active{ transform:scale(.98); }
+
+  /* Generador de rutina automática */
+  .autoroutine-daybtns{ display:flex; gap:6px; flex-wrap:wrap; }
+  .autoroutine-daybtns .btn{ flex:1; min-width:44px; }
+
   @media (max-width:360px){
     .ring-box{ width:200px; height:200px; }
     .ring-label .time{ font-size:44px; }
     .timer-controls .btn{ width:66px; height:66px; }
+    .navbtn{ padding:6px 4px; }
+    .navbtn span{ font-size:10px; }
   }
 </style>
 </head>
@@ -412,6 +436,11 @@
     back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>',
     check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
     download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 21h16"/></svg>',
+    calendar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>',
+    chevronLeft:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+    chevronRight:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+    search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+    shuffle:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 4 4 4-4 4"/><path d="M2 8h9.5a4 4 0 0 1 3.5 2"/><path d="m18 20 4-4-4-4"/><path d="M2 16h9.5a4 4 0 0 0 3.5-2"/></svg>',
   };
   function icon(name){ return ICONS[name] || ""; }
 
@@ -553,6 +582,58 @@
     // Cardio / funcional
     "Patada de glúteo en polea": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.3]] },
   };
+
+  /* ---------- Grupos musculares (para el explorador y el generador automático) ----------
+     A partir de la región de MAYOR intensidad de cada ejercicio en MUSCLE_MAP se deduce un
+     "subgrupo" fino (útil para el generador: separa bíceps/tríceps/pecho/hombros/espalda/
+     piernas/core) y un "grupo" visible más general (Pecho, Espalda, Piernas, Hombros,
+     Brazos, Core) para el explorador por grupo muscular. */
+  const REGION_SUBGROUP = {
+    "chest-upper":"pecho", "chest-mid":"pecho", "chest-lower":"pecho",
+    "shoulder-front":"hombros", "shoulder-lateral":"hombros", "shoulder-rear":"hombros",
+    "traps":"espalda", "rhomboids":"espalda", "lats":"espalda", "lower-back":"espalda",
+    "biceps-long":"biceps", "biceps-short":"biceps",
+    "triceps-long":"triceps", "triceps-lateral":"triceps", "triceps-medial":"triceps",
+    "abs":"core", "obliques":"core",
+    "quads-front":"piernas", "quads-outer":"piernas", "quads-inner":"piernas", "adductors":"piernas",
+    "glutes":"piernas", "hamstrings":"piernas", "calves-gastro":"piernas", "calves-soleus":"piernas",
+  };
+  const SUBGROUP_TO_MUSCLEGROUP = { pecho:"Pecho", hombros:"Hombros", espalda:"Espalda", biceps:"Brazos", triceps:"Brazos", core:"Core", piernas:"Piernas" };
+  const MUSCLE_GROUPS = ["Pecho","Espalda","Piernas","Hombros","Brazos","Core"];
+
+  function exercisePrimarySubgroup(name){
+    const info = MUSCLE_MAP[name];
+    if(!info || !info.t || !info.t.length) return null;
+    let best = info.t[0];
+    info.t.forEach(t=>{ if(t[1]>best[1]) best=t; });
+    return REGION_SUBGROUP[best[0]] || null;
+  }
+  function exerciseMuscleGroup(name){
+    const sg = exercisePrimarySubgroup(name);
+    return sg ? SUBGROUP_TO_MUSCLEGROUP[sg] : null;
+  }
+  let _subgroupPoolsCache = null;
+  function subgroupPools(){
+    if(_subgroupPoolsCache) return _subgroupPoolsCache;
+    const pools = {};
+    Object.keys(MUSCLE_MAP).forEach(name=>{
+      const sg = exercisePrimarySubgroup(name);
+      if(!sg) return;
+      (pools[sg] = pools[sg]||[]).push(name);
+    });
+    _subgroupPoolsCache = pools;
+    return pools;
+  }
+  function muscleGroupPools(){
+    const pools = {};
+    MUSCLE_GROUPS.forEach(g=>pools[g]=[]);
+    Object.keys(MUSCLE_MAP).forEach(name=>{
+      const g = exerciseMuscleGroup(name);
+      if(g) pools[g].push(name);
+    });
+    MUSCLE_GROUPS.forEach(g=> pools[g].sort((a,b)=>a.localeCompare(b,"es")));
+    return pools;
+  }
 
   const MUSCLE_LABELS = {
     "chest-upper":"pecho superior", "chest-mid":"pecho medio", "chest-lower":"pecho inferior",
@@ -1091,7 +1172,7 @@
     "Entrenar mal un día es mejor que no entrenar ninguno.",
     "Vas a agradecerle a la versión de hoy más adelante.",
     "El cuerpo logra lo que la mente cree.",
-    "VodaFit no se levantan solos.",
+    "Fierros no se levantan solos.",
   ];
   function fraseDelDia(){
     const start = new Date(new Date().getFullYear(),0,0);
@@ -1277,6 +1358,8 @@
     exerciseSelForm:"",  // currently selected exercise name in registro form
     historyFilter:{ exercise:"", from:"", to:"" },
     session:null,        // { dayId, sets:{exId:[bool,...]} } while "entrenando"
+    calMonth:null,       // { y, m } mes mostrado en el calendario (m = 0-indexado)
+    explorerGroup:null,  // grupo muscular seleccionado en el explorador (null = lista de grupos)
   };
 
   const app = document.getElementById("app");
@@ -1322,7 +1405,7 @@
         <div class="topbar">
           <div class="brand">
             <div class="brand-mark">${icon("dumbbell")}</div>
-            <h1>VodaFit</h1>
+            <h1>Fierros</h1>
           </div>
         </div>
         <main><div class="screen"><div class="empty"><p>Cargando...</p></div></div></main>
@@ -1350,7 +1433,7 @@
         <div class="topbar">
           <div class="brand">
             <div class="brand-mark">${icon("dumbbell")}</div>
-            <h1>VodaFit</h1>
+            <h1>Fierros</h1>
           </div>
         </div>
         <main><div class="screen"><div class="empty"><p>Cargando tus datos...</p></div></div></main>
@@ -1363,11 +1446,16 @@
       return;
     }
 
+    if(state.tab==="explorar"){
+      renderExplorer();
+      return;
+    }
+
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>VodaFit</h1>
+          <h1>Fierros</h1>
         </div>
         <div class="profile-chip" id="chip-profile">
           <div class="avatar">${esc(initials(state.profile.name))}</div>
@@ -1378,6 +1466,7 @@
       <nav class="bottomnav">
         ${navBtn("rutina","routine","Rutina")}
         ${navBtn("registro","log","Registro")}
+        ${navBtn("calendario","calendar","Calendario")}
         ${navBtn("cronometro","timer","Timer")}
         ${navBtn("perfil","user","Perfil")}
       </nav>
@@ -1403,6 +1492,7 @@
     if(!el) return;
     if(state.tab==="rutina") el.innerHTML = screenRutina();
     else if(state.tab==="registro") el.innerHTML = screenRegistro();
+    else if(state.tab==="calendario") el.innerHTML = screenCalendario();
     else if(state.tab==="cronometro") el.innerHTML = screenCronometro();
     else if(state.tab==="perfil") el.innerHTML = screenPerfil();
     afterScreenMount();
@@ -1414,7 +1504,7 @@
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>VodaFit</h1>
+          <h1>Fierros</h1>
         </div>
       </div>
       <main><div class="screen">
@@ -1483,7 +1573,7 @@
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>VodaFit</h1>
+          <h1>Fierros</h1>
         </div>
       </div>
       <main><div class="screen">${body}</div></main>
@@ -1575,7 +1665,7 @@
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>VodaFit</h1>
+          <h1>Fierros</h1>
         </div>
       </div>
       <main><div class="screen">
@@ -1629,6 +1719,10 @@
     return `
       ${rachaCardHtml()}
       ${state.session ? sessionResumeBannerHtml() : ""}
+      <div class="row" style="gap:8px">
+        <button class="btn btn-secondary" style="flex:1" id="btn-auto-routine">${icon("shuffle")} Rutina automática</button>
+        <button class="btn btn-outline" style="flex:1" id="btn-explorar-musculos">${icon("search")} Explorar ejercicios</button>
+      </div>
       <div class="section-title">
         <h2>Tu rutina</h2>
         <span class="muted">${days.length} día${days.length===1?"":"s"}</span>
@@ -1637,7 +1731,7 @@
         <div class="card empty">
           ${icon("routine")}
           <h3>Todavía no armaste tu rutina</h3>
-          <p>Agregá un día (por ejemplo "Día 1 — Pecho y tríceps") y después sumale los ejercicios con series y repeticiones.</p>
+          <p>Agregá un día (por ejemplo "Día 1 — Pecho y tríceps") y después sumale los ejercicios con series y repeticiones, o generá una rutina automática arriba.</p>
           <button class="btn btn-primary" id="btn-add-day">${icon("plus")} Agregar día</button>
         </div>
       ` : `
@@ -1861,9 +1955,288 @@
     };
   }
 
+  /* ================= GENERADOR DE RUTINA AUTOMÁTICA ================= */
+  // Palabras clave para distinguir ejercicios "compuestos" (multiarticulares) de
+  // "aislamiento" — así cada día generado combina un poco de ambos en vez de,
+  // por ej., 5 variantes de curl para bíceps.
+  const COMPOUND_KEYWORDS = ["press","sentadilla","peso muerto","dominadas","remo","prensa","fondos","hip thrust","zancada","step up","jalón"];
+  function isCompoundExercise(name){
+    const n = normalizeTxt(name);
+    return COMPOUND_KEYWORDS.some(k=> n.includes(normalizeTxt(k)));
+  }
+  function shuffleArr(arr){
+    const a = arr.slice();
+    for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+    return a;
+  }
+  function pickFromPool(pool, count, avoidSet){
+    if(count<=0 || !pool.length) return [];
+    const fresh = shuffleArr(pool.filter(n=>!avoidSet.has(n)));
+    const used = shuffleArr(pool.filter(n=>avoidSet.has(n)));
+    const chosen = fresh.concat(used).slice(0,count);
+    chosen.forEach(n=>avoidSet.add(n));
+    return chosen;
+  }
+  function pickForSubgroup(subgroup, count, avoidSet){
+    const pool = subgroupPools()[subgroup] || [];
+    if(!pool.length || count<=0) return [];
+    const compounds = pool.filter(isCompoundExercise);
+    const isolations = pool.filter(n=>!isCompoundExercise(n));
+    const wantCompound = Math.min(compounds.length, Math.max(1, Math.round(count*0.4)));
+    let chosen = pickFromPool(compounds, wantCompound, avoidSet);
+    const secondPool = isolations.length ? isolations : pool;
+    chosen = chosen.concat(pickFromPool(secondPool, count-chosen.length, avoidSet));
+    if(chosen.length < count) chosen = chosen.concat(pickFromPool(pool, count-chosen.length, avoidSet));
+    return Array.from(new Set(chosen)).slice(0,count);
+  }
+
+  // Plantillas de split según cuántos días por semana elige el usuario. "slots"
+  // son pares [subgrupo, cantidad de ejercicios] — se arman con pickForSubgroup.
+  const AUTO_ROUTINE_TEMPLATES = {
+    2: [
+      { nombre:"Día 1 — Full body A", slots:[["pecho",1],["espalda",1],["piernas",2],["hombros",1],["biceps",1],["triceps",1]] },
+      { nombre:"Día 2 — Full body B", slots:[["pecho",1],["espalda",1],["piernas",2],["hombros",1],["biceps",1],["triceps",1]] },
+    ],
+    3: [
+      { nombre:"Día 1 — Empuje (pecho/hombro/tríceps)", slots:[["pecho",2],["hombros",2],["triceps",2]] },
+      { nombre:"Día 2 — Tirón (espalda/bíceps)", slots:[["espalda",3],["biceps",2],["core",1]] },
+      { nombre:"Día 3 — Piernas", slots:[["piernas",5],["core",1]] },
+    ],
+    4: [
+      { nombre:"Día 1 — Tren superior A", slots:[["pecho",2],["espalda",2],["hombros",1],["biceps",1]] },
+      { nombre:"Día 2 — Tren inferior A", slots:[["piernas",5],["core",1]] },
+      { nombre:"Día 3 — Tren superior B", slots:[["pecho",1],["espalda",2],["hombros",2],["triceps",1]] },
+      { nombre:"Día 4 — Tren inferior B", slots:[["piernas",5],["core",1]] },
+    ],
+    5: [
+      { nombre:"Día 1 — Pecho", slots:[["pecho",5],["triceps",1]] },
+      { nombre:"Día 2 — Espalda", slots:[["espalda",5],["biceps",1]] },
+      { nombre:"Día 3 — Piernas", slots:[["piernas",6]] },
+      { nombre:"Día 4 — Hombros", slots:[["hombros",4],["core",2]] },
+      { nombre:"Día 5 — Brazos", slots:[["biceps",3],["triceps",3]] },
+    ],
+    6: [
+      { nombre:"Día 1 — Pecho", slots:[["pecho",5],["core",1]] },
+      { nombre:"Día 2 — Espalda", slots:[["espalda",5],["core",1]] },
+      { nombre:"Día 3 — Piernas", slots:[["piernas",6]] },
+      { nombre:"Día 4 — Hombros", slots:[["hombros",5],["core",1]] },
+      { nombre:"Día 5 — Brazos (bíceps y tríceps)", slots:[["biceps",3],["triceps",3]] },
+      { nombre:"Día 6 — Core y funcional", slots:[["core",4],["piernas",2]] },
+    ],
+  };
+
+  function generateAutoRoutine(numDays){
+    const templ = AUTO_ROUTINE_TEMPLATES[numDays] || AUTO_ROUTINE_TEMPLATES[3];
+    const avoid = new Set();
+    return templ.map(dd=>{
+      const names = [];
+      dd.slots.forEach(([sg,count])=> names.push(...pickForSubgroup(sg,count,avoid)));
+      const exercises = names.map(n=>({ id:uid(), nombre:n, series:"3", reps:"10", notas:"", imagenUrl:"" }));
+      return { id:uid(), nombre: dd.nombre, exercises };
+    });
+  }
+
+  function openAutoRoutineModal(){
+    let numDays = 3;
+    let plan = null;
+    const modalEl = openModal("", null);
+
+    function bodyHtml(){
+      const daysBtns = [2,3,4,5,6].map(n=>`<button class="btn btn-sm ${n===numDays?'btn-primary':'btn-ghost'}" data-days="${n}">${n}</button>`).join("");
+      const previewHtml = plan ? `
+        <div class="stack" style="max-height:260px; overflow-y:auto">
+          ${plan.map(d=>`
+            <div class="card" style="padding:10px">
+              <b style="font-size:14px">${esc(d.nombre)}</b>
+              <div class="helptext" style="margin-top:4px">${d.exercises.map(e=>esc(e.nombre)).join(" · ") || "Sin ejercicios disponibles para este día."}</div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<p class="helptext">Elegí cuántos días por semana entrenás. Vamos a armar una rutina completa combinando ejercicios compuestos y de aislamiento, que después podés revisar y editar como cualquier otra.</p>`;
+      return `
+        <h3>Rutina automática</h3>
+        <div class="field">
+          <label>Días por semana</label>
+          <div class="autoroutine-daybtns">${daysBtns}</div>
+        </div>
+        ${previewHtml}
+        <div class="modal-actions">
+          ${plan ? `
+            <button class="btn btn-ghost" data-act="regen">${icon("shuffle")} Generar otra</button>
+            <button class="btn btn-primary" data-act="use">Usar esta rutina</button>
+          ` : `
+            <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+            <button class="btn btn-primary" data-act="gen">Generar</button>
+          `}
+        </div>
+      `;
+    }
+
+    function draw(){
+      modalEl.innerHTML = bodyHtml();
+      modalEl.querySelectorAll("[data-days]").forEach(b=>{
+        b.onclick = ()=>{ numDays = parseInt(b.dataset.days,10); plan = null; draw(); };
+      });
+      const cancelBtn = modalEl.querySelector('[data-act="cancel"]');
+      if(cancelBtn) cancelBtn.onclick = closeModal;
+      const genBtn = modalEl.querySelector('[data-act="gen"]');
+      if(genBtn) genBtn.onclick = ()=>{ plan = generateAutoRoutine(numDays); draw(); };
+      const regenBtn = modalEl.querySelector('[data-act="regen"]');
+      if(regenBtn) regenBtn.onclick = ()=>{ plan = generateAutoRoutine(numDays); draw(); };
+      const useBtn = modalEl.querySelector('[data-act="use"]');
+      if(useBtn) useBtn.onclick = async ()=>{
+        const apply = async ()=>{
+          state.rutina.days = plan;
+          await Store.saveRutina(state.profile.id, state.rutina);
+          closeModal();
+          state.tab = "rutina";
+          renderScreen();
+        };
+        if((state.rutina.days||[]).length>0){
+          const ok = await confirmDialog("Reemplazar rutina", "¿Reemplazar tu rutina actual por esta generada automáticamente? Vas a poder editarla después.", "Reemplazar");
+          if(!ok) return;
+        }
+        await apply();
+      };
+    }
+    draw();
+  }
+
+  /* ================= CALENDARIO ================= */
+  function currentCalMonth(){
+    if(!state.calMonth){ const d=new Date(); state.calMonth = { y:d.getFullYear(), m:d.getMonth() }; }
+    return state.calMonth;
+  }
+
+  const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  function screenCalendario(){
+    const { y, m } = currentCalMonth();
+    const doneByDate = {};
+    (state.entrenos||[]).forEach(e=>{ if(!e.date) return; (doneByDate[e.date] = doneByDate[e.date]||[]).push(e); });
+    const first = new Date(y,m,1);
+    const daysInMonth = new Date(y,m+1,0).getDate();
+    const startOffset = (first.getDay()+6)%7; // 0=lunes
+    const todayS = todayStr();
+    const cells = [];
+    for(let i=0;i<startOffset;i++) cells.push(`<div class="cal-cell empty"></div>`);
+    for(let d=1; d<=daysInMonth; d++){
+      const dateStr = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const done = doneByDate[dateStr];
+      const isToday = dateStr===todayS;
+      cells.push(`<div class="cal-cell ${done?"done":""} ${isToday?"today":""}" ${done?`data-cal-day="${dateStr}"`:""}>${d}</div>`);
+    }
+    const monthCount = Object.keys(doneByDate).filter(k=>k.startsWith(`${y}-${String(m+1).padStart(2,"0")}`)).length;
+    return `
+      <div class="section-title"><h2>Calendario</h2></div>
+      <div class="card stack">
+        <div class="row between">
+          <span class="iconbtn" id="cal-prev">${icon("chevronLeft")}</span>
+          <b style="font-size:16px">${MONTH_NAMES[m]} ${y}</b>
+          <span class="iconbtn" id="cal-next">${icon("chevronRight")}</span>
+        </div>
+        <div class="cal-grid">
+          ${["L","M","X","J","V","S","D"].map(w=>`<div class="cal-weekday">${w}</div>`).join("")}
+          ${cells.join("")}
+        </div>
+        <p class="helptext">${monthCount} entrenamiento${monthCount===1?"":"s"} este mes. Tocá un día marcado para ver el detalle.</p>
+      </div>
+    `;
+  }
+
+  function mountCalendario(){
+    const el = document.getElementById("screen");
+    const prevBtn = el.querySelector("#cal-prev");
+    const nextBtn = el.querySelector("#cal-next");
+    if(prevBtn) prevBtn.onclick = ()=>{ const c=currentCalMonth(); c.m--; if(c.m<0){c.m=11;c.y--;} renderScreen(); };
+    if(nextBtn) nextBtn.onclick = ()=>{ const c=currentCalMonth(); c.m++; if(c.m>11){c.m=0;c.y++;} renderScreen(); };
+    el.querySelectorAll("[data-cal-day]").forEach(cell=>{
+      cell.onclick = ()=>{
+        const date = cell.dataset.calDay;
+        const list = (state.entrenos||[]).filter(e=>e.date===date);
+        const m = openModal(`
+          <h3>${esc(fmtDate(date))}</h3>
+          <div class="loglist">
+            ${list.map(e=>`
+              <div class="logrow">
+                <div><div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div></div>
+                <div><div class="lval num">${e.setsCompletados}/${e.setsTotales}</div><div class="lsub">series</div></div>
+              </div>
+            `).join("")}
+          </div>
+          <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Cerrar</button></div>
+        `);
+        m.querySelector('[data-act="ok"]').onclick = closeModal;
+      };
+    });
+  }
+
+  /* ================= EXPLORADOR POR GRUPO MUSCULAR ================= */
+  function renderExplorer(){
+    app.innerHTML = `
+      <div class="topbar">
+        <span class="iconbtn" id="btn-explorer-back">${icon("back")}</span>
+        <h1 style="font-size:18px; flex:1; text-align:center">Explorar ejercicios</h1>
+        <span style="width:30px"></span>
+      </div>
+      <main><div class="screen" id="screen"></div></main>
+    `;
+    document.getElementById("btn-explorer-back").onclick = ()=>{
+      if(state.explorerGroup){ state.explorerGroup = null; renderExplorer(); }
+      else { state.tab = "rutina"; render(); }
+    };
+    document.getElementById("screen").innerHTML = state.explorerGroup ? screenExplorerList(state.explorerGroup) : screenExplorerGroups();
+    mountExplorer();
+  }
+
+  function screenExplorerGroups(){
+    const pools = muscleGroupPools();
+    return `
+      <p class="helptext">Elegí un grupo muscular para ver todos los ejercicios disponibles, con foto y técnica.</p>
+      <div class="wrap">
+        ${MUSCLE_GROUPS.map(g=>`
+          <div class="card grouptile" data-group="${esc(g)}">
+            <b style="font-size:16px">${esc(g)}</b>
+            <div class="helptext">${pools[g].length} ejercicio${pools[g].length===1?"":"s"}</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function screenExplorerList(group){
+    const pools = muscleGroupPools();
+    const names = pools[group] || [];
+    return `
+      <div class="section-title"><h2>${esc(group)}</h2><span class="muted">${names.length} ejercicio${names.length===1?"":"s"}</span></div>
+      <div class="exlist">
+        ${names.map(n=>`
+          <div class="exrow" data-ex-explore="${esc(n)}" style="cursor:pointer">
+            <div class="row" style="gap:10px; min-width:0">
+              ${exerciseThumbHtml({nombre:n}, "width:40px;height:50px;flex:none")}
+              <div class="exname">${esc(n)}</div>
+            </div>
+            <span class="iconbtn" style="pointer-events:none">${icon("info")}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function mountExplorer(){
+    const el = document.getElementById("screen");
+    el.querySelectorAll("[data-group]").forEach(b=>{
+      b.onclick = ()=>{ state.explorerGroup = b.dataset.group; renderExplorer(); };
+    });
+    el.querySelectorAll("[data-ex-explore]").forEach(row=>{
+      row.onclick = ()=> openHowtoModal({ nombre: row.dataset.exExplore });
+    });
+  }
+
   function afterScreenMount(){
     if(state.tab==="rutina") mountRutina();
     else if(state.tab==="registro") mountRegistro();
+    else if(state.tab==="calendario") mountCalendario();
     else if(state.tab==="cronometro") mountCronometro();
     else if(state.tab==="perfil") mountPerfil();
   }
@@ -1872,6 +2245,11 @@
     const el = document.getElementById("screen");
     const addDayBtn = el.querySelector("#btn-add-day");
     if(addDayBtn) addDayBtn.onclick = ()=> openDayModal(null);
+
+    const autoBtn = el.querySelector("#btn-auto-routine");
+    if(autoBtn) autoBtn.onclick = openAutoRoutineModal;
+    const explorarBtn = el.querySelector("#btn-explorar-musculos");
+    if(explorarBtn) explorarBtn.onclick = ()=>{ state.explorerGroup = null; state.tab = "explorar"; render(); };
 
     el.querySelectorAll("[data-toggle]").forEach(h=>{
       h.onclick = ()=>{
@@ -2084,7 +2462,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `VodaFit-historial-${(state.profile.name||"perfil").toLowerCase().replace(/\s+/g,"-")}.csv`;
+    a.download = `fierros-historial-${(state.profile.name||"perfil").toLowerCase().replace(/\s+/g,"-")}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2293,7 +2671,7 @@
 
   /* ================= CRONOMETRO ================= */
   const timer = {
-    total: lsGet("VodaFit:timerDefault", 90),
+    total: lsGet("fierros:timerDefault", 90),
     remaining: null,
     running: false,
     intervalId: null,
@@ -2342,7 +2720,7 @@
       b.onclick = ()=>{
         const v = parseInt(b.dataset.preset,10);
         timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
-        lsSet("VodaFit:timerDefault", v);
+        lsSet("fierros:timerDefault", v);
         timerRerender();
       };
     });
@@ -2354,7 +2732,7 @@
     custom.onchange = ()=>{
       const v = Math.max(5, Math.min(900, parseInt(custom.value,10)||90));
       timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
-      lsSet("VodaFit:timerDefault", v);
+      lsSet("fierros:timerDefault", v);
       timerRerender();
     };
   }
@@ -2551,15 +2929,15 @@
         <p class="helptext">La edad y el peso son opcionales — van a servir para el futuro asistente de IA personalizado.</p>
       </div>
 
-      <div class="section-title" style="margin-top:6px"><h2>Acerca de VodaFit</h2></div>
+      <div class="section-title" style="margin-top:6px"><h2>Acerca de Fierros</h2></div>
       <div class="card stack">
         <p class="helptext">Rutina, registro de pesos y cronómetro de descanso. Los videos de ejercicios y otras funciones se van a ir sumando más adelante.</p>
         <div class="row between">
           <span class="helptext">Tema</span>
           <div class="segmented" id="theme-seg" style="width:auto">
-            <button data-theme="system" class="${lsGet('VodaFit:theme','system')==='system'?'active':''}">Auto</button>
-            <button data-theme="light" class="${lsGet('VodaFit:theme','system')==='light'?'active':''}">Claro</button>
-            <button data-theme="dark" class="${lsGet('VodaFit:theme','system')==='dark'?'active':''}">Oscuro</button>
+            <button data-theme="system" class="${lsGet('fierros:theme','system')==='system'?'active':''}">Auto</button>
+            <button data-theme="light" class="${lsGet('fierros:theme','system')==='light'?'active':''}">Claro</button>
+            <button data-theme="dark" class="${lsGet('fierros:theme','system')==='dark'?'active':''}">Oscuro</button>
           </div>
         </div>
       </div>
@@ -2613,14 +2991,14 @@
   }
 
   function applyTheme(mode){
-    lsSet("VodaFit:theme", mode);
+    lsSet("fierros:theme", mode);
     if(mode==="system") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", mode);
   }
 
   /* ---------- Boot ---------- */
   async function boot(){
-    applyTheme(lsGet("VodaFit:theme","system"));
+    applyTheme(lsGet("fierros:theme","system"));
 
     try{
       Store.onAuthStateChange(async (event, session)=>{
