@@ -2,11 +2,11 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Fierros</title>
+<title>VodaFit</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Fierros">
+<meta name="apple-mobile-web-app-title" content="VodaFit">
 <meta name="theme-color" content="#171412">
 <meta name="description" content="Rutina, registro de pesos y cronómetro para el gimnasio">
 <link rel="manifest" href="manifest.json">
@@ -2084,7 +2084,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `fierros-historial-${(state.profile.name||"perfil").toLowerCase().replace(/\s+/g,"-")}.csv`;
+    a.download = `VodaFit-historial-${(state.profile.name||"perfil").toLowerCase().replace(/\s+/g,"-")}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
