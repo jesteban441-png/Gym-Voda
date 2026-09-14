@@ -366,6 +366,8 @@
   .muscle-diagram-pic svg [data-region], .howto-pic svg [data-region]{ stroke:var(--surface); stroke-width:1.2; stroke-linejoin:round; }
   .howto-pic{ width:150px; height:188px; border-radius:var(--radius-s); overflow:hidden; background:var(--surface-2); }
   .howto-pic svg{ width:100%; height:100%; }
+  .howto-pic-labeled{ width:220px; height:276px; overflow:visible; margin:2px 0; }
+  .muscle-section{ display:flex; flex-direction:column; gap:6px; }
   .howto-photo{ width:100%; max-width:320px; height:auto; display:block; margin:0 auto; border-radius:var(--radius-s); background:var(--surface-2); }
   .tips-box{ background:var(--surface-2); border-radius:var(--radius-s); padding:12px 14px; }
   .tips-list{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13.5px; line-height:1.4; color:var(--text); }
@@ -422,21 +424,25 @@
     "Fondos en paralelas","Flexiones de brazos","Press en máquina Smith","Pullover con mancuerna",
     // Espalda
     "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
-    "Remo con barra","Remo con mancuerna","Remo en polea baja","Remo en máquina","Remo en T",
+    "Remo con barra","Remo con mancuerna","Remo en polea baja","Remo en máquina",
+    "Remo en máquina agarre ancho","Remo en T",
     "Peso muerto","Peso muerto rumano","Peso muerto sumo","Hiperextensiones","Face pull",
     // Piernas
     "Sentadilla","Sentadilla frontal","Sentadilla búlgara","Sentadilla sumo","Sentadilla hack",
     "Prensa de piernas","Extensión de cuádriceps","Curl femoral acostado","Curl femoral sentado",
     "Zancadas","Zancadas con mancuernas","Hip thrust","Puente de glúteo",
-    "Elevación de talones de pie","Elevación de talones sentado","Abductores en máquina",
+    "Elevación de talones de pie","Elevación de talones de pie con disco","Elevación de talones sentado",
+    "Elevación de talones en prensa","Abductores en máquina",
     "Aductores en máquina","Step up","Peso muerto piernas rígidas",
     // Hombros
     "Press militar con barra","Press militar con mancuernas","Press Arnold","Press tras nuca",
     "Elevaciones laterales","Elevaciones frontales","Pájaro (deltoide posterior)",
     "Remo al mentón","Encogimientos de hombros",
     // Brazos
-    "Curl con barra","Curl con mancuernas alternado","Curl martillo","Curl concentrado",
+    "Curl con barra","Curl con mancuernas alternado","Curl con mancuernas banco inclinado",
+    "Curl martillo","Curl concentrado",
     "Curl en polea","Curl Scott (predicador)","Press francés","Extensión de tríceps en polea",
+    "Extensión de tríceps en polea con barra","Extensión tríceps polea agarre prono",
     "Fondos de tríceps en banco","Patada de tríceps","Extensión de tríceps con mancuerna",
     "Press cerrado",
     // Core
@@ -480,6 +486,7 @@
     "Remo con mancuerna": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.5]] },
     "Remo en polea baja": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.6]] },
     "Remo en máquina": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.5]] },
+    "Remo en máquina agarre ancho": { diagram:"back-upper", t:[["rhomboids",1],["lats",0.6],["shoulder-rear",0.4]] },
     "Remo en T": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.6]] },
     "Peso muerto": { diagram:"back-upper", t:[["lower-back",1],["lats",0.4],["traps",0.3]] },
     "Peso muerto rumano": { diagram:"back-leg", t:[["hamstrings",1],["glutes",0.5]] },
@@ -501,7 +508,9 @@
     "Hip thrust": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.4]] },
     "Puente de glúteo": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.3]] },
     "Elevación de talones de pie": { diagram:"back-leg", t:[["calves-gastro",1],["calves-soleus",0.5]] },
+    "Elevación de talones de pie con disco": { diagram:"back-leg", t:[["calves-gastro",1],["calves-soleus",0.5]] },
     "Elevación de talones sentado": { diagram:"back-leg", t:[["calves-soleus",1],["calves-gastro",0.5]] },
+    "Elevación de talones en prensa": { diagram:"back-leg", t:[["calves-gastro",1],["calves-soleus",0.5]] },
     "Abductores en máquina": { diagram:"back-leg", t:[["glutes",1]] },
     "Aductores en máquina": { diagram:"front-leg", t:[["adductors",1]] },
     "Step up": { diagram:"front-leg", t:[["quads-front",1],["quads-outer",0.5]] },
@@ -519,12 +528,15 @@
     // Brazos
     "Curl con barra": { diagram:"front-upper", t:[["biceps-short",1],["biceps-long",0.8]] },
     "Curl con mancuernas alternado": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.8]] },
+    "Curl con mancuernas banco inclinado": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.5]] },
     "Curl martillo": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.4]] },
     "Curl concentrado": { diagram:"front-upper", t:[["biceps-short",1],["biceps-long",0.5]] },
     "Curl en polea": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.85]] },
     "Curl Scott (predicador)": { diagram:"front-upper", t:[["biceps-short",1],["biceps-long",0.5]] },
     "Press francés": { diagram:"back-upper", t:[["triceps-long",1],["triceps-lateral",0.5],["triceps-medial",0.4]] },
     "Extensión de tríceps en polea": { diagram:"back-upper", t:[["triceps-lateral",1],["triceps-long",0.5],["triceps-medial",0.4]] },
+    "Extensión de tríceps en polea con barra": { diagram:"back-upper", t:[["triceps-lateral",1],["triceps-medial",0.6],["triceps-long",0.4]] },
+    "Extensión tríceps polea agarre prono": { diagram:"back-upper", t:[["triceps-long",1],["triceps-medial",0.6],["triceps-lateral",0.4]] },
     "Fondos de tríceps en banco": { diagram:"back-upper", t:[["triceps-lateral",0.9],["triceps-long",0.8],["triceps-medial",0.5]] },
     "Patada de tríceps": { diagram:"back-upper", t:[["triceps-long",0.9],["triceps-medial",0.7],["triceps-lateral",0.4]] },
     "Extensión de tríceps con mancuerna": { diagram:"back-upper", t:[["triceps-long",1],["triceps-lateral",0.5],["triceps-medial",0.4]] },
@@ -556,6 +568,66 @@
     "calves-gastro":"gemelo", "calves-soleus":"sóleo",
   };
 
+  // Etiquetas cortas para escribir directo sobre el diagrama grande (modal
+  // "Cómo hacerlo"). Como cada silueta (front-upper/back-upper/front-leg/
+  // back-leg) nunca mezcla, por ej., tríceps con bíceps en la misma imagen,
+  // se puede omitir el nombre del músculo grande y dejar solo la parte
+  // específica sin ambigüedad.
+  const MUSCLE_LABELS_SHORT = {
+    "chest-upper":"Pecho superior", "chest-mid":"Pecho medio", "chest-lower":"Pecho inferior",
+    "shoulder-front":"Deltoide frontal", "shoulder-lateral":"Deltoide lateral", "shoulder-rear":"Deltoide posterior",
+    "traps":"Trapecio", "rhomboids":"Romboides",
+    "biceps-long":"Cabeza larga", "biceps-short":"Cabeza corta",
+    "abs":"Abdomen", "obliques":"Oblicuos",
+    "lats":"Dorsales", "lower-back":"Zona lumbar",
+    "triceps-long":"Cabeza larga", "triceps-lateral":"Cabeza lateral", "triceps-medial":"Cabeza medial",
+    "quads-front":"Recto femoral", "quads-outer":"Vasto externo", "quads-inner":"Vasto interno",
+    "adductors":"Aductores",
+    "glutes":"Glúteos", "hamstrings":"Isquiotibiales",
+    "calves-gastro":"Gemelo", "calves-soleus":"Sóleo",
+  };
+
+  // Posición de cada etiqueta sobre el diagrama grande: cx/cy = centro de la
+  // región (para la lineita que conecta), lx/ly = dónde va el texto, anchor =
+  // alineación del texto respecto a ese punto. Todo en las mismas unidades
+  // del viewBox "0 0 120 150" de BODY_DIAGRAMS, así que siempre cae dentro
+  // del dibujo (nada se corta).
+  const LABEL_GEOM = {
+    "front-upper": {
+      "shoulder-front": {cx:95,cy:42, lx:118,ly:32, anchor:"end"},
+      "shoulder-lateral": {cx:104,cy:38, lx:118,ly:20, anchor:"end"},
+      "biceps-long": {cx:105,cy:64, lx:118,ly:58, anchor:"end"},
+      "biceps-short": {cx:96,cy:70, lx:106,ly:84, anchor:"end"},
+      "chest-upper": {cx:60,cy:47, lx:60,ly:30, anchor:"middle"},
+      "chest-mid": {cx:60,cy:67, lx:26,ly:67, anchor:"start"},
+      "chest-lower": {cx:60,cy:85, lx:26,ly:92, anchor:"start"},
+      "abs": {cx:60,cy:113, lx:60,ly:142, anchor:"middle"},
+      "obliques": {cx:86,cy:112, lx:106,ly:112, anchor:"start"},
+    },
+    "back-upper": {
+      "traps": {cx:60,cy:43, lx:60,ly:26, anchor:"middle"},
+      "rhomboids": {cx:60,cy:59, lx:14,ly:48, anchor:"start"},
+      "shoulder-rear": {cx:96,cy:40, lx:118,ly:28, anchor:"end"},
+      "triceps-lateral": {cx:100,cy:55, lx:118,ly:48, anchor:"end"},
+      "triceps-long": {cx:100,cy:70, lx:118,ly:70, anchor:"end"},
+      "triceps-medial": {cx:100,cy:85, lx:118,ly:94, anchor:"end"},
+      "lats": {cx:92,cy:80, lx:112,ly:104, anchor:"end"},
+      "lower-back": {cx:60,cy:119, lx:60,ly:143, anchor:"middle"},
+    },
+    "front-leg": {
+      "adductors": {cx:60,cy:62, lx:60,ly:146, anchor:"middle"},
+      "quads-outer": {cx:86,cy:75, lx:108,ly:52, anchor:"start"},
+      "quads-front": {cx:73,cy:80, lx:108,ly:86, anchor:"start"},
+      "quads-inner": {cx:63,cy:95, lx:108,ly:120, anchor:"start"},
+    },
+    "back-leg": {
+      "glutes": {cx:60,cy:16, lx:60,ly:4, anchor:"middle"},
+      "hamstrings": {cx:80,cy:68, lx:100,ly:68, anchor:"start"},
+      "calves-gastro": {cx:76,cy:120, lx:98,ly:114, anchor:"start"},
+      "calves-soleus": {cx:76,cy:138, lx:98,ly:144, anchor:"start"},
+    },
+  };
+
   // Consejos cortos de técnica por ejercicio — reemplaza el GIF (pospuesto por
   // costo) con algo igual de útil y sin infraestructura nueva.
   const EXERCISE_TIPS = {
@@ -580,6 +652,7 @@
     "Remo con mancuerna": ["Apoyá rodilla y mano en el banco para estabilizarte.", "Llevá el codo hacia atrás y arriba, pegado al torso.", "No gires el torso para levantar más peso."],
     "Remo en polea baja": ["Espalda recta, pecho arriba durante todo el movimiento.", "Tirá con los codos, no solo con las manos.", "No te balancees con todo el torso para tirar."],
     "Remo en máquina": ["Ajustá el asiento para que el agarre quede a la altura del pecho.", "Llevá los codos hacia atrás, apretando la espalda.", "Volvé controlado, sin dejar caer el peso."],
+    "Remo en máquina agarre ancho": ["Agarre más ancho que los hombros, codos hacia afuera.", "Enfatiza la espalda media y el deltoide posterior.", "Apretá bien los omóplatos al final del recorrido."],
     "Remo en T": ["Pecho apoyado o torso firme e inclinado, según la máquina.", "Tirá la barra hacia el abdomen, codos cerca del cuerpo.", "Apretá bien arriba antes de volver."],
     "Peso muerto": ["Barra pegada a las piernas durante todo el recorrido.", "Espalda neutra, pecho arriba, no redondees la zona lumbar.", "Empujá el piso con los pies, no tires solo con la espalda."],
     "Peso muerto rumano": ["Rodillas con flexión leve y fija, no es una sentadilla.", "Llevá la cadera hacia atrás, barra rozando las piernas.", "Bajá hasta sentir el estiramiento en isquios, sin redondear la espalda."],
@@ -600,7 +673,9 @@
     "Hip thrust": ["Espalda alta apoyada en un banco, barra sobre la cadera.", "Subí hasta que el torso quede en línea con los muslos.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
     "Puente de glúteo": ["Igual que el hip thrust pero con la espalda en el piso.", "Empujá con los talones, apretando glúteos arriba.", "Bajá controlado sin descansar del todo entre repeticiones."],
     "Elevación de talones de pie": ["Subí lo más alto posible sobre la punta de los pies.", "Bajá controlado hasta sentir el estiramiento del gemelo.", "Evitá rebotar para hacer más repeticiones."],
+    "Elevación de talones de pie con disco": ["Sostené el disco con ambas manos contra el pecho o al costado.", "Subí lo más alto posible sobre la punta de los pies.", "Bajá controlado sin rebotar."],
     "Elevación de talones sentado": ["Rodillas flexionadas a 90°, esto enfatiza el sóleo.", "Subí bien alto y hacé una pausa breve arriba.", "Bajá controlado hasta el estiramiento completo."],
+    "Elevación de talones en prensa": ["Piernas casi extendidas en la máquina de prensa, solo el tobillo se mueve.", "Empujá con la punta de los pies lo más lejos posible.", "Bajá controlado sintiendo el estiramiento del gemelo."],
     "Abductores en máquina": ["Espalda apoyada, movimiento controlado hacia afuera.", "No uses impulso ni rebotes.", "Volvé despacio a la posición inicial."],
     "Aductores en máquina": ["Ajustá el rango para sentir el trabajo en la parte interna del muslo.", "Cerrá las piernas de forma controlada.", "Evitá que las pesas choquen entre repeticiones."],
     "Step up": ["Subí a un banco apoyando todo el pie, sin impulso de la pierna de atrás.", "Empujá con el talón de la pierna que sube.", "Bajá controlado, sin dejarte caer."],
@@ -616,12 +691,15 @@
     "Encogimientos de hombros": ["Subí los hombros derecho hacia arriba, sin girarlos.", "Aguantá un segundo arriba apretando los trapecios.", "Bajá controlado, sin dejar caer el peso de golpe."],
     "Curl con barra": ["Codos pegados al torso durante todo el movimiento.", "Subí sin balancear el cuerpo para impulsar la barra.", "Bajá controlado hasta extender casi del todo el brazo."],
     "Curl con mancuernas alternado": ["Girá la muñeca (supinación) a medida que subís.", "Un brazo a la vez, sin balancear el torso.", "Bajá controlado antes de empezar el otro lado."],
+    "Curl con mancuernas banco inclinado": ["Banco inclinado ~45°, brazos colgando bien atrás del torso.", "Este ángulo estira más el bíceps, sentilo desde el arranque.", "Subí sin despegar el brazo del respaldo ni balancear el hombro."],
     "Curl martillo": ["Agarre neutro (palmas mirándose entre sí) durante todo el movimiento.", "Codos fijos pegados al cuerpo.", "Subí y bajá controlado, sin usar impulso."],
     "Curl concentrado": ["Codo apoyado contra la parte interna del muslo.", "Movimiento lento, enfocado en apretar arriba.", "Bajá hasta extender casi completo el brazo."],
     "Curl en polea": ["Cuerpo firme, sin balancearte para ayudar al movimiento.", "Codos pegados al torso durante todo el recorrido.", "Apretá arriba antes de bajar controlado."],
     "Curl Scott (predicador)": ["Axila bien apoyada contra el banco inclinado.", "No extiendas del todo abajo para cuidar el codo.", "Subí controlado, sin tirones."],
     "Press francés": ["Codos apuntando al techo durante todo el movimiento.", "Bajá la barra/mancuerna hacia la frente, no hacia la nuca.", "Solo se mueve el antebrazo, el codo queda fijo."],
     "Extensión de tríceps en polea": ["Codos pegados al cuerpo, fijos.", "Extendé completo abajo apretando el tríceps.", "Volvé controlado sin que la polea tire del brazo."],
+    "Extensión de tríceps en polea con barra": ["Agarre firme en la barra recta, codos pegados al cuerpo.", "Extendé completo abajo sin mover los codos hacia adelante.", "Volvé controlado, sin que la polea tire del brazo."],
+    "Extensión tríceps polea agarre prono": ["Palmas hacia abajo (agarre prono) en vez de la cuerda o barra en V.", "Este agarre enfatiza más la cabeza larga del tríceps.", "Codos fijos pegados al cuerpo durante todo el recorrido."],
     "Fondos de tríceps en banco": ["Manos en el borde del banco, piernas estiradas para más intensidad.", "Bajá hasta 90° en el codo.", "Empujá con el tríceps, sin hundir los hombros."],
     "Patada de tríceps": ["Torso inclinado, brazo pegado al cuerpo y paralelo al piso.", "Extendé el antebrazo hacia atrás, sin mover el codo.", "Aguantá un instante arriba antes de volver."],
     "Extensión de tríceps con mancuerna": ["Mancuerna sostenida con ambas manos detrás de la cabeza.", "Codos apuntando al techo, fijos.", "Bajá controlado sintiendo el estiramiento."],
@@ -715,6 +793,12 @@
     },
   };
 
+  function regionFillCss(intensity){
+    return intensity>0
+      ? `color-mix(in srgb, var(--danger) ${Math.round(Math.min(1,intensity)*100)}%, var(--border))`
+      : "var(--border)";
+  }
+
   function bodyDiagramSvg(diagramKey, targets){
     const d = BODY_DIAGRAMS[diagramKey];
     if(!d) return "";
@@ -723,12 +807,40 @@
       const isBase = region==="base" || region==="head";
       if(isBase) return `data-region="${region}" fill="var(--surface-2)"`;
       const intensity = map.has(region) ? map.get(region) : 0;
-      const fill = intensity>0
-        ? `color-mix(in srgb, var(--danger) ${Math.round(Math.min(1,intensity)*100)}%, var(--border))`
-        : "var(--border)";
-      return `data-region="${region}" fill="${fill}"`;
+      return `data-region="${region}" fill="${regionFillCss(intensity)}"`;
     });
     return `<svg viewBox="${d.viewBox}" style="width:100%; height:100%">${colored}</svg>`;
+  }
+
+  // Versión grande para el modal "Cómo hacerlo": el mismo diagrama, pero con
+  // una lineita + etiqueta de texto sobre cada parte que trabaja en ESTE
+  // ejercicio (solo las regiones con intensidad > 0, para no saturar).
+  function bodyDiagramSvgLabeled(diagramKey, targets){
+    const d = BODY_DIAGRAMS[diagramKey];
+    if(!d) return "";
+    const list = (targets||[]).map(x=> Array.isArray(x) ? {region:x[0], intensity:x[1]} : x);
+    const map = new Map(list.map(x=>[x.region, x.intensity]));
+    const colored = d.shapes.replace(/data-region="([\w-]+)"/g, (m, region)=>{
+      const isBase = region==="base" || region==="head";
+      if(isBase) return `data-region="${region}" fill="var(--surface-2)"`;
+      const intensity = map.has(region) ? map.get(region) : 0;
+      return `data-region="${region}" fill="${regionFillCss(intensity)}"`;
+    });
+    const geom = LABEL_GEOM[diagramKey] || {};
+    const labels = list
+      .filter(x=>x.intensity>0 && geom[x.region])
+      .map(x=>{
+        const g = geom[x.region];
+        const text = MUSCLE_LABELS_SHORT[x.region] || MUSCLE_LABELS[x.region] || x.region;
+        const fill = regionFillCss(x.intensity);
+        return `
+          <line x1="${g.cx}" y1="${g.cy}" x2="${g.lx}" y2="${g.ly}" style="stroke:var(--text-muted); stroke-width:.6; opacity:.6"/>
+          <circle cx="${g.cx}" cy="${g.cy}" r="2.1" fill="${fill}" style="stroke:var(--surface); stroke-width:.6"/>
+          <text x="${g.lx}" y="${g.ly}" text-anchor="${g.anchor}" dominant-baseline="middle"
+                style="font:700 5.4px 'Nunito',sans-serif; fill:var(--text); paint-order:stroke; stroke:var(--surface); stroke-width:2.4px; stroke-linejoin:round">${esc(text)}</text>
+        `;
+      }).join("");
+    return `<svg viewBox="${d.viewBox}" style="width:100%; height:100%; overflow:visible">${colored}${labels}</svg>`;
   }
 
   // Fotos "oficiales" cargadas por Juan para toda la app (no dependen de que
@@ -736,6 +848,11 @@
   // la carpeta ejercicios/. Para sumar una nueva: guardar el archivo ahí y
   // agregar una línea acá con el nombre EXACTO del ejercicio (como en EXERCISES).
   const EXERCISE_IMAGES = {
+    "Press banca inclinado": "ejercicios/press-banca-inclinado.jpg",
+    "Remo en máquina agarre ancho": "ejercicios/remo-agarre-ancho.jpg",
+    "Elevación de talones en prensa": "ejercicios/elevacion-talones-prensa.jpg",
+    "Curl con mancuernas banco inclinado": "ejercicios/curl-mancuernas-inclinado.jpg",
+    "Extensión de tríceps en polea con barra": "ejercicios/extension-triceps-polea-barra.jpg",
     "Press banca plano": "ejercicios/press-banca-plano.jpg",
     "Press banca declinado": "ejercicios/press-banca-declinado.jpg",
     "Press con mancuernas plano": "ejercicios/press-mancuernas-plano.jpg",
@@ -803,6 +920,14 @@
     "Crunch en polea": "ejercicios/crunch-en-polea.jpg",
     "Giro ruso (russian twist)": "ejercicios/giro-ruso.jpg",
     "Mountain climbers": "ejercicios/mountain-climbers.jpg",
+    "Elevaciones laterales": "ejercicios/elevaciones-laterales.jpg",
+    "Elevaciones frontales": "ejercicios/elevaciones-frontales.jpg",
+    "Pájaro (deltoide posterior)": "ejercicios/pajaro.jpg",
+    "Remo al mentón": "ejercicios/remo-al-menton.jpg",
+    "Encogimientos de hombros": "ejercicios/encogimientos-hombros.jpg",
+    "Remo en T": "ejercicios/remo-en-t.jpg",
+    "Curl femoral sentado": "ejercicios/curl-femoral-sentado.jpg",
+    "Patada de glúteo en polea": "ejercicios/patada-gluteo-polea.jpg",
   };
 
   function exerciseImageFor(exerciseName){
@@ -849,18 +974,28 @@
     const tips = EXERCISE_TIPS[ex.nombre] || [];
     const m = muscleTargets(ex.nombre);
     const photoUrl = ex.imagenUrl || exerciseImageFor(ex.nombre);
-    const visual = photoUrl
-      ? `<img src="${esc(photoUrl)}" class="howto-photo" alt="${esc(ex.nombre)}" onerror="this.style.display='none'">`
-      : (m ? `<div class="howto-pic">${bodyDiagramSvg(m.diagram, m.list)}</div>` : "");
-    const muscleText = (!photoUrl && m) ? (()=>{
+    const photoBlock = photoUrl
+      ? `<div style="display:flex; justify-content:center">
+           <img src="${esc(photoUrl)}" class="howto-photo" alt="${esc(ex.nombre)}" onerror="this.style.display='none'">
+         </div>`
+      : "";
+    const muscleBlock = m ? (()=>{
       const primary = m.list.filter(x=>x.intensity>=0.75).map(x=>MUSCLE_LABELS[x.region]||x.region);
       const secondary = m.list.filter(x=>x.intensity<0.75).map(x=>MUSCLE_LABELS[x.region]||x.region);
-      return `<p class="helptext" style="text-align:center">Principal: <b style="color:var(--text)">${esc(primary.join(" y "))}</b>${secondary.length?` · También: ${esc(secondary.join(", "))}`:""}</p>`;
-    })() : "";
+      return `
+        <div class="muscle-section">
+          <div class="helptext" style="text-transform:uppercase; letter-spacing:.04em; font-weight:700; text-align:center">Qué músculo trabaja</div>
+          <div style="display:flex; justify-content:center">
+            <div class="howto-pic howto-pic-labeled">${bodyDiagramSvgLabeled(m.diagram, m.list)}</div>
+          </div>
+          <p class="helptext" style="text-align:center">Principal: <b style="color:var(--text)">${esc(primary.join(" y "))}</b>${secondary.length?` · También: ${esc(secondary.join(", "))}`:""}</p>
+        </div>
+      `;
+    })() : (!photoUrl ? `<p class="helptext" style="text-align:center">Todavía no hay datos de músculo cargados para este ejercicio.</p>` : "");
     openModal(`
       <h3>${esc(ex.nombre)}</h3>
-      <div style="display:flex; justify-content:center">${visual}</div>
-      ${muscleText}
+      ${photoBlock}
+      ${muscleBlock}
       ${tips.length ? `
         <div class="tips-box">
           <div class="helptext" style="text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-bottom:6px">Cómo hacerlo</div>
