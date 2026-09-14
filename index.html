@@ -1091,7 +1091,7 @@
     "Entrenar mal un día es mejor que no entrenar ninguno.",
     "Vas a agradecerle a la versión de hoy más adelante.",
     "El cuerpo logra lo que la mente cree.",
-    "Fierros no se levantan solos.",
+    "VodaFit no se levantan solos.",
   ];
   function fraseDelDia(){
     const start = new Date(new Date().getFullYear(),0,0);
@@ -1322,7 +1322,7 @@
         <div class="topbar">
           <div class="brand">
             <div class="brand-mark">${icon("dumbbell")}</div>
-            <h1>Fierros</h1>
+            <h1>VodaFit</h1>
           </div>
         </div>
         <main><div class="screen"><div class="empty"><p>Cargando...</p></div></div></main>
@@ -1350,7 +1350,7 @@
         <div class="topbar">
           <div class="brand">
             <div class="brand-mark">${icon("dumbbell")}</div>
-            <h1>Fierros</h1>
+            <h1>VodaFit</h1>
           </div>
         </div>
         <main><div class="screen"><div class="empty"><p>Cargando tus datos...</p></div></div></main>
@@ -1367,7 +1367,7 @@
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>Fierros</h1>
+          <h1>VodaFit</h1>
         </div>
         <div class="profile-chip" id="chip-profile">
           <div class="avatar">${esc(initials(state.profile.name))}</div>
@@ -1414,7 +1414,7 @@
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>Fierros</h1>
+          <h1>VodaFit</h1>
         </div>
       </div>
       <main><div class="screen">
@@ -1483,7 +1483,7 @@
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>Fierros</h1>
+          <h1>VodaFit</h1>
         </div>
       </div>
       <main><div class="screen">${body}</div></main>
@@ -1575,7 +1575,7 @@
       <div class="topbar">
         <div class="brand">
           <div class="brand-mark">${icon("dumbbell")}</div>
-          <h1>Fierros</h1>
+          <h1>VodaFit</h1>
         </div>
       </div>
       <main><div class="screen">
@@ -2293,7 +2293,7 @@
 
   /* ================= CRONOMETRO ================= */
   const timer = {
-    total: lsGet("fierros:timerDefault", 90),
+    total: lsGet("VodaFit:timerDefault", 90),
     remaining: null,
     running: false,
     intervalId: null,
@@ -2342,7 +2342,7 @@
       b.onclick = ()=>{
         const v = parseInt(b.dataset.preset,10);
         timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
-        lsSet("fierros:timerDefault", v);
+        lsSet("VodaFit:timerDefault", v);
         timerRerender();
       };
     });
@@ -2354,7 +2354,7 @@
     custom.onchange = ()=>{
       const v = Math.max(5, Math.min(900, parseInt(custom.value,10)||90));
       timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
-      lsSet("fierros:timerDefault", v);
+      lsSet("VodaFit:timerDefault", v);
       timerRerender();
     };
   }
@@ -2551,15 +2551,15 @@
         <p class="helptext">La edad y el peso son opcionales — van a servir para el futuro asistente de IA personalizado.</p>
       </div>
 
-      <div class="section-title" style="margin-top:6px"><h2>Acerca de Fierros</h2></div>
+      <div class="section-title" style="margin-top:6px"><h2>Acerca de VodaFit</h2></div>
       <div class="card stack">
         <p class="helptext">Rutina, registro de pesos y cronómetro de descanso. Los videos de ejercicios y otras funciones se van a ir sumando más adelante.</p>
         <div class="row between">
           <span class="helptext">Tema</span>
           <div class="segmented" id="theme-seg" style="width:auto">
-            <button data-theme="system" class="${lsGet('fierros:theme','system')==='system'?'active':''}">Auto</button>
-            <button data-theme="light" class="${lsGet('fierros:theme','system')==='light'?'active':''}">Claro</button>
-            <button data-theme="dark" class="${lsGet('fierros:theme','system')==='dark'?'active':''}">Oscuro</button>
+            <button data-theme="system" class="${lsGet('VodaFit:theme','system')==='system'?'active':''}">Auto</button>
+            <button data-theme="light" class="${lsGet('VodaFit:theme','system')==='light'?'active':''}">Claro</button>
+            <button data-theme="dark" class="${lsGet('VodaFit:theme','system')==='dark'?'active':''}">Oscuro</button>
           </div>
         </div>
       </div>
@@ -2613,14 +2613,14 @@
   }
 
   function applyTheme(mode){
-    lsSet("fierros:theme", mode);
+    lsSet("VodaFit:theme", mode);
     if(mode==="system") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", mode);
   }
 
   /* ---------- Boot ---------- */
   async function boot(){
-    applyTheme(lsGet("fierros:theme","system"));
+    applyTheme(lsGet("VodaFit:theme","system"));
 
     try{
       Store.onAuthStateChange(async (event, session)=>{
