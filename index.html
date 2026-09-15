@@ -411,6 +411,7 @@
   .cal-cell{
     aspect-ratio:1; display:flex; align-items:center; justify-content:center;
     border-radius:10px; font-size:13px; color:var(--text-muted); font-weight:600;
+    min-width:0; min-height:0; width:100%;
   }
   .cal-cell.empty{ visibility:hidden; }
   .cal-cell.today{ box-shadow: inset 0 0 0 1.5px var(--accent); color:var(--text); }
@@ -440,6 +441,7 @@
 <div id="app"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -1843,7 +1845,12 @@
       return (data||[]).map(rowToEntreno);
     }
 
-    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos };
+    async function deleteEntreno(pid, id){
+      const { error } = await client().from("entrenos").delete().eq("id", id).eq("profile_id", pid);
+      return !error;
+    }
+
+    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos, deleteEntreno };
   })();
 
   function mapAuthError(error){
@@ -1874,6 +1881,7 @@
     dayEditMode:{},      // which day cards show editar/borrar por ejercicio
     exerciseSelForm:"",  // currently selected exercise name in registro form
     historyFilter:{ exercise:"", from:"", to:"" },
+    historyExpanded:null,        // nombre del ejercicio desplegado en el Historial agrupado (null = ninguno)
     session:null,        // { dayId, sets:{exId:[bool,...]} } while "entrenando"
     calMonth:null,       // { y, m } mes mostrado en el calendario (m = 0-indexado)
     explorerGroup:null,  // grupo muscular seleccionado en el explorador (null = lista de grupos)
@@ -2295,6 +2303,11 @@
         <button class="btn btn-secondary" style="flex:1" id="btn-auto-routine">${icon("shuffle")} ${nAutomatica?"Generar otra rutina automática":"Rutina automática"}</button>
         <button class="btn btn-outline" style="flex:1" id="btn-explorar-musculos">${icon("search")} Explorar ejercicios</button>
       </div>
+      ${days.length>0 ? `
+        <div class="row" style="gap:8px; margin-top:8px">
+          <button class="btn btn-ghost btn-block" id="btn-export-pdf">${icon("download")} Exportar rutina en PDF</button>
+        </div>
+      ` : ""}
       <div class="section-title">
         <h2>${isAuto ? "Rutina automática" : "Tu rutina"}</h2>
         <span class="muted">${days.length} día${days.length===1?"":"s"}</span>
@@ -2758,6 +2771,50 @@
     if(edad<=49) return 3;
     return 2;
   }
+  // ---- Ejercicios "potentes"/compuestos (multiarticulares, con más fatiga
+  // sistémica) vs. accesorios/aislamiento — pedido de Juan: press de banca,
+  // jalón, remo, sentadillas, hip thrust y similares necesitan el volumen
+  // completo (seriesForAge), pero ejercicios más chicos/de aislamiento (curl,
+  // extensión de tríceps, elevaciones laterales, gemelos, core, etc.) no
+  // hace falta meterles la misma cantidad — se les resta 1 serie (mínimo 2)
+  // para que la rutina no se sienta tan pesada. Solo cambia CUÁNTAS series,
+  // nunca qué ejercicios se eligen (eso ya lo deciden las reglas de sexo/edad
+  // de arriba).
+  // NOTA: esto es una lista aparte de `COMPOUND_KEYWORDS`/`isCompoundExercise`
+  // (usada más arriba solo para mezclar variedad compuesto/aislamiento al
+  // ELEGIR ejercicios, donde una imprecisión no se nota) — para decidir
+  // series necesitamos más precisión porque el número queda a la vista de
+  // Juan: por keyword, "Press francés" o "Press con disco (plate press)"
+  // matchearían "press" y quedarían mal clasificados como compuestos, siendo
+  // en realidad ejercicios de aislamiento. Si se agrega un ejercicio nuevo
+  // multiarticular pesado (press/sentadilla/peso muerto/remo/dominada/fondo/
+  // hip thrust), conviene sumarlo también acá.
+  const EXERCISES_COMPOUND = new Set([
+    // Pecho — presses y fondos (multiarticular hombro+codo)
+    "Press banca plano","Press banca inclinado","Press banca declinado",
+    "Press con mancuernas plano","Press con mancuernas inclinado","Press con mancuernas declinado",
+    "Fondos en paralelas","Fondos en paralelas con peso","Press en máquina Smith",
+    "Press en el piso con barra","Press banca agarre ancho",
+    "Flexiones de brazos","Flexiones con peso","Flexiones inclinadas (manos elevadas)",
+    // Espalda — dominadas/jalones/remos/peso muerto (multiarticular hombro+codo o cadera+rodilla)
+    "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
+    "Remo con barra","Remo con mancuerna","Remo en polea baja","Remo en máquina",
+    "Remo en máquina agarre ancho","Remo en T",
+    "Peso muerto","Peso muerto rumano","Peso muerto sumo","Peso muerto con mancuerna","Peso muerto piernas rígidas",
+    // Piernas — sentadillas/prensa/zancadas/hip thrust (multiarticular cadera+rodilla)
+    "Sentadilla","Sentadilla frontal","Sentadilla búlgara","Sentadilla sumo","Sentadilla hack",
+    "Prensa de piernas","Zancadas","Zancadas con mancuernas",
+    "Hip thrust","Hip thrust en máquina","Puente de glúteo con barra","Step up",
+    // Hombros — press militar (multiarticular hombro+codo)
+    "Press militar con barra","Press militar con mancuernas","Press militar con mancuernas sentado",
+    "Press Arnold","Press tras nuca",
+    // Brazos — el único press cerrado es multiarticular, el resto de brazos es aislamiento
+    "Press cerrado",
+  ]);
+  function seriesForExercise(nombre, edad){
+    const base = seriesForAge(edad);
+    return EXERCISES_COMPOUND.has(nombre) ? base : Math.max(2, base-1);
+  }
   // ---- Descanso sugerido entre series según edad — pasó Juan: 60-90s para
   // perfiles jóvenes, 120-180s para 50+ (la recuperación metabólica entre
   // series es más lenta). Es solo informativo (se muestra como sugerencia,
@@ -2786,13 +2843,48 @@
   const REQUIRED_WEEK_SUBGROUPS = ["pecho","espalda","hombros","biceps","triceps","core"];
   const REQUIRED_LEG_FOCI = ["quads","hamstrings","glutes","calves"];
 
-  function generateAutoRoutine(numDays, sexo){
+  // ---- Enfoque muscular opcional (pedido de Juan: "quiero más glúteos y
+  // cuádriceps" → sumarle ejercicios extra a esos grupos en la rutina que se
+  // genera). Se eligen hasta 2 de los 10 grupos/sub-focos de siempre —
+  // reutiliza exactamente las mismas listas (REQUIRED_WEEK_SUBGROUPS para
+  // tren superior/core, REQUIRED_LEG_FOCI para pierna) que ya usa la red de
+  // seguridad de cobertura semanal, así no hace falta mantener una lista
+  // aparte. El boost SOLO agrega ejercicios (nunca saca ninguno) y respeta
+  // el pool real disponible de cada músculo — si no hay más variantes sin
+  // repetir en la semana, agrega las que pueda y para ahí.
+  const FOCUS_LABELS = {
+    pecho:"Pecho", espalda:"Espalda", hombros:"Hombros", biceps:"Bíceps", triceps:"Tríceps", core:"Core",
+    quads:"Cuádriceps", hamstrings:"Isquiotibiales", glutes:"Glúteos", calves:"Pantorrillas",
+  };
+  const FOCUS_OPTIONS = [...REQUIRED_WEEK_SUBGROUPS, ...REQUIRED_LEG_FOCI];
+  const FOCUS_EXTRA_PER_GROUP = 2;
+
+  function applyFocusBoost(days, templ, focus, avoid, riskyExclude, edad){
+    (focus||[]).slice(0,2).forEach(key=>{
+      const isLeg = REQUIRED_LEG_FOCI.indexOf(key)!==-1;
+      const pool = (isLeg ? legFocusPools(riskyExclude)[key] : subgroupPools(riskyExclude)[key]) || [];
+      const groupKey = isLeg ? "piernas" : key;
+      const candidateDaysIdx = templ.map((dd,i)=> dd.groups.indexOf(groupKey)!==-1 ? i : -1).filter(i=>i!==-1);
+      if(!candidateDaysIdx.length || !pool.length) return;
+      let added = 0, di = 0;
+      while(added < FOCUS_EXTRA_PER_GROUP){
+        const avail = pool.filter(n=>!avoid.has(n));
+        if(!avail.length) break; // no quedan más variantes de ese músculo sin repetir en la semana
+        const name = shuffleArr(avail)[0];
+        const dayIdx = candidateDaysIdx[di % candidateDaysIdx.length];
+        days[dayIdx].exercises.push({ id:uid(), nombre:name, series:String(seriesForExercise(name,edad)), reps:"10", notas:"", imagenUrl:"" });
+        avoid.add(name);
+        added++; di++;
+      }
+    });
+  }
+
+  function generateAutoRoutine(numDays, sexo, focus){
     const templ = SPLIT_DAYS[numDays] || SPLIT_DAYS[3];
     const bump = profileHasPrimeBump();
     const [lo,hi] = sessionCountRange(numDays);
     const edad = state.profile ? state.profile.edad : null;
     const riskyExclude = (edad!=null && edad>=50) ? EXERCISES_RISKY_50PLUS : null;
-    const seriesCount = String(seriesForAge(edad));
     const avoid = new Set();
     const legFociCovered = new Set();
     const subgroupsCovered = new Set();
@@ -2821,7 +2913,7 @@
         else if(picked.length) subgroupsCovered.add(sg);
         names.push(...picked);
       });
-      const exercises = names.map(n=>({ id:uid(), nombre:n, series:seriesCount, reps:"10", notas:"", imagenUrl:"" }));
+      const exercises = names.map(n=>({ id:uid(), nombre:n, series:String(seriesForExercise(n,edad)), reps:"10", notas:"", imagenUrl:"" }));
       return { id:uid(), nombre: dd.nombre, exercises };
     });
 
@@ -2837,7 +2929,7 @@
       const name = pool[0] || (focusPools[f]||[])[0];
       const dayIdx = piernasDaysIdx.length ? piernasDaysIdx[idx % piernasDaysIdx.length] : 0;
       if(name && days[dayIdx]){
-        days[dayIdx].exercises.push({ id:uid(), nombre:name, series:seriesCount, reps:"10", notas:"", imagenUrl:"" });
+        days[dayIdx].exercises.push({ id:uid(), nombre:name, series:String(seriesForExercise(name,edad)), reps:"10", notas:"", imagenUrl:"" });
         avoid.add(name); legFociCovered.add(f);
       }
     });
@@ -2847,9 +2939,11 @@
       const name = pool[0] || (pools[sg]||[])[0];
       if(!name) return;
       const dayIdx = days.reduce((best,d,i)=> d.exercises.length < days[best].exercises.length ? i : best, 0);
-      days[dayIdx].exercises.push({ id:uid(), nombre:name, series:seriesCount, reps:"10", notas:"", imagenUrl:"" });
+      days[dayIdx].exercises.push({ id:uid(), nombre:name, series:String(seriesForExercise(name,edad)), reps:"10", notas:"", imagenUrl:"" });
       avoid.add(name); subgroupsCovered.add(sg);
     });
+
+    applyFocusBoost(days, templ, focus, avoid, riskyExclude, edad);
 
     return days;
   }
@@ -2857,17 +2951,20 @@
   function openAutoRoutineModal(){
     let numDays = 3;
     let sexo = null; // se pide explícitamente antes de poder generar
+    let focus = []; // hasta 2 grupos/músculos a priorizar, opcional
     let plan = null;
     const modalEl = openModal("", null);
 
     function bodyHtml(){
       const daysBtns = [1,2,3,4,5,6].map(n=>`<button class="btn btn-sm ${n===numDays?'btn-primary':'btn-ghost'}" data-days="${n}">${n}</button>`).join("");
       const sexoBtns = ["Femenino","Masculino"].map(s=>`<button class="btn btn-sm ${s===sexo?'btn-primary':'btn-ghost'}" data-sexo="${s}" style="flex:1">${s}</button>`).join("");
+      const focusBtns = FOCUS_OPTIONS.map(key=>`<button class="btn btn-sm ${focus.indexOf(key)!==-1?'btn-primary':'btn-ghost'}" data-focus="${key}">${FOCUS_LABELS[key]}</button>`).join("");
       const edad = state.profile ? state.profile.edad : null;
       const [restLo,restHi] = restRangeForAge(edad);
-      const seriesNote = seriesForAge(edad);
+      const seriesCompound = seriesForAge(edad);
+      const seriesAccessory = Math.max(2, seriesCompound-1);
       const previewHtml = plan ? `
-        <p class="helptext">Series por ejercicio: <b>${seriesNote}</b>${edad!=null?` (según tu edad cargada, ${edad} años)`:" (nivel intermedio — cargá tu edad en Perfil para ajustar esto)"} · Descanso sugerido entre series: <b>${restLo}-${restHi} segundos</b>.</p>
+        <p class="helptext">Series por ejercicio: <b>${seriesCompound}</b> en los compuestos (press, remo, sentadilla, peso muerto, dominadas, etc.) y <b>${seriesAccessory}</b> en los de aislamiento (curl, extensiones, elevaciones, gemelos, core, etc.)${edad!=null?` — según tu edad cargada, ${edad} años`:" — nivel intermedio, cargá tu edad en Perfil para ajustar esto"} · Descanso sugerido entre series: <b>${restLo}-${restHi} segundos</b>.</p>
         <div class="stack" style="max-height:260px; overflow-y:auto">
           ${plan.map(d=>`
             <div class="card" style="padding:10px">
@@ -2886,6 +2983,10 @@
         <div class="field">
           <label>Días por semana</label>
           <div class="autoroutine-daybtns">${daysBtns}</div>
+        </div>
+        <div class="field">
+          <label>Enfoque (opcional, hasta 2) — le suma ejercicios extra a lo que elijas</label>
+          <div class="row" style="gap:6px; flex-wrap:wrap">${focusBtns}</div>
         </div>
         ${previewHtml}
         <div class="modal-actions">
@@ -2908,12 +3009,24 @@
       modalEl.querySelectorAll("[data-sexo]").forEach(b=>{
         b.onclick = ()=>{ sexo = b.dataset.sexo; plan = null; draw(); };
       });
+      modalEl.querySelectorAll("[data-focus]").forEach(b=>{
+        b.onclick = ()=>{
+          const key = b.dataset.focus;
+          const idx = focus.indexOf(key);
+          if(idx!==-1) focus.splice(idx,1);
+          else if(focus.length<2) focus.push(key);
+          // si ya hay 2 elegidos y toca un tercero distinto, no hace nada
+          // (el helptext del campo ya avisa "hasta 2") en vez de reemplazar
+          // uno sin que quede claro cuál se sacó.
+          plan = null; draw();
+        };
+      });
       const cancelBtn = modalEl.querySelector('[data-act="cancel"]');
       if(cancelBtn) cancelBtn.onclick = closeModal;
       const genBtn = modalEl.querySelector('[data-act="gen"]');
-      if(genBtn) genBtn.onclick = ()=>{ if(!sexo) return; plan = generateAutoRoutine(numDays, sexo); draw(); };
+      if(genBtn) genBtn.onclick = ()=>{ if(!sexo) return; plan = generateAutoRoutine(numDays, sexo, focus); draw(); };
       const regenBtn = modalEl.querySelector('[data-act="regen"]');
-      if(regenBtn) regenBtn.onclick = ()=>{ plan = generateAutoRoutine(numDays, sexo); draw(); };
+      if(regenBtn) regenBtn.onclick = ()=>{ plan = generateAutoRoutine(numDays, sexo, focus); draw(); };
       const useBtn = modalEl.querySelector('[data-act="use"]');
       if(useBtn) useBtn.onclick = async ()=>{
         // La rutina automática SIEMPRE se guarda en su propia "ranura" separada
@@ -2988,23 +3101,47 @@
     if(nextBtn) nextBtn.onclick = ()=>{ const c=currentCalMonth(); c.m++; if(c.m>11){c.m=0;c.y++;} renderScreen(); };
     el.querySelectorAll("[data-cal-day]").forEach(cell=>{
       cell.onclick = ()=>{
-        const date = cell.dataset.calDay;
-        const list = (state.entrenos||[]).filter(e=>e.date===date);
-        const m = openModal(`
-          <h3>${esc(fmtDate(date))}</h3>
-          <div class="loglist">
-            ${list.map(e=>`
-              <div class="logrow">
-                <div><div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div></div>
-                <div><div class="lval num">${e.setsCompletados}/${e.setsTotales}</div><div class="lsub">series</div></div>
-              </div>
-            `).join("")}
-          </div>
-          <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Cerrar</button></div>
-        `);
-        m.querySelector('[data-act="ok"]').onclick = closeModal;
+        openCalDayModal(cell.dataset.calDay);
       };
     });
+  }
+
+  function openCalDayModal(date){
+    const list = (state.entrenos||[]).filter(e=>e.date===date);
+    if(list.length===0){ renderScreen(); return; } // se borró el último y ya no queda nada que mostrar
+    const m = openModal(`
+      <h3>${esc(fmtDate(date))}</h3>
+      <div class="loglist">
+        ${list.map(e=>`
+          <div class="logrow">
+            <div><div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div></div>
+            <div class="row" style="gap:8px; align-items:center">
+              <div><div class="lval num">${e.setsCompletados}/${e.setsTotales}</div><div class="lsub">series</div></div>
+              <span class="iconbtn danger" data-del-entreno="${e.id}" title="Borrar (marcado por error)">${icon("trash")}</span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+      <p class="helptext">Si finalizaste un entrenamiento por error, tocá el tacho para borrarlo — no va a contar en la racha ni en el calendario.</p>
+      <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Cerrar</button></div>
+    `);
+    m.querySelectorAll("[data-del-entreno]").forEach(btn=>{
+      btn.onclick = async ()=>{
+        const id = btn.dataset.delEntreno;
+        const ok = await confirmDialog("Borrar entrenamiento", "¿Seguro que querés borrar este registro? No se puede deshacer.", "Borrar");
+        if(!ok){ openCalDayModal(date); return; } // reabre el modal (confirmDialog lo cerró)
+        const okDel = await Store.deleteEntreno(state.profile.id, id);
+        if(okDel){
+          state.entrenos = (state.entrenos||[]).filter(e=>e.id!==id);
+          closeModal();
+          openCalDayModal(date);
+        } else {
+          alert("No se pudo borrar. Probá de nuevo.");
+          openCalDayModal(date);
+        }
+      };
+    });
+    m.querySelector('[data-act="ok"]').onclick = closeModal;
   }
 
   /* ================= EXPLORADOR POR GRUPO MUSCULAR ================= */
@@ -3086,6 +3223,8 @@
     if(autoBtn) autoBtn.onclick = openAutoRoutineModal;
     const explorarBtn = el.querySelector("#btn-explorar-musculos");
     if(explorarBtn) explorarBtn.onclick = ()=>{ state.explorerGroup = null; state.tab = "explorar"; render(); };
+    const exportPdfBtn = el.querySelector("#btn-export-pdf");
+    if(exportPdfBtn) exportPdfBtn.onclick = exportRoutinePDF;
 
     el.querySelectorAll("[data-rutina-slot]").forEach(b=>{
       b.onclick = ()=> selectRutinaSlot(b.dataset.rutinaSlot);
@@ -3309,6 +3448,96 @@
     setTimeout(()=> URL.revokeObjectURL(url), 1000);
   }
 
+  // Junta los datos de la rutina activa (state.rutina, que siempre apunta a
+  // rutinaSlots[state.activeSlot]) más el peso máximo registrado para cada
+  // ejercicio de esa rutina (buscado en state.registros), para armar el PDF.
+  function buildRoutinePdfData(){
+    const isAuto = state.activeSlot === "automatica";
+    const registros = state.registros || [];
+    const days = (state.rutina.days || []).map(d => ({
+      nombre: d.nombre,
+      exercises: (d.exercises||[]).map(ex => {
+        let max = null;
+        registros.forEach(r => {
+          if(r.exercise !== ex.nombre) return;
+          const p = parseFloat(r.peso);
+          if(isNaN(p)) return;
+          if(max===null || p > max.peso || (p === max.peso && r.date > max.date)){
+            max = { peso: p, date: r.date };
+          }
+        });
+        return { nombre: ex.nombre, series: ex.series||"", reps: ex.reps||"", notas: ex.notas||"", max };
+      }),
+    }));
+    return {
+      routineLabel: isAuto ? "Rutina automática" : "Mi rutina",
+      profileName: state.profile.name || "Usuario",
+      days,
+      generatedAt: todayStr(),
+    };
+  }
+
+  function exportRoutinePDF(){
+    if(!window.jspdf || !window.jspdf.jsPDF){
+      alert("No se pudo cargar el generador de PDF. Revisá tu conexión a internet e intentá de nuevo.");
+      return;
+    }
+    const data = buildRoutinePdfData();
+    if(data.days.length === 0){
+      alert('Todavía no hay días cargados en esta rutina. Agregá al menos un día antes de exportar el PDF.');
+      return;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:"pt", format:"a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const marginX = 40;
+    let y = 50;
+
+    function ensureSpace(lineH){
+      if(y + lineH > pageH - 40){ doc.addPage(); y = 50; }
+    }
+    function line(text, opts){
+      opts = opts || {};
+      const size = opts.size||11, bold = !!opts.bold, gap = opts.gap||16, color = opts.color||[20,20,20];
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+      doc.setTextColor(color[0], color[1], color[2]);
+      const wrapped = doc.splitTextToSize(text, pageW - marginX*2);
+      wrapped.forEach(w=>{
+        ensureSpace(gap);
+        doc.text(w, marginX, y);
+        y += gap;
+      });
+    }
+
+    line("Fierros — Resumen de rutina", { size:18, bold:true, gap:24 });
+    line(`${data.routineLabel} · ${data.profileName}`, { size:12, gap:18, color:[90,90,90] });
+    line(`Generado el ${fmtDate(data.generatedAt)}`, { size:10, gap:20, color:[130,130,130] });
+    y += 6;
+
+    data.days.forEach(day=>{
+      ensureSpace(26);
+      line(day.nombre, { size:14, bold:true, gap:20 });
+      if(day.exercises.length===0){
+        line("Sin ejercicios cargados.", { size:10.5, gap:16, color:[130,130,130] });
+      } else {
+        day.exercises.forEach(ex=>{
+          const base = `${ex.nombre} — ${ex.series}×${ex.reps}${ex.notas?` (${ex.notas})`:""}`;
+          line(base, { size:11, gap:15 });
+          const maxTxt = ex.max
+            ? `Máximo registrado: ${ex.max.peso} kg (${fmtDate(ex.max.date)})`
+            : "Sin registros de peso todavía.";
+          line(maxTxt, { size:9.5, gap:16, color: ex.max?[30,110,60]:[150,150,150] });
+        });
+      }
+      y += 8;
+    });
+
+    const fname = `fierros-rutina-${(data.profileName||"perfil").toLowerCase().replace(/\s+/g,"-")}-${data.generatedAt}.pdf`;
+    doc.save(fname);
+  }
+
   function screenRegistro(){
     const names = allExerciseNames();
     const sel = state.exerciseSelForm && (names.includes(state.exerciseSelForm) || state.exerciseSelForm==="__otro__")
@@ -3376,13 +3605,76 @@
       ${(()=>{
         const filtered = filterHistory(historyAll);
         const hasFilter = !!(state.historyFilter.exercise || state.historyFilter.from || state.historyFilter.to);
+        // Sin un ejercicio puntual filtrado, la lista se agrupa por ejercicio
+        // (nombre + último peso + fecha) en vez de una lista plana enorme con
+        // todo mezclado — pedido de Juan. Tocar un grupo lo despliega con el
+        // historial completo de ESE ejercicio (mismo formato de fila que antes,
+        // con el borrado de siempre). Filtrando por un ejercicio puntual la
+        // vista vuelve a ser la lista plana simple (agrupar por uno solo no
+        // aporta nada).
+        const grouped = !state.historyFilter.exercise;
+        let listHtml;
+        if(filtered.length===0){
+          listHtml = `<div class="card empty">${icon("log")}<h3>Sin registros para este filtro</h3><p>Probá cambiar el ejercicio o el rango de fechas.</p></div>`;
+        } else if(grouped){
+          const byExercise = {};
+          filtered.forEach(r=>{ (byExercise[r.exercise]=byExercise[r.exercise]||[]).push(r); });
+          const sortDesc = (a,b)=> a.date===b.date ? (b.createdAt||0)-(a.createdAt||0) : (a.date<b.date?1:-1);
+          const groups = Object.keys(byExercise).map(name=>{
+            const list = byExercise[name].slice().sort(sortDesc);
+            return { name, list, last:list[0] };
+          }).sort((a,b)=> sortDesc(a.last,b.last));
+          listHtml = `<div class="loglist">
+            ${groups.map(g=>{
+              const isOpen = state.historyExpanded===g.name;
+              return `
+                <div class="logrow" data-hist-group="${esc(g.name)}">
+                  <div>
+                    <div class="lex">${esc(g.name)}</div>
+                    <div class="ldate">Último: ${fmtDate(g.last.date)} · ${g.list.length} registro${g.list.length===1?"":"s"}</div>
+                  </div>
+                  <div>
+                    <div class="lval num">${esc(g.last.peso)} kg</div>
+                    <div class="lsub">${isOpen?"▲ ocultar":"▼ ver historial"}</div>
+                  </div>
+                </div>
+                ${isOpen ? g.list.slice(0,100).map(r=>`
+                  <div class="logrow" data-del-log="${r.id}" style="padding-left:22px; opacity:.92">
+                    <div>
+                      <div class="ldate">${fmtDate(r.date)}${r.nota?" · "+esc(r.nota):""}</div>
+                    </div>
+                    <div>
+                      <div class="lval num">${esc(r.peso)} kg</div>
+                      <div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div>
+                    </div>
+                  </div>
+                `).join("") : ""}
+              `;
+            }).join("")}
+          </div>`;
+        } else {
+          listHtml = `<div class="loglist">
+            ${filtered.slice(0,60).map(r=>`
+              <div class="logrow" data-del-log="${r.id}">
+                <div>
+                  <div class="lex">${esc(r.exercise)}</div>
+                  <div class="ldate">${fmtDate(r.date)}${r.nota?" · "+esc(r.nota):""}</div>
+                </div>
+                <div>
+                  <div class="lval num">${esc(r.peso)} kg</div>
+                  <div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div>
+                </div>
+              </div>
+            `).join("")}
+          </div>`;
+        }
         return `
           <div class="section-title"><h2>Historial</h2><span class="muted">${filtered.length} registro${filtered.length===1?"":"s"}</span></div>
           <div class="card stack">
             <div class="field">
               <label>Filtrar por ejercicio</label>
               <select id="hist-filter-ex">
-                <option value="">Todos</option>
+                <option value="">Todos (agrupado por ejercicio)</option>
                 ${names.map(n=>`<option value="${esc(n)}" ${state.historyFilter.exercise===n?"selected":""}>${esc(n)}</option>`).join("")}
               </select>
             </div>
@@ -3395,24 +3687,7 @@
               <button class="btn btn-outline btn-sm" id="btn-export-csv">${icon("download")} Exportar CSV</button>
             </div>
           </div>
-          ${filtered.length===0 ? `
-            <div class="card empty">${icon("log")}<h3>Sin registros para este filtro</h3><p>Probá cambiar el ejercicio o el rango de fechas.</p></div>
-          ` : `
-        <div class="loglist">
-          ${filtered.slice(0,60).map(r=>`
-            <div class="logrow" data-del-log="${r.id}">
-              <div>
-                <div class="lex">${esc(r.exercise)}</div>
-                <div class="ldate">${fmtDate(r.date)}${r.nota?" · "+esc(r.nota):""}</div>
-              </div>
-              <div>
-                <div class="lval num">${esc(r.peso)} kg</div>
-                <div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div>
-              </div>
-            </div>
-          `).join("")}
-        </div>
-      `}
+          ${listHtml}
         `;
       })()}
     `;
@@ -3493,9 +3768,6 @@
 
     el.querySelectorAll("[data-del-log]").forEach(row=>{
       row.addEventListener("contextmenu", (e)=> e.preventDefault());
-    });
-    // long-press / click-hold not implemented; provide delete via tap-and-hold alternative: simple click on date area triggers confirm
-    el.querySelectorAll(".logrow").forEach(row=>{
       row.style.cursor = "pointer";
       row.title = "Tocá para eliminar este registro";
       row.onclick = async ()=>{
@@ -3507,10 +3779,42 @@
         renderScreen();
       };
     });
+    // Filas-resumen de la vista agrupada por ejercicio (ver screenRegistro) —
+    // tocarlas despliega/oculta el historial completo de ESE ejercicio, no
+    // borran nada (el borrado sigue siendo solo en las filas de adentro,
+    // arriba).
+    el.querySelectorAll("[data-hist-group]").forEach(row=>{
+      row.style.cursor = "pointer";
+      row.title = "Tocá para ver el historial completo";
+      row.onclick = ()=>{
+        const name = row.dataset.histGroup;
+        state.historyExpanded = (state.historyExpanded===name) ? null : name;
+        renderScreen();
+      };
+    });
   }
 
   /* ================= CRONOMETRO ================= */
-  const timer = {
+  /* ---------- Persistencia de cronómetros en segundo plano ----------
+     Antes, el estado de los cronómetros (corriendo, tiempo transcurrido, hora
+     de fin) vivía solo en memoria (variables JS) — al cerrar la app, cambiar
+     de app o recargar la página, ese estado se perdía y el cronómetro volvía
+     a cero aunque el usuario nunca haya apretado "Reiniciar". Ahora ambos
+     cronómetros guardan su estado en localStorage en cada cambio, usando
+     siempre una marca de tiempo absoluta (Date.now()/endAt/startEpoch, no un
+     contador que solo avanza mientras la pestaña está abierta) — así, al
+     volver a abrir la app, el tiempo transcurrido real se recalcula contra
+     el reloj, sin importar cuánto tiempo estuvo la app cerrada o en segundo
+     plano. Solo se reinicia si el usuario aprieta el botón "Reiniciar". */
+  const savedRestTimer = lsGet("fierros:restTimer", null);
+  const timer = savedRestTimer ? {
+    total: savedRestTimer.total,
+    remaining: savedRestTimer.remaining,
+    running: savedRestTimer.running,
+    intervalId: null,
+    endAt: savedRestTimer.endAt,
+    audioCtx: null,
+  } : {
     total: lsGet("fierros:timerDefault", 90),
     remaining: null,
     running: false,
@@ -3518,6 +3822,18 @@
     endAt: null,
     audioCtx: null,
   };
+  // Si estaba corriendo y el tiempo restante ya se cumplió mientras la app
+  // estuvo cerrada/en segundo plano, se da por terminado sin reproducir el
+  // sonido (el usuario no está mirando en ese momento).
+  if(timer.running && timer.endAt!=null){
+    const rem = Math.max(0, Math.ceil((timer.endAt - Date.now())/1000));
+    timer.remaining = rem;
+    if(rem<=0){ timer.running = false; timer.endAt = null; }
+  }
+  function persistTimer(){
+    lsSet("fierros:restTimer", { total:timer.total, remaining:timer.remaining, running:timer.running, endAt:timer.endAt });
+    lsSet("fierros:timerDefault", timer.total);
+  }
 
   let timerRerender = () => renderScreen();
 
@@ -3560,7 +3876,7 @@
       b.onclick = ()=>{
         const v = parseInt(b.dataset.preset,10);
         timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
-        lsSet("fierros:timerDefault", v);
+        persistTimer();
         timerRerender();
       };
     });
@@ -3572,7 +3888,7 @@
     custom.onchange = ()=>{
       const v = Math.max(5, Math.min(900, parseInt(custom.value,10)||90));
       timer.total = v; timer.remaining = v; timer.running=false; clearInterval(timer.intervalId); timer.endAt=null;
-      lsSet("fierros:timerDefault", v);
+      persistTimer();
       timerRerender();
     };
   }
@@ -3594,7 +3910,14 @@
   }
 
   /* ---------- Cronómetro de tiempo total de entrenamiento (cuenta hacia arriba) ---------- */
-  const workoutClock = { running:false, elapsedMs:0, startEpoch:null, intervalId:null };
+  const savedWorkoutClock = lsGet("fierros:workoutClock", null);
+  const workoutClock = savedWorkoutClock ? {
+    running: savedWorkoutClock.running, elapsedMs: savedWorkoutClock.elapsedMs,
+    startEpoch: savedWorkoutClock.startEpoch, intervalId: null,
+  } : { running:false, elapsedMs:0, startEpoch:null, intervalId:null };
+  function persistWorkoutClock(){
+    lsSet("fierros:workoutClock", { running:workoutClock.running, elapsedMs:workoutClock.elapsedMs, startEpoch:workoutClock.startEpoch });
+  }
   let workoutClockRerender = () => renderScreen();
 
   function fmtElapsed(ms){
@@ -3639,6 +3962,7 @@
         clearInterval(workoutClock.intervalId);
         workoutClock.intervalId = setInterval(tickWorkoutClock, 1000);
       }
+      persistWorkoutClock();
       workoutClockRerender();
     };
     root.querySelector("#btn-workout-reset").onclick = ()=>{
@@ -3646,6 +3970,7 @@
       workoutClock.running = false;
       workoutClock.elapsedMs = 0;
       workoutClock.startEpoch = null;
+      persistWorkoutClock();
       workoutClockRerender();
     };
   }
@@ -3710,11 +4035,13 @@
     timer.running = true;
     clearInterval(timer.intervalId);
     timer.intervalId = setInterval(tick, 250);
+    persistTimer();
     timerRerender();
   }
   function pauseTimer(){
     timer.running = false;
     clearInterval(timer.intervalId);
+    persistTimer();
     timerRerender();
   }
   function stopTimer(finished){
@@ -3722,10 +4049,12 @@
     clearInterval(timer.intervalId);
     timer.endAt = null;
     if(finished){ timer.remaining = 0; playBeep(); }
+    persistTimer();
   }
   function resetTimer(){
     stopTimer(false);
     timer.remaining = timer.total;
+    persistTimer();
     timerRerender();
   }
 
@@ -3734,7 +4063,30 @@
     workoutClockRerender = renderScreen;
     wireTimerControls(document.getElementById("screen"));
     wireWorkoutClock(document.getElementById("screen"));
+    // Si algún cronómetro quedó corriendo de una sesión anterior (recargó la
+    // página, volvió después de cerrar la app, etc.), retoma el intervalo
+    // visual acá — el número ya está bien calculado (ver tick()/
+    // currentWorkoutElapsed(), ambos contra Date.now()), esto solo hace que
+    // se siga viendo actualizado en pantalla mientras esta pestaña esté abierta.
+    if(timer.running && !timer.intervalId){
+      clearInterval(timer.intervalId);
+      timer.intervalId = setInterval(tick, 250);
+    }
+    if(workoutClock.running && !workoutClock.intervalId){
+      clearInterval(workoutClock.intervalId);
+      workoutClock.intervalId = setInterval(tickWorkoutClock, 1000);
+    }
   }
+
+  // Al volver a la pestaña/app (se desbloquea el celular, se vuelve de otra
+  // app), refresca el número al toque en vez de esperar al próximo tick —
+  // los navegadores frenan los setInterval mientras la pestaña está oculta.
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState==="visible"){
+      if(timer.running) tick();
+      if(workoutClock.running) tickWorkoutClock();
+    }
+  });
 
   /* ================= PERFIL ================= */
   function screenPerfil(){
@@ -3890,7 +4242,8 @@
     exerciseLegFocus, seriesForAge, restRangeForAge, sessionCountRange,
     EXERCISES_RISKY_50PLUS, dayModality, get state(){ return state; },
     EXERCISES, EXERCISE_VIDEOS, EXERCISE_IMAGES, exerciseVideoFor, exerciseImageFor,
-    screenExerciseDetail,
+    screenExerciseDetail, EXERCISES_COMPOUND, seriesForExercise,
+    FOCUS_OPTIONS, FOCUS_LABELS, buildRoutinePdfData, exportRoutinePDF,
   };
 
 })();
