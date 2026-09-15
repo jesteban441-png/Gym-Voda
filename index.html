@@ -484,26 +484,29 @@
     "Press con mancuernas plano","Press con mancuernas inclinado","Press con mancuernas declinado",
     "Aperturas con mancuernas","Cruce de poleas (aperturas en polea)","Pec deck (contractora)",
     "Fondos en paralelas","Flexiones de brazos","Press en máquina Smith","Pullover con mancuerna",
+    "Fondos en paralelas con peso","Flexiones inclinadas (manos elevadas)","Press en el piso con barra",
+    "Press banca agarre ancho","Press con disco (plate press)","Around the world (mancuernas)","Flexiones con peso",
     // Espalda
     "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
     "Remo con barra","Remo con mancuerna","Remo en polea baja","Remo en máquina",
     "Remo en máquina agarre ancho","Remo en T",
-    "Peso muerto","Peso muerto rumano","Peso muerto sumo","Hiperextensiones","Face pull",
+    "Peso muerto","Peso muerto rumano","Peso muerto sumo","Peso muerto con mancuerna","Hiperextensiones","Face pull",
     // Piernas
     "Sentadilla","Sentadilla frontal","Sentadilla búlgara","Sentadilla sumo","Sentadilla hack",
     "Prensa de piernas","Extensión de cuádriceps","Curl femoral acostado","Curl femoral sentado",
-    "Zancadas","Zancadas con mancuernas","Hip thrust","Puente de glúteo",
+    "Zancadas","Zancadas con mancuernas","Hip thrust","Hip thrust en máquina","Puente de glúteo","Puente de glúteo con barra",
     "Elevación de talones de pie","Elevación de talones de pie con disco","Elevación de talones sentado",
     "Elevación de talones en prensa","Abductores en máquina",
     "Aductores en máquina","Step up","Peso muerto piernas rígidas",
     // Hombros
-    "Press militar con barra","Press militar con mancuernas","Press Arnold","Press tras nuca",
+    "Press militar con barra","Press militar con mancuernas","Press militar con mancuernas sentado",
+    "Press Arnold","Press tras nuca",
     "Elevaciones laterales","Elevaciones frontales","Pájaro (deltoide posterior)",
     "Remo al mentón","Encogimientos de hombros",
     // Brazos
-    "Curl con barra","Curl con mancuernas alternado","Curl con mancuernas banco inclinado",
+    "Curl con barra","Curl con mancuernas","Curl con mancuernas alternado","Curl con mancuernas banco inclinado",
     "Curl martillo","Curl concentrado",
-    "Curl en polea","Curl Scott (predicador)","Press francés","Extensión de tríceps en polea",
+    "Curl en polea","Curl en polea unilateral","Curl Scott (predicador)","Press francés","Extensión de tríceps en polea",
     "Extensión de tríceps en polea con barra","Extensión tríceps polea agarre prono",
     "Fondos de tríceps en banco","Patada de tríceps","Extensión de tríceps con mancuerna",
     "Press cerrado",
@@ -513,7 +516,7 @@
     // Cardio / funcional
     "Cinta (caminar/correr)","Bicicleta fija","Elíptico","Máquina de remo","Escaladora",
     "Salto de soga","Burpees","Kettlebell swing","Battle rope","Trineo (sled)",
-    "Patada de glúteo en polea",
+    "Patada de glúteo en polea","Patada de glúteo en máquina",
   ];
 
   /* ---------- Diagrama muscular: qué zona trabaja cada ejercicio ---------- */
@@ -539,6 +542,13 @@
     "Flexiones de brazos": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.3]] },
     "Press en máquina Smith": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.3]] },
     "Pullover con mancuerna": { diagram:"front-upper", t:[["chest-upper",1],["chest-mid",0.3]] },
+    "Fondos en paralelas con peso": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.35]] },
+    "Flexiones inclinadas (manos elevadas)": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.3]] },
+    "Press en el piso con barra": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.25]] },
+    "Press banca agarre ancho": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.25]] },
+    "Press con disco (plate press)": { diagram:"front-upper", t:[["chest-mid",1]] },
+    "Around the world (mancuernas)": { diagram:"front-upper", t:[["chest-mid",1],["chest-upper",0.4]] },
+    "Flexiones con peso": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.35]] },
     // Espalda
     "Dominadas": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.4]] },
     "Dominadas supinas": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.3]] },
@@ -551,6 +561,7 @@
     "Remo en máquina agarre ancho": { diagram:"back-upper", t:[["rhomboids",1],["lats",0.6],["shoulder-rear",0.4]] },
     "Remo en T": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.6]] },
     "Peso muerto": { diagram:"back-upper", t:[["lower-back",1],["lats",0.4],["traps",0.3]] },
+    "Peso muerto con mancuerna": { diagram:"back-leg", t:[["hamstrings",1],["glutes",0.6],["lower-back",0.5]] },
     "Peso muerto rumano": { diagram:"back-leg", t:[["hamstrings",1],["glutes",0.5]] },
     "Peso muerto sumo": { diagram:"back-upper", t:[["lower-back",1],["lats",0.3]] },
     "Hiperextensiones": { diagram:"back-upper", t:[["lower-back",1]] },
@@ -568,7 +579,9 @@
     "Zancadas": { diagram:"front-leg", t:[["quads-front",1],["quads-outer",0.6],["adductors",0.3]] },
     "Zancadas con mancuernas": { diagram:"front-leg", t:[["quads-front",1],["quads-outer",0.6],["adductors",0.3]] },
     "Hip thrust": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.4]] },
+    "Hip thrust en máquina": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.4]] },
     "Puente de glúteo": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.3]] },
+    "Puente de glúteo con barra": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.35]] },
     "Elevación de talones de pie": { diagram:"back-leg", t:[["calves-gastro",1],["calves-soleus",0.5]] },
     "Elevación de talones de pie con disco": { diagram:"back-leg", t:[["calves-gastro",1],["calves-soleus",0.5]] },
     "Elevación de talones sentado": { diagram:"back-leg", t:[["calves-soleus",1],["calves-gastro",0.5]] },
@@ -580,6 +593,7 @@
     // Hombros
     "Press militar con barra": { diagram:"front-upper", t:[["shoulder-front",1],["shoulder-lateral",0.5]] },
     "Press militar con mancuernas": { diagram:"front-upper", t:[["shoulder-front",1],["shoulder-lateral",0.6]] },
+    "Press militar con mancuernas sentado": { diagram:"front-upper", t:[["shoulder-front",1],["shoulder-lateral",0.6]] },
     "Press Arnold": { diagram:"front-upper", t:[["shoulder-front",1],["shoulder-lateral",0.7]] },
     "Press tras nuca": { diagram:"front-upper", t:[["shoulder-lateral",1],["shoulder-front",0.7]] },
     "Elevaciones laterales": { diagram:"front-upper", t:[["shoulder-lateral",1]] },
@@ -589,11 +603,13 @@
     "Encogimientos de hombros": { diagram:"back-upper", t:[["traps",1]] },
     // Brazos
     "Curl con barra": { diagram:"front-upper", t:[["biceps-short",1],["biceps-long",0.8]] },
+    "Curl con mancuernas": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.8]] },
     "Curl con mancuernas alternado": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.8]] },
     "Curl con mancuernas banco inclinado": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.5]] },
     "Curl martillo": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.4]] },
     "Curl concentrado": { diagram:"front-upper", t:[["biceps-short",1],["biceps-long",0.5]] },
     "Curl en polea": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.85]] },
+    "Curl en polea unilateral": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.85]] },
     "Curl Scott (predicador)": { diagram:"front-upper", t:[["biceps-short",1],["biceps-long",0.5]] },
     "Press francés": { diagram:"back-upper", t:[["triceps-long",1],["triceps-lateral",0.5],["triceps-medial",0.4]] },
     "Extensión de tríceps en polea": { diagram:"back-upper", t:[["triceps-lateral",1],["triceps-long",0.5],["triceps-medial",0.4]] },
@@ -614,6 +630,7 @@
     "Mountain climbers": { diagram:"front-upper", t:[["abs",1]] },
     // Cardio / funcional
     "Patada de glúteo en polea": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.3]] },
+    "Patada de glúteo en máquina": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.3]] },
   };
 
   /* ---------- Grupos musculares (para el explorador y el generador automático) ----------
@@ -807,6 +824,13 @@
     "Flexiones de brazos": ["Cuerpo en línea recta, sin subir ni bajar la cadera.", "Manos un poco más anchas que los hombros.", "Bajá el pecho casi hasta tocar el piso."],
     "Press en máquina Smith": ["Ubicá el banco para que la barra baje justo al pecho medio.", "Controlá la bajada, no dejes que la barra caiga sola.", "Codos a 45° respecto al torso, no totalmente abiertos."],
     "Pullover con mancuerna": ["Apoyá solo la parte alta de la espalda en el banco.", "Bajá la mancuerna detrás de la cabeza con los brazos casi rectos.", "Sentí el estiramiento en el pecho/dorsal antes de volver."],
+    "Fondos en paralelas con peso": ["Colgá el disco o mancuerna del cinturón antes de subir a las paralelas.", "Empezá con poco peso agregado hasta dominar bien la técnica sin peso.", "Mismo recorrido que el fondo normal: 90° en el codo, sin pasarte si duele el hombro."],
+    "Flexiones inclinadas (manos elevadas)": ["Manos apoyadas en un banco o escalón, cuerpo en línea recta.", "Más fácil que la flexión en el piso — ideal para sumar volumen o entrar en calor.", "Bajá el pecho hasta casi tocar el borde del banco."],
+    "Press en el piso con barra": ["Acostate en el piso, rodillas flexionadas y pies apoyados.", "Bajá hasta que los tríceps toquen el piso, pausá un instante ahí.", "El recorrido es más corto que en banco — no fuerces bajar más de lo que el piso permite."],
+    "Press banca agarre ancho": ["Agarre bastante más ancho que el press normal, muñecas firmes.", "Bajá la barra al pecho con los codos más abiertos que en el agarre estándar.", "Si sentís molestia en el hombro, achicá un poco el agarre."],
+    "Press con disco (plate press)": ["Juntá dos discos livianos palma contra palma, a la altura del pecho.", "Apretá los discos entre sí durante todo el movimiento, no solo al final.", "Empujá hacia adelante sin separar las manos."],
+    "Around the world (mancuernas)": ["Mancuernas livianas, brazos casi extendidos durante todo el recorrido.", "Dibujá un arco amplio: de los costados hacia arriba y adelante, como abrazando una pelota grande.", "Movimiento lento y controlado — con mucho peso se pierde la técnica."],
+    "Flexiones con peso": ["Placa o disco apoyado en la espalda alta (o chaleco con peso).", "Misma técnica que la flexión normal: cuerpo recto, pecho casi al piso.", "Sumá peso de a poco, solo cuando la flexión normal ya te resulte fácil."],
     "Dominadas": ["Arrancá desde brazos completamente extendidos (dead hang).", "Llevá el pecho hacia la barra, no solo la barbilla.", "Bajá controlado, no te dejes caer."],
     "Dominadas supinas": ["Agarre en supinación (palmas hacia vos), más angosto.", "Subí llevando el pecho a la barra.", "Bajá completo antes de la siguiente repetición."],
     "Jalón al pecho": ["Agarre un poco más ancho que los hombros.", "Llevá la barra hacia la parte alta del pecho, no la nuca.", "Sacá pecho y llevá los codos hacia abajo y atrás."],
@@ -818,6 +842,7 @@
     "Remo en máquina agarre ancho": ["Agarre más ancho que los hombros, codos hacia afuera.", "Enfatiza la espalda media y el deltoide posterior.", "Apretá bien los omóplatos al final del recorrido."],
     "Remo en T": ["Pecho apoyado o torso firme e inclinado, según la máquina.", "Tirá la barra hacia el abdomen, codos cerca del cuerpo.", "Apretá bien arriba antes de volver."],
     "Peso muerto": ["Barra pegada a las piernas durante todo el recorrido.", "Espalda neutra, pecho arriba, no redondees la zona lumbar.", "Empujá el piso con los pies, no tires solo con la espalda."],
+    "Peso muerto con mancuerna": ["Mancuerna bien pegada a la pierna, cadera hacia atrás.", "Espalda neutra durante todo el recorrido, sin redondear.", "Volvé parando con los talones, apretando glúteos arriba."],
     "Peso muerto rumano": ["Rodillas con flexión leve y fija, no es una sentadilla.", "Llevá la cadera hacia atrás, barra rozando las piernas.", "Bajá hasta sentir el estiramiento en isquios, sin redondear la espalda."],
     "Peso muerto sumo": ["Pies bien abiertos, puntas hacia afuera.", "Agarre entre las piernas, espalda recta.", "Empujá el piso hacia afuera al subir."],
     "Hiperextensiones": ["No hiperextiendas de más arriba — hasta la línea recta del cuerpo alcanza.", "Bajá controlado, sin caer de golpe.", "Podés cruzar los brazos o sostener peso para más intensidad."],
@@ -834,7 +859,9 @@
     "Zancadas": ["Paso largo, bajá hasta que la rodilla trasera casi toque el piso.", "Rodilla delantera alineada con el pie, sin irse hacia adelante.", "Empujá con el talón de adelante para volver."],
     "Zancadas con mancuernas": ["Mismo movimiento que la zancada, con mancuernas a los costados.", "Torso erguido durante todo el recorrido.", "Alterná piernas o hacé todas las repeticiones de un lado primero."],
     "Hip thrust": ["Espalda alta apoyada en un banco, barra sobre la cadera.", "Subí hasta que el torso quede en línea con los muslos.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
+    "Hip thrust en máquina": ["El respaldo y el recorrido ya vienen guiados por la máquina.", "Subí hasta que el torso quede en línea con los muslos.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
     "Puente de glúteo": ["Igual que el hip thrust pero con la espalda en el piso.", "Empujá con los talones, apretando glúteos arriba.", "Bajá controlado sin descansar del todo entre repeticiones."],
+    "Puente de glúteo con barra": ["Igual que el puente de glúteo, con una barra apoyada sobre la cadera.", "Sostené la barra firme con las manos mientras empujás con los talones.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
     "Elevación de talones de pie": ["Subí lo más alto posible sobre la punta de los pies.", "Bajá controlado hasta sentir el estiramiento del gemelo.", "Evitá rebotar para hacer más repeticiones."],
     "Elevación de talones de pie con disco": ["Sostené el disco con ambas manos contra el pecho o al costado.", "Subí lo más alto posible sobre la punta de los pies.", "Bajá controlado sin rebotar."],
     "Elevación de talones sentado": ["Rodillas flexionadas a 90°, esto enfatiza el sóleo.", "Subí bien alto y hacé una pausa breve arriba.", "Bajá controlado hasta el estiramiento completo."],
@@ -845,6 +872,7 @@
     "Peso muerto piernas rígidas": ["Rodillas casi rectas, más rígidas que en el rumano.", "Cadera hacia atrás, barra pegada a las piernas.", "Bajá solo hasta donde la espalda se mantenga recta."],
     "Press militar con barra": ["Core apretado, no arquees de más la zona lumbar.", "Subí la barra en línea recta por delante de la cara.", "Bloqueá arriba sin trabar los codos de golpe."],
     "Press militar con mancuernas": ["Mismo cuidado con la zona lumbar que con barra.", "Codos ligeramente por delante del cuerpo al empezar.", "Subí ambas mancuernas de forma pareja."],
+    "Press militar con mancuernas sentado": ["Espalda bien apoyada en el respaldo, sin arquear la zona lumbar.", "Codos ligeramente por delante del cuerpo al empezar.", "Subí ambas mancuernas de forma pareja hasta casi extender el codo."],
     "Press Arnold": ["Empezá con las palmas mirando hacia vos, giralas al subir.", "Movimiento más lento por la rotación de muñeca.", "Terminá arriba con las palmas hacia adelante."],
     "Press tras nuca": ["Cuidado: exige buena movilidad de hombro, no fuerces si molesta.", "Bajá la barra apenas detrás de la cabeza.", "Preferí esta variante con poco peso."],
     "Elevaciones laterales": ["Codos con una leve flexión fija, no los estires del todo.", "Subí hasta la altura del hombro, no más arriba.", "Bajá controlado, sin usar impulso del cuerpo."],
@@ -853,11 +881,13 @@
     "Remo al mentón": ["Agarre un poco más angosto que los hombros.", "Subí los codos por encima de las manos.", "Si sentís molestia en el hombro, abrí más el agarre."],
     "Encogimientos de hombros": ["Subí los hombros derecho hacia arriba, sin girarlos.", "Aguantá un segundo arriba apretando los trapecios.", "Bajá controlado, sin dejar caer el peso de golpe."],
     "Curl con barra": ["Codos pegados al torso durante todo el movimiento.", "Subí sin balancear el cuerpo para impulsar la barra.", "Bajá controlado hasta extender casi del todo el brazo."],
+    "Curl con mancuernas": ["Ambos brazos suben al mismo tiempo, codos pegados al torso.", "Girá la muñeca (supinación) a medida que subís.", "Bajá controlado, sin balancear el cuerpo para impulsar el peso."],
     "Curl con mancuernas alternado": ["Girá la muñeca (supinación) a medida que subís.", "Un brazo a la vez, sin balancear el torso.", "Bajá controlado antes de empezar el otro lado."],
     "Curl con mancuernas banco inclinado": ["Banco inclinado ~45°, brazos colgando bien atrás del torso.", "Este ángulo estira más el bíceps, sentilo desde el arranque.", "Subí sin despegar el brazo del respaldo ni balancear el hombro."],
     "Curl martillo": ["Agarre neutro (palmas mirándose entre sí) durante todo el movimiento.", "Codos fijos pegados al cuerpo.", "Subí y bajá controlado, sin usar impulso."],
     "Curl concentrado": ["Codo apoyado contra la parte interna del muslo.", "Movimiento lento, enfocado en apretar arriba.", "Bajá hasta extender casi completo el brazo."],
     "Curl en polea": ["Cuerpo firme, sin balancearte para ayudar al movimiento.", "Codos pegados al torso durante todo el recorrido.", "Apretá arriba antes de bajar controlado."],
+    "Curl en polea unilateral": ["Un brazo a la vez, cuerpo firme sin girar el torso.", "Codo pegado al cuerpo durante todo el recorrido.", "Apretá arriba antes de bajar controlado y cambiar de brazo."],
     "Curl Scott (predicador)": ["Axila bien apoyada contra el banco inclinado.", "No extiendas del todo abajo para cuidar el codo.", "Subí controlado, sin tirones."],
     "Press francés": ["Codos apuntando al techo durante todo el movimiento.", "Bajá la barra/mancuerna hacia la frente, no hacia la nuca.", "Solo se mueve el antebrazo, el codo queda fijo."],
     "Extensión de tríceps en polea": ["Codos pegados al cuerpo, fijos.", "Extendé completo abajo apretando el tríceps.", "Volvé controlado sin que la polea tire del brazo."],
@@ -876,6 +906,7 @@
     "Giro ruso (russian twist)": ["Torso inclinado hacia atrás, pies apoyados o levantados.", "Girá tocando el piso a cada lado con control.", "Movimiento desde el core, no solo los brazos."],
     "Mountain climbers": ["Posición de plancha, cadera estable.", "Llevá las rodillas hacia el pecho de forma alternada.", "Mantené un ritmo controlado, sin que la cadera suba de más."],
     "Patada de glúteo en polea": ["Torso ligeramente inclinado, apoyo firme en el aparato.", "Empujá la pierna hacia atrás y arriba apretando el glúteo.", "Volvé controlado, sin usar impulso."],
+    "Patada de glúteo en máquina": ["Apoyate firme en el aparato, torso ligeramente inclinado.", "Empujá con el pie hacia atrás y arriba apretando el glúteo.", "Volvé controlado, sin usar impulso."],
   };
 
   // Siluetas simplificadas en SVG. Cada <path>/<ellipse> tiene data-region;
@@ -1108,6 +1139,30 @@
     "Jalón al pecho": "ejercicios/videos/jalon-al-pecho.mp4",
     "Peso muerto": "ejercicios/videos/peso-muerto.mp4",
     "Sentadilla": "ejercicios/videos/sentadilla.mp4",
+    "Press con mancuernas plano": "ejercicios/videos/press-mancuernas-plano.mp4",
+    "Press con mancuernas inclinado": "ejercicios/videos/press-mancuernas-inclinado.mp4",
+    "Curl martillo": "ejercicios/videos/curl-martillo.mp4",
+    "Elevaciones laterales": "ejercicios/videos/elevaciones-laterales.mp4",
+    "Curl con barra": "ejercicios/videos/curl-con-barra.mp4",
+    "Peso muerto sumo": "ejercicios/videos/peso-muerto-sumo.mp4",
+    "Press Arnold": "ejercicios/videos/press-arnold.mp4",
+    "Curl con mancuernas": "ejercicios/videos/curl-mancuernas.mp4",
+    "Press militar con mancuernas sentado": "ejercicios/videos/press-militar-mancuernas-sentado.mp4",
+    "Extensión de cuádriceps": "ejercicios/videos/extension-cuadriceps.mp4",
+    "Curl femoral sentado": "ejercicios/videos/curl-femoral-sentado.mp4",
+    "Curl femoral acostado": "ejercicios/videos/curl-femoral-acostado.mp4",
+    "Cruce de poleas (aperturas en polea)": "ejercicios/videos/cruce-poleas.mp4",
+    "Fondos de tríceps en banco": "ejercicios/videos/fondos-triceps-banco.mp4",
+    "Remo en polea baja": "ejercicios/videos/remo-polea-baja.mp4",
+    "Face pull": "ejercicios/videos/face-pull.mp4",
+    "Patada de glúteo en polea": "ejercicios/videos/patada-gluteo-polea.mp4",
+    "Prensa de piernas": "ejercicios/videos/prensa-piernas.mp4",
+    "Extensión de tríceps en polea": "ejercicios/videos/extension-triceps-polea.mp4",
+    "Puente de glúteo con barra": "ejercicios/videos/puente-gluteo-barra.mp4",
+    "Peso muerto con mancuerna": "ejercicios/videos/peso-muerto-mancuerna.mp4",
+    "Curl en polea unilateral": "ejercicios/videos/curl-polea-unilateral.mp4",
+    "Patada de glúteo en máquina": "ejercicios/videos/patada-gluteo-maquina.mp4",
+    "Hip thrust en máquina": "ejercicios/videos/hip-thrust-maquina.mp4",
   };
 
   function exerciseVideoFor(exerciseName){
@@ -1136,6 +1191,13 @@
     "Flexiones de brazos": "Peso corporal",
     "Press en máquina Smith": "Máquina",
     "Pullover con mancuerna": "Mancuernas",
+    "Fondos en paralelas con peso": "Peso libre",
+    "Flexiones inclinadas (manos elevadas)": "Peso corporal",
+    "Press en el piso con barra": "Barra",
+    "Press banca agarre ancho": "Barra",
+    "Press con disco (plate press)": "Peso libre",
+    "Around the world (mancuernas)": "Mancuernas",
+    "Flexiones con peso": "Peso libre",
     // Espalda
     "Dominadas": "Peso corporal",
     "Dominadas supinas": "Peso corporal",
@@ -1148,6 +1210,7 @@
     "Remo en máquina agarre ancho": "Máquina",
     "Remo en T": "Máquina", // * (a veces es barra tipo landmine)
     "Peso muerto": "Barra",
+    "Peso muerto con mancuerna": "Mancuernas",
     "Peso muerto rumano": "Barra",
     "Peso muerto sumo": "Barra",
     "Hiperextensiones": "Peso corporal", // * (banco romano, sin carga externa por defecto)
@@ -1165,7 +1228,9 @@
     "Zancadas": "Peso corporal",
     "Zancadas con mancuernas": "Mancuernas",
     "Hip thrust": "Barra",
+    "Hip thrust en máquina": "Máquina",
     "Puente de glúteo": "Peso corporal",
+    "Puente de glúteo con barra": "Barra",
     "Elevación de talones de pie": "Máquina", // *
     "Elevación de talones de pie con disco": "Peso libre",
     "Elevación de talones sentado": "Máquina",
@@ -1177,6 +1242,7 @@
     // Hombros
     "Press militar con barra": "Barra",
     "Press militar con mancuernas": "Mancuernas",
+    "Press militar con mancuernas sentado": "Mancuernas",
     "Press Arnold": "Mancuernas",
     "Press tras nuca": "Barra",
     "Elevaciones laterales": "Mancuernas",
@@ -1186,11 +1252,13 @@
     "Encogimientos de hombros": "Mancuernas", // *
     // Brazos
     "Curl con barra": "Barra",
+    "Curl con mancuernas": "Mancuernas",
     "Curl con mancuernas alternado": "Mancuernas",
     "Curl con mancuernas banco inclinado": "Mancuernas",
     "Curl martillo": "Mancuernas",
     "Curl concentrado": "Mancuernas",
     "Curl en polea": "Polea",
+    "Curl en polea unilateral": "Polea",
     "Curl Scott (predicador)": "Barra", // * (barra Z / EZ)
     "Press francés": "Barra", // * (a veces mancuerna)
     "Extensión de tríceps en polea": "Polea",
@@ -1221,6 +1289,7 @@
     "Battle rope": "Peso libre",
     "Trineo (sled)": "Peso libre",
     "Patada de glúteo en polea": "Polea",
+    "Patada de glúteo en máquina": "Máquina",
   };
   function exerciseEquipment(name){
     return EXERCISE_EQUIPMENT[name] || "No especificado";
@@ -3820,6 +3889,8 @@
     exerciseMuscleGroup, muscleGroupPools, subgroupPools, MUSCLE_GROUPS,
     exerciseLegFocus, seriesForAge, restRangeForAge, sessionCountRange,
     EXERCISES_RISKY_50PLUS, dayModality, get state(){ return state; },
+    EXERCISES, EXERCISE_VIDEOS, EXERCISE_IMAGES, exerciseVideoFor, exerciseImageFor,
+    screenExerciseDetail,
   };
 
 })();
