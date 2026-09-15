@@ -113,6 +113,10 @@
     padding-bottom: calc(78px + env(safe-area-inset-bottom));
     position:relative;
   }
+  /* La ficha de ejercicio usa un layout de dos columnas en pantallas anchas
+     (ver .exdetail-layout), así que en esa pantalla el contenedor se puede
+     ensanchar — en mobile no cambia nada porque el viewport ya es angosto. */
+  #app.app-wide{ max-width:960px; }
 
   .topbar{
     position:sticky; top:0; z-index:5;
@@ -372,6 +376,35 @@
   .tips-box{ background:var(--surface-2); border-radius:var(--radius-s); padding:12px 14px; }
   .tips-list{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13.5px; line-height:1.4; color:var(--text); }
 
+  .exdetail-meta{ display:flex; flex-direction:column; gap:5px; padding:2px 0 4px; font-size:13.5px; color:var(--text-muted); }
+  .exdetail-meta b{ color:var(--text); font-weight:700; }
+  .exchart-wrap{ padding:4px 2px 2px; }
+  svg.exchart{ width:100%; height:140px; overflow:visible; }
+
+  /* Ficha de ejercicio (pantalla completa, estilo Hevy: detalle + biblioteca) */
+  .exdetail-toprow{ display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+  .exdetail-toprow .exdetail-meta{ flex:1 1 160px; min-width:140px; }
+  .exdetail-toprow .howto-pic-labeled{ flex:none; margin:0 auto; }
+  .exdetail-mobile-toggle{ display:flex; }
+  .exdetail-layout{ display:flex; flex-direction:column; gap:16px; }
+  .exdetail-col[hidden]{ display:none; }
+  .exlib-filters{ display:flex; flex-direction:column; gap:8px; }
+  .exlib-filters .field-row{ gap:8px; }
+  .exlib-filters select{ font-size:12.5px; padding:10px 8px; }
+  .exlib-list{ display:flex; flex-direction:column; gap:6px; max-height:56vh; overflow-y:auto; margin-top:8px; }
+  .exlib-row{
+    display:flex; align-items:center; gap:10px; padding:8px 9px;
+    background:var(--surface-2); border-radius:var(--radius-s); cursor:pointer; text-align:left; border:1px solid transparent;
+  }
+  .exlib-row.active{ border-color:var(--accent); }
+  .exlib-row .exlib-name{ font-weight:600; font-size:13.5px; }
+  .exlib-row .exlib-cap{ font-size:11.5px; color:var(--text-muted); }
+  @media (min-width:820px){
+    .exdetail-mobile-toggle{ display:none; }
+    .exdetail-layout{ display:grid; grid-template-columns:1.3fr 1fr; align-items:start; gap:20px; }
+    .exdetail-col[hidden]{ display:block; }
+  }
+
   /* Calendario */
   .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
   .cal-weekday{ font-size:11px; color:var(--text-muted); text-align:center; text-transform:uppercase; font-weight:600; padding-bottom:2px; }
@@ -611,6 +644,48 @@
   function exerciseMuscleGroup(name){
     const sg = exercisePrimarySubgroup(name);
     return sg ? SUBGROUP_TO_MUSCLEGROUP[sg] : null;
+  }
+  // Grupo muscular PRINCIPAL y SECUNDARIO (taxonomía de 6 grupos, para la ficha
+  // de ejercicio) — se recorren las regiones de MUSCLE_MAP ordenadas por
+  // intensidad y se toman los dos primeros grupos DISTINTOS que aparecen.
+  function exercisePrincipalSecondaryGroups(name){
+    const info = MUSCLE_MAP[name];
+    if(!info || !info.t || !info.t.length) return { principal:null, secondary:null };
+    const sorted = info.t.slice().sort((a,b)=>b[1]-a[1]);
+    const groupsInOrder = [];
+    sorted.forEach(([region])=>{
+      const sg = REGION_SUBGROUP[region];
+      const g = sg && SUBGROUP_TO_MUSCLEGROUP[sg];
+      if(g && groupsInOrder.indexOf(g)===-1) groupsInOrder.push(g);
+    });
+    return { principal: groupsInOrder[0]||null, secondary: groupsInOrder[1]||null };
+  }
+  // Sub-foco dentro de "piernas" (cuádriceps/glúteos/isquios/pantorrillas/
+  // aductores) — usado por el generador automático para poder exigir que un
+  // día de pierna tenga sí o sí un ejercicio de cuádriceps y uno de glúteo.
+  function exerciseLegFocus(name){
+    const info = MUSCLE_MAP[name];
+    if(!info || !info.t || !info.t.length) return null;
+    let best = info.t[0];
+    info.t.forEach(t=>{ if(t[1]>best[1]) best=t; });
+    const region = best[0];
+    if(region.indexOf("quads")===0) return "quads";
+    if(region==="glutes") return "glutes";
+    if(region==="hamstrings") return "hamstrings";
+    if(region.indexOf("calves")===0) return "calves";
+    if(region==="adductors") return "adductors";
+    return null;
+  }
+  let _legFocusPoolsCache = null;
+  function legFocusPools(){
+    if(_legFocusPoolsCache) return _legFocusPoolsCache;
+    const pools = { quads:[], glutes:[], hamstrings:[], calves:[], adductors:[] };
+    Object.keys(MUSCLE_MAP).forEach(name=>{
+      const f = exerciseLegFocus(name);
+      if(f && pools[f]) pools[f].push(name);
+    });
+    _legFocusPoolsCache = pools;
+    return pools;
   }
   let _subgroupPoolsCache = null;
   function subgroupPools(){
@@ -1015,6 +1090,118 @@
     return EXERCISE_IMAGES[exerciseName] || null;
   }
 
+  // Equipamiento por ejercicio (para la ficha de ejercicio). Inferido a mano
+  // a partir del nombre/naturaleza de cada ejercicio, agrupado en categorías
+  // simples y consistentes con lo que ya usan apps de referencia (Hevy, etc.):
+  // Barra, Mancuernas, Máquina, Polea, Peso corporal, Peso libre (kettlebell/
+  // disco/trineo/cuerda) y Cardio (cinta, bici, elíptico...). Algunas variantes
+  // se pueden hacer con más de un implemento — se eligió la opción más común
+  // en un gimnasio comercial; están marcadas con "*" las que son más discutibles.
+  const EXERCISE_EQUIPMENT = {
+    // Pecho
+    "Press banca plano": "Barra",
+    "Press banca inclinado": "Barra",
+    "Press banca declinado": "Barra",
+    "Press con mancuernas plano": "Mancuernas",
+    "Press con mancuernas inclinado": "Mancuernas",
+    "Press con mancuernas declinado": "Mancuernas",
+    "Aperturas con mancuernas": "Mancuernas",
+    "Cruce de poleas (aperturas en polea)": "Polea",
+    "Pec deck (contractora)": "Máquina",
+    "Fondos en paralelas": "Peso corporal",
+    "Flexiones de brazos": "Peso corporal",
+    "Press en máquina Smith": "Máquina",
+    "Pullover con mancuerna": "Mancuernas",
+    // Espalda
+    "Dominadas": "Peso corporal",
+    "Dominadas supinas": "Peso corporal",
+    "Jalón al pecho": "Polea",
+    "Jalón tras nuca": "Polea",
+    "Remo con barra": "Barra",
+    "Remo con mancuerna": "Mancuernas",
+    "Remo en polea baja": "Polea",
+    "Remo en máquina": "Máquina",
+    "Remo en máquina agarre ancho": "Máquina",
+    "Remo en T": "Máquina", // * (a veces es barra tipo landmine)
+    "Peso muerto": "Barra",
+    "Peso muerto rumano": "Barra",
+    "Peso muerto sumo": "Barra",
+    "Hiperextensiones": "Peso corporal", // * (banco romano, sin carga externa por defecto)
+    "Face pull": "Polea",
+    // Piernas
+    "Sentadilla": "Barra",
+    "Sentadilla frontal": "Barra",
+    "Sentadilla búlgara": "Mancuernas", // *
+    "Sentadilla sumo": "Mancuernas", // *
+    "Sentadilla hack": "Máquina",
+    "Prensa de piernas": "Máquina",
+    "Extensión de cuádriceps": "Máquina",
+    "Curl femoral acostado": "Máquina",
+    "Curl femoral sentado": "Máquina",
+    "Zancadas": "Peso corporal",
+    "Zancadas con mancuernas": "Mancuernas",
+    "Hip thrust": "Barra",
+    "Puente de glúteo": "Peso corporal",
+    "Elevación de talones de pie": "Máquina", // *
+    "Elevación de talones de pie con disco": "Peso libre",
+    "Elevación de talones sentado": "Máquina",
+    "Elevación de talones en prensa": "Máquina",
+    "Abductores en máquina": "Máquina",
+    "Aductores en máquina": "Máquina",
+    "Step up": "Peso corporal", // * (también común con mancuernas)
+    "Peso muerto piernas rígidas": "Barra",
+    // Hombros
+    "Press militar con barra": "Barra",
+    "Press militar con mancuernas": "Mancuernas",
+    "Press Arnold": "Mancuernas",
+    "Press tras nuca": "Barra",
+    "Elevaciones laterales": "Mancuernas",
+    "Elevaciones frontales": "Mancuernas",
+    "Pájaro (deltoide posterior)": "Mancuernas",
+    "Remo al mentón": "Barra",
+    "Encogimientos de hombros": "Mancuernas", // *
+    // Brazos
+    "Curl con barra": "Barra",
+    "Curl con mancuernas alternado": "Mancuernas",
+    "Curl con mancuernas banco inclinado": "Mancuernas",
+    "Curl martillo": "Mancuernas",
+    "Curl concentrado": "Mancuernas",
+    "Curl en polea": "Polea",
+    "Curl Scott (predicador)": "Barra", // * (barra Z / EZ)
+    "Press francés": "Barra", // * (a veces mancuerna)
+    "Extensión de tríceps en polea": "Polea",
+    "Extensión de tríceps en polea con barra": "Polea",
+    "Extensión tríceps polea agarre prono": "Polea",
+    "Fondos de tríceps en banco": "Peso corporal",
+    "Patada de tríceps": "Mancuernas",
+    "Extensión de tríceps con mancuerna": "Mancuernas",
+    "Press cerrado": "Barra",
+    // Core
+    "Abdominales crunch": "Peso corporal",
+    "Elevación de piernas colgado": "Peso corporal",
+    "Plancha": "Peso corporal",
+    "Plancha lateral": "Peso corporal",
+    "Rueda abdominal": "Peso libre",
+    "Crunch en polea": "Polea",
+    "Giro ruso (russian twist)": "Peso corporal", // * (a veces con disco)
+    "Mountain climbers": "Peso corporal",
+    // Cardio / funcional
+    "Cinta (caminar/correr)": "Cardio",
+    "Bicicleta fija": "Cardio",
+    "Elíptico": "Cardio",
+    "Máquina de remo": "Cardio",
+    "Escaladora": "Cardio",
+    "Salto de soga": "Peso corporal",
+    "Burpees": "Peso corporal",
+    "Kettlebell swing": "Peso libre",
+    "Battle rope": "Peso libre",
+    "Trineo (sled)": "Peso libre",
+    "Patada de glúteo en polea": "Polea",
+  };
+  function exerciseEquipment(name){
+    return EXERCISE_EQUIPMENT[name] || "No especificado";
+  }
+
   function muscleTargets(exerciseName){
     const info = MUSCLE_MAP[exerciseName];
     if(!info) return null;
@@ -1049,42 +1236,271 @@
     return `<div class="muscle-diagram-pic" style="${sizeStyle}">${bodyDiagramSvg(m.diagram, m.list)}</div>`;
   }
 
-  // Modal "Cómo hacerlo": foto (propia del usuario, o la oficial del ejercicio
-  // si hay una) o diagrama grande + técnica. Reemplaza gratis al GIF (pospuesto).
-  function openHowtoModal(ex){
-    const tips = EXERCISE_TIPS[ex.nombre] || [];
-    const m = muscleTargets(ex.nombre);
-    const photoUrl = ex.imagenUrl || exerciseImageFor(ex.nombre);
-    const photoBlock = photoUrl
-      ? `<div style="display:flex; justify-content:center">
-           <img src="${esc(photoUrl)}" class="howto-photo" alt="${esc(ex.nombre)}" onerror="this.style.display='none'">
-         </div>`
-      : "";
-    const muscleBlock = m ? (()=>{
-      const primary = m.list.filter(x=>x.intensity>=0.75).map(x=>MUSCLE_LABELS[x.region]||x.region);
-      const secondary = m.list.filter(x=>x.intensity<0.75).map(x=>MUSCLE_LABELS[x.region]||x.region);
-      return `
-        <div class="muscle-section">
-          <div class="helptext" style="text-transform:uppercase; letter-spacing:.04em; font-weight:700; text-align:center">Qué músculo trabaja</div>
-          <div style="display:flex; justify-content:center">
-            <div class="howto-pic howto-pic-labeled">${bodyDiagramSvgLabeled(m.diagram, m.list)}</div>
+  // Gráfico de línea peso-a-lo-largo-del-tiempo para la pestaña "Estadísticas"
+  // de la ficha de ejercicio — mismo estilo que el sparkline de Registro, pero
+  // más grande y con eje de fechas.
+  function exerciseLineChart(historyAsc){
+    const w = 300, h = 140, padX = 10, padY = 18;
+    const weights = historyAsc.map(r=> parseFloat(r.peso)||0);
+    const best = Math.max(...weights);
+    const min = Math.min(...weights);
+    const range = (best-min)||1;
+    const pts = weights.map((val,i)=>{
+      const x = weights.length===1 ? w/2 : (i/(weights.length-1))*(w-padX*2)+padX;
+      const y = h - padY - ((val-min)/range)*(h-padY*2);
+      return [x,y];
+    });
+    const path = pts.map((p,i)=> (i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+    const first = historyAsc[0], last = historyAsc[historyAsc.length-1];
+    return `
+      <div class="exchart-wrap">
+        <svg class="exchart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <line x1="0" y1="${h-padY}" x2="${w}" y2="${h-padY}" stroke="var(--border)" stroke-width="1"/>
+          <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          ${pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="var(--accent)"/>`).join("")}
+        </svg>
+        <div class="row between"><span class="helptext">${esc(fmtDate(first.date))}</span><span class="helptext">${esc(fmtDate(last.date))}</span></div>
+        <div class="row between" style="margin-top:8px">
+          <div><div class="num" style="font-weight:700; font-size:16px">${min} kg</div><div class="helptext">Mínimo</div></div>
+          <div style="text-align:right"><div class="num" style="font-weight:700; font-size:16px">${best} kg</div><div class="helptext">Mejor marca</div></div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Ficha de ejercicio (pantalla completa, no modal): equipamiento + grupo
+  // muscular principal/secundario + diagrama corporal etiquetado, 3 pestañas
+  // (Estadísticas / Historial / Indicaciones) que reusan datos ya existentes
+  // (registros del usuario y EXERCISE_TIPS), y a la derecha una "Biblioteca"
+  // con buscador + filtros para saltar a otro ejercicio sin salir de la
+  // pantalla. En mobile se apila en una sola columna con un selector arriba
+  // para alternar entre "Detalle" y "Biblioteca"; en pantallas anchas (ver
+  // .exdetail-layout) se muestran las dos columnas lado a lado, como en la
+  // referencia que mandó Juan.
+  function openExerciseDetail(exOrName, opts){
+    opts = opts || {};
+    const isObj = exOrName && typeof exOrName === "object";
+    state.exDetail = {
+      nombre: isObj ? exOrName.nombre : exOrName,
+      imagenUrl: isObj ? (exOrName.imagenUrl||"") : "", // link personalizado pegado en ESTE día/sesión (si lo hay)
+      tab:"stats",
+      mobileView:"detail",
+      filterGroup:"",
+      filterEquip:"",
+      filterQuery:"",
+      returnTab: opts.returnTab || state.tab,
+      returnExplorerGroup: state.explorerGroup,
+    };
+    state.tab = "exdetail";
+    render();
+  }
+
+  function exerciseHistoryFor(nombre){
+    return (state.registros||[]).filter(r=>r.exercise===nombre)
+      .slice().sort((a,b)=> a.date<b.date?-1:(a.date>b.date?1:0));
+  }
+  function exStatsTabHtml(history){
+    if(!history.length) return `<p class="helptext" style="text-align:center; padding:16px 0">No hay datos todavía.</p>`;
+    return exerciseLineChart(history);
+  }
+  function exHistoryTabHtml(history){
+    if(!history.length) return `<p class="helptext" style="text-align:center; padding:16px 0">No hay datos todavía.</p>`;
+    const desc = history.slice().reverse();
+    return `<div class="loglist">${desc.map(r=>`
+      <div class="logrow">
+        <div><div class="lex">${esc(fmtDate(r.date))}</div>${r.nota?`<div class="ldate">${esc(r.nota)}</div>`:""}</div>
+        <div><div class="lval num">${esc(r.peso)} kg</div><div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div></div>
+      </div>
+    `).join("")}</div>`;
+  }
+  function exTipsTabHtml(nombre){
+    const tips = EXERCISE_TIPS[nombre] || [];
+    if(!tips.length) return `<p class="helptext" style="text-align:center; padding:16px 0">Todavía no hay consejos de técnica cargados para este ejercicio.</p>`;
+    return `<div class="tips-box"><ul class="tips-list">${tips.map(t=>`<li>${esc(t)}</li>`).join("")}</ul></div>`;
+  }
+
+  // Catálogo completo para la Biblioteca: todo EXERCISES, con su grupo
+  // muscular (o "Cardio / funcional" si no tiene entrada en MUSCLE_MAP) y su
+  // equipamiento — para poder buscar y filtrar sin inventar una fuente de
+  // datos paralela.
+  function exerciseLibraryCatalog(){
+    return EXERCISES.map(n=>({
+      nombre:n,
+      group: exerciseMuscleGroup(n) || "Cardio / funcional",
+      equip: exerciseEquipment(n),
+    })).sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"));
+  }
+
+  function screenExerciseDetail(){
+    const d = state.exDetail;
+    const nombre = d.nombre;
+    const history = exerciseHistoryFor(nombre);
+    const m = muscleTargets(nombre);
+    const groups = exercisePrincipalSecondaryGroups(nombre);
+    const equip = exerciseEquipment(nombre);
+    const photoUrl = d.imagenUrl || exerciseImageFor(nombre);
+    const photoBlock = photoUrl ? `
+      <div style="display:flex; justify-content:center">
+        <img src="${esc(photoUrl)}" class="howto-photo" alt="${esc(nombre)}" onerror="this.style.display='none'">
+      </div>
+    ` : "";
+    const diagramBlock = m ? `
+      <div style="display:flex; justify-content:center">
+        <div class="howto-pic howto-pic-labeled">${bodyDiagramSvgLabeled(m.diagram, m.list)}</div>
+      </div>
+    ` : (photoUrl ? "" : `<p class="helptext" style="text-align:center">Todavía no hay datos de músculo cargados para este ejercicio.</p>`);
+    const tabContent = d.tab==="stats" ? exStatsTabHtml(history) : d.tab==="history" ? exHistoryTabHtml(history) : exTipsTabHtml(nombre);
+
+    const catalog = exerciseLibraryCatalog();
+    const equipOptions = Array.from(new Set(catalog.map(x=>x.equip))).sort((a,b)=>a.localeCompare(b,"es"));
+    const q = normalizeTxt(d.filterQuery);
+    const filtered = catalog.filter(x=>{
+      if(d.filterGroup && x.group!==d.filterGroup) return false;
+      if(d.filterEquip && x.equip!==d.filterEquip) return false;
+      if(q && !normalizeTxt(x.nombre).includes(q)) return false;
+      return true;
+    });
+
+    const detailCol = `
+      <div class="exdetail-col detail-col" data-col="detail" ${d.mobileView!=="detail" ? "hidden" : ""}>
+        <h2 style="font-size:22px; margin-bottom:4px">${esc(nombre)}</h2>
+        <div class="card exdetail-toprow">
+          <div class="exdetail-meta">
+            <div>Equipamiento: <b>${esc(equip)}</b></div>
+            <div>Grupo muscular principal: <b>${esc(groups.principal||"No disponible")}</b></div>
+            ${groups.secondary ? `<div>Grupo muscular secundario: <b>${esc(groups.secondary)}</b></div>` : ""}
           </div>
-          <p class="helptext" style="text-align:center">Principal: <b style="color:var(--text)">${esc(primary.join(" y "))}</b>${secondary.length?` · También: ${esc(secondary.join(", "))}`:""}</p>
+          ${photoUrl ? photoBlock : diagramBlock}
         </div>
-      `;
-    })() : (!photoUrl ? `<p class="helptext" style="text-align:center">Todavía no hay datos de músculo cargados para este ejercicio.</p>` : "");
-    openModal(`
-      <h3>${esc(ex.nombre)}</h3>
-      ${photoBlock}
-      ${muscleBlock}
-      ${tips.length ? `
-        <div class="tips-box">
-          <div class="helptext" style="text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-bottom:6px">Cómo hacerlo</div>
-          <ul class="tips-list">${tips.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
+        ${photoUrl && m ? diagramBlock : ""}
+        <div class="segmented" style="margin-top:14px">
+          <button data-extab="stats" class="${d.tab==="stats"?"active":""}">Estadísticas</button>
+          <button data-extab="history" class="${d.tab==="history"?"active":""}">Historial</button>
+          <button data-extab="tips" class="${d.tab==="tips"?"active":""}">Indicaciones</button>
         </div>
-      ` : `<p class="helptext" style="text-align:center">Todavía no hay consejos de técnica cargados para este ejercicio.</p>`}
-      <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Listo</button></div>
-    `, (mm)=>{ mm.querySelector('[data-act="ok"]').onclick = closeModal; });
+        <div class="card" style="margin-top:10px">${tabContent}</div>
+      </div>
+    `;
+    const libraryCol = `
+      <div class="exdetail-col library-col" data-col="library" ${d.mobileView!=="library" ? "hidden" : ""}>
+        <div class="card stack">
+          <button class="btn btn-outline btn-block" id="btn-ex-custom">${icon("plus")} Ejercicio personalizado</button>
+          <div class="exlib-filters">
+            <div class="field-row">
+              <div class="field">
+                <label>Equipamiento</label>
+                <select id="exlib-equip">
+                  <option value="">Todo el equipamiento</option>
+                  ${equipOptions.map(e=>`<option value="${esc(e)}" ${d.filterEquip===e?"selected":""}>${esc(e)}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field">
+                <label>Grupo muscular</label>
+                <select id="exlib-group">
+                  <option value="">Todos los grupos</option>
+                  ${MUSCLE_GROUPS.concat(["Cardio / funcional"]).map(g=>`<option value="${esc(g)}" ${d.filterGroup===g?"selected":""}>${esc(g)}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Buscar</label>
+              <input type="text" id="exlib-search" placeholder="Buscar ejercicios" value="${esc(d.filterQuery)}">
+            </div>
+          </div>
+          <div class="section-title" style="margin-top:2px"><h2 style="font-size:15px">Todos los ejercicios</h2><span class="muted">${filtered.length}</span></div>
+          <div class="exlib-list">
+            ${filtered.length ? filtered.map(x=>`
+              <div class="exlib-row ${x.nombre===nombre?"active":""}" data-exlib="${esc(x.nombre)}">
+                ${exerciseThumbHtml({nombre:x.nombre}, "width:30px;height:36px;flex:none")}
+                <div style="min-width:0">
+                  <div class="exlib-name">${esc(x.nombre)}</div>
+                  <div class="exlib-cap">${esc(x.group)}</div>
+                </div>
+              </div>
+            `).join("") : `<p class="helptext" style="padding:10px 0">Ningún ejercicio coincide con estos filtros.</p>`}
+          </div>
+        </div>
+      </div>
+    `;
+
+    return `
+      <div class="exdetail-mobile-toggle segmented" style="margin-bottom:2px">
+        <button data-exview="detail" class="${d.mobileView==="detail"?"active":""}">Detalle</button>
+        <button data-exview="library" class="${d.mobileView==="library"?"active":""}">Biblioteca</button>
+      </div>
+      <div class="exdetail-layout">${detailCol}${libraryCol}</div>
+    `;
+  }
+
+  function renderExerciseDetail(){
+    app.classList.add("app-wide");
+    app.innerHTML = `
+      <div class="topbar">
+        <span class="iconbtn" id="btn-exdetail-back">${icon("back")}</span>
+        <h1 style="font-size:18px; flex:1; text-align:center">Ficha del ejercicio</h1>
+        <span style="width:30px"></span>
+      </div>
+      <main><div class="screen" id="screen"></div></main>
+    `;
+    document.getElementById("btn-exdetail-back").onclick = ()=>{
+      const d = state.exDetail;
+      state.tab = (d && d.returnTab) || "rutina";
+      state.explorerGroup = d ? d.returnExplorerGroup : null;
+      state.exDetail = null;
+      render();
+    };
+    document.getElementById("screen").innerHTML = screenExerciseDetail();
+    mountExerciseDetail();
+  }
+
+  function mountExerciseDetail(){
+    const el = document.getElementById("screen");
+    const d = state.exDetail;
+    el.querySelectorAll("[data-extab]").forEach(b=>{
+      b.onclick = ()=>{ d.tab = b.dataset.extab; renderScreenExerciseDetail(); };
+    });
+    el.querySelectorAll("[data-exview]").forEach(b=>{
+      b.onclick = ()=>{ d.mobileView = b.dataset.exview; renderScreenExerciseDetail(); };
+    });
+    el.querySelectorAll("[data-exlib]").forEach(row=>{
+      row.onclick = ()=>{
+        d.nombre = row.dataset.exlib;
+        d.imagenUrl = ""; // el link personalizado era del ejercicio anterior, no de este
+        d.tab = "stats";
+        d.mobileView = "detail";
+        renderScreenExerciseDetail();
+      };
+    });
+    const equipSel = el.querySelector("#exlib-equip");
+    if(equipSel) equipSel.onchange = ()=>{ d.filterEquip = equipSel.value; renderScreenExerciseDetail(); };
+    const groupSel = el.querySelector("#exlib-group");
+    if(groupSel) groupSel.onchange = ()=>{ d.filterGroup = groupSel.value; renderScreenExerciseDetail(); };
+    const searchInp = el.querySelector("#exlib-search");
+    if(searchInp) searchInp.oninput = ()=>{ d.filterQuery = searchInp.value; renderScreenExerciseDetail(); };
+    const customBtn = el.querySelector("#btn-ex-custom");
+    if(customBtn) customBtn.onclick = ()=>{
+      const m = openModal(`
+        <h3>Ejercicio personalizado</h3>
+        <p class="helptext" style="font-size:14px; color:var(--text)">Podés agregar cualquier ejercicio, con el nombre que quieras, al crear o editar un día de tu rutina — no hace falta que esté en esta biblioteca.</p>
+        <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Entendido</button></div>
+      `);
+      m.querySelector('[data-act="ok"]').onclick = closeModal;
+    };
+  }
+
+  // Re-renderiza solo el contenido de la ficha (mantiene el foco del buscador
+  // más natural que un render() completo) — usado por todos los handlers
+  // internos de la pantalla.
+  function renderScreenExerciseDetail(){
+    const el = document.getElementById("screen");
+    if(!el) return;
+    const searchHadFocus = document.activeElement && document.activeElement.id==="exlib-search";
+    el.innerHTML = screenExerciseDetail();
+    mountExerciseDetail();
+    if(searchHadFocus){
+      const inp = el.querySelector("#exlib-search");
+      if(inp){ inp.focus(); inp.selectionStart = inp.selectionEnd = inp.value.length; }
+    }
   }
 
   function normalizeTxt(s){
@@ -1360,6 +1776,7 @@
     session:null,        // { dayId, sets:{exId:[bool,...]} } while "entrenando"
     calMonth:null,       // { y, m } mes mostrado en el calendario (m = 0-indexado)
     explorerGroup:null,  // grupo muscular seleccionado en el explorador (null = lista de grupos)
+    exDetail:null,       // { nombre, tab, mobileView, filtros..., returnTab } — ficha de ejercicio a pantalla completa
   };
 
   const app = document.getElementById("app");
@@ -1442,15 +1859,23 @@
     }
 
     if(state.tab==="sesion" && state.session){
+      app.classList.remove("app-wide");
       renderSession();
       return;
     }
 
     if(state.tab==="explorar"){
+      app.classList.remove("app-wide");
       renderExplorer();
       return;
     }
 
+    if(state.tab==="exdetail" && state.exDetail){
+      renderExerciseDetail();
+      return;
+    }
+
+    app.classList.remove("app-wide");
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">
@@ -1977,72 +2402,219 @@
     chosen.forEach(n=>avoidSet.add(n));
     return chosen;
   }
-  function pickForSubgroup(subgroup, count, avoidSet){
+  // opts.forceLegFocus: lista de sub-focos (["glutes","quads"]) que hay que
+  // garantizar sí o sí dentro del cupo de "piernas" (usado para Femenino, donde
+  // Juan pidió que glúteo y cuádriceps sean obligatorios en cada día de pierna).
+  function pickForSubgroup(subgroup, count, avoidSet, opts){
+    opts = opts || {};
     const pool = subgroupPools()[subgroup] || [];
     if(!pool.length || count<=0) return [];
-    const compounds = pool.filter(isCompoundExercise);
-    const isolations = pool.filter(n=>!isCompoundExercise(n));
-    const wantCompound = Math.min(compounds.length, Math.max(1, Math.round(count*0.4)));
-    let chosen = pickFromPool(compounds, wantCompound, avoidSet);
-    const secondPool = isolations.length ? isolations : pool;
-    chosen = chosen.concat(pickFromPool(secondPool, count-chosen.length, avoidSet));
-    if(chosen.length < count) chosen = chosen.concat(pickFromPool(pool, count-chosen.length, avoidSet));
+    let chosen = [];
+    if(opts.forceLegFocus && opts.forceLegFocus.length){
+      const focusPools = legFocusPools();
+      opts.forceLegFocus.forEach(cat=>{
+        if(chosen.length>=count) return;
+        const catPool = (focusPools[cat]||[]).filter(n=>pool.indexOf(n)!==-1 && chosen.indexOf(n)===-1);
+        if(catPool.length) chosen = chosen.concat(pickFromPool(catPool, 1, avoidSet));
+      });
+    }
+    const remaining = count - chosen.length;
+    if(remaining>0){
+      const restPool = pool.filter(n=>chosen.indexOf(n)===-1);
+      const compounds = restPool.filter(isCompoundExercise);
+      const isolations = restPool.filter(n=>!isCompoundExercise(n));
+      const wantCompound = Math.min(compounds.length, Math.max(1, Math.round(remaining*0.4)));
+      let more = pickFromPool(compounds, wantCompound, avoidSet);
+      const secondPool = isolations.length ? isolations : restPool;
+      more = more.concat(pickFromPool(secondPool.filter(n=>more.indexOf(n)===-1), remaining-more.length, avoidSet));
+      if(more.length < remaining) more = more.concat(pickFromPool(restPool.filter(n=>more.indexOf(n)===-1), remaining-more.length, avoidSet));
+      chosen = chosen.concat(more);
+    }
     return Array.from(new Set(chosen)).slice(0,count);
   }
 
-  // Plantillas de split según cuántos días por semana elige el usuario. "slots"
-  // son pares [subgrupo, cantidad de ejercicios] — se arman con pickForSubgroup.
-  const AUTO_ROUTINE_TEMPLATES = {
-    2: [
-      { nombre:"Día 1 — Full body A", slots:[["pecho",1],["espalda",1],["piernas",2],["hombros",1],["biceps",1],["triceps",1]] },
-      { nombre:"Día 2 — Full body B", slots:[["pecho",1],["espalda",1],["piernas",2],["hombros",1],["biceps",1],["triceps",1]] },
+  // ---- Splits (convención real: full body / push-pull-legs / upper-lower /
+  // bro split según frecuencia semanal — no listas al azar). Cada día define
+  // solo QUÉ subgrupos entrenar; CUÁNTOS ejercicios de cada uno sale de
+  // distributeCount() más abajo, según sexo y días/semana. Se garantiza que
+  // los 6 grupos musculares (Pecho/Espalda/Piernas/Hombros/Brazos/Core)
+  // aparecen al menos una vez en la semana completa para cualquier cantidad
+  // de días — Brazos cubre bíceps+tríceps.
+  const SPLIT_DAYS = {
+    2: [ // Full body x2 (frecuencia alta compensa con full body, no hay margen para split)
+      { nombre:"Día 1 — Full body A", groups:["pecho","espalda","piernas","hombros","biceps","triceps","core"] },
+      { nombre:"Día 2 — Full body B", groups:["pecho","espalda","piernas","hombros","biceps","triceps","core"] },
     ],
-    3: [
-      { nombre:"Día 1 — Empuje (pecho/hombro/tríceps)", slots:[["pecho",2],["hombros",2],["triceps",2]] },
-      { nombre:"Día 2 — Tirón (espalda/bíceps)", slots:[["espalda",3],["biceps",2],["core",1]] },
-      { nombre:"Día 3 — Piernas", slots:[["piernas",5],["core",1]] },
+    3: [ // Push / Pull / Legs clásico
+      { nombre:"Día 1 — Empuje (pecho/hombro/tríceps)", groups:["pecho","hombros","triceps"] },
+      { nombre:"Día 2 — Tirón (espalda/bíceps)", groups:["espalda","biceps","core"] },
+      { nombre:"Día 3 — Piernas", groups:["piernas","core"] },
     ],
-    4: [
-      { nombre:"Día 1 — Tren superior A", slots:[["pecho",2],["espalda",2],["hombros",1],["biceps",1]] },
-      { nombre:"Día 2 — Tren inferior A", slots:[["piernas",5],["core",1]] },
-      { nombre:"Día 3 — Tren superior B", slots:[["pecho",1],["espalda",2],["hombros",2],["triceps",1]] },
-      { nombre:"Día 4 — Tren inferior B", slots:[["piernas",5],["core",1]] },
+    4: [ // Upper / Lower x2
+      { nombre:"Día 1 — Tren superior A (empuje)", groups:["pecho","hombros","triceps"] },
+      { nombre:"Día 2 — Tren inferior A", groups:["piernas","core"] },
+      { nombre:"Día 3 — Tren superior B (tirón)", groups:["espalda","biceps","hombros"] },
+      { nombre:"Día 4 — Tren inferior B", groups:["piernas","core"] },
     ],
-    5: [
-      { nombre:"Día 1 — Pecho", slots:[["pecho",5],["triceps",1]] },
-      { nombre:"Día 2 — Espalda", slots:[["espalda",5],["biceps",1]] },
-      { nombre:"Día 3 — Piernas", slots:[["piernas",6]] },
-      { nombre:"Día 4 — Hombros", slots:[["hombros",4],["core",2]] },
-      { nombre:"Día 5 — Brazos", slots:[["biceps",3],["triceps",3]] },
+    5: [ // Push/Pull/Legs/Upper/Lower (PPLUL) — el híbrido que usan programas de referencia para 5x/semana
+      { nombre:"Día 1 — Empuje (pecho/hombro/tríceps)", groups:["pecho","hombros","triceps"] },
+      { nombre:"Día 2 — Tirón (espalda/bíceps)", groups:["espalda","biceps"] },
+      { nombre:"Día 3 — Piernas", groups:["piernas","core"] },
+      { nombre:"Día 4 — Torso superior (mixto)", groups:["pecho","espalda","hombros"] },
+      { nombre:"Día 5 — Brazos y core", groups:["biceps","triceps","core"] },
     ],
-    6: [
-      { nombre:"Día 1 — Pecho", slots:[["pecho",5],["core",1]] },
-      { nombre:"Día 2 — Espalda", slots:[["espalda",5],["core",1]] },
-      { nombre:"Día 3 — Piernas", slots:[["piernas",6]] },
-      { nombre:"Día 4 — Hombros", slots:[["hombros",5],["core",1]] },
-      { nombre:"Día 5 — Brazos (bíceps y tríceps)", slots:[["biceps",3],["triceps",3]] },
-      { nombre:"Día 6 — Core y funcional", slots:[["core",4],["piernas",2]] },
+    6: [ // Push/Pull/Legs x2 — el split de mayor frecuencia por grupo
+      { nombre:"Día 1 — Empuje A", groups:["pecho","hombros","triceps"] },
+      { nombre:"Día 2 — Tirón A", groups:["espalda","biceps"] },
+      { nombre:"Día 3 — Piernas A", groups:["piernas","core"] },
+      { nombre:"Día 4 — Empuje B", groups:["pecho","hombros","triceps"] },
+      { nombre:"Día 5 — Tirón B", groups:["espalda","biceps"] },
+      { nombre:"Día 6 — Piernas B", groups:["piernas","core"] },
     ],
   };
 
-  function generateAutoRoutine(numDays){
-    const templ = AUTO_ROUTINE_TEMPLATES[numDays] || AUTO_ROUTINE_TEMPLATES[3];
+  // Peso relativo "neutro" de cada subgrupo dentro de un día (más peso =
+  // más ejercicios de ese subgrupo cuando hay que repartir el cupo del día).
+  const SUBGROUP_BASE_WEIGHT = { pecho:1.0, espalda:1.0, piernas:1.15, hombros:0.85, biceps:0.7, triceps:0.75, core:0.7 };
+  // Multiplicadores según sexo — Juan pidió: Femenino prioriza tren inferior
+  // (glúteo/cuádriceps) y reduce pecho/bíceps; Masculino da más énfasis a
+  // tren superior (pecho/espalda/hombros/brazos) que a piernas.
+  const SEXO_SUBGROUP_MULT = {
+    Masculino: { pecho:1.25, espalda:1.15, piernas:0.8, hombros:1.15, biceps:1.2, triceps:1.15, core:1.0 },
+    Femenino:  { pecho:0.6,  espalda:1.0,  piernas:1.6, hombros:0.9,  biceps:0.6, triceps:0.85, core:1.05 },
+  };
+  function subgroupWeight(sg, sexo){
+    const base = SUBGROUP_BASE_WEIGHT[sg] || 1;
+    const mult = (SEXO_SUBGROUP_MULT[sexo] && SEXO_SUBGROUP_MULT[sexo][sg]) || 1;
+    return base*mult;
+  }
+  // Reparte "total" ejercicios entre los subgrupos de un día, respetando un
+  // mínimo por subgrupo (minMap) y usando el método del resto mayor para que
+  // la suma final sea exactamente "total".
+  function distributeCount(groups, total, sexo, minMap){
+    minMap = minMap || {};
+    const weights = groups.map(g=> subgroupWeight(g, sexo));
+    const sumW = weights.reduce((a,b)=>a+b,0) || 1;
+    const raw = groups.map((g,i)=> (weights[i]/sumW)*total);
+    const counts = raw.map((v,i)=> Math.max(minMap[groups[i]]||1, Math.floor(v)));
+    let used = counts.reduce((a,b)=>a+b,0);
+    if(used<total){
+      let remainder = total-used;
+      const order = raw.map((v,i)=>({ i, frac:v-Math.floor(v) })).sort((a,b)=>b.frac-a.frac);
+      let idx=0;
+      while(remainder>0){ counts[order[idx%order.length].i]++; remainder--; idx++; }
+    } else if(used>total){
+      let over = used-total;
+      const order = counts.map((c,i)=>({ i, c })).sort((a,b)=>b.c-a.c);
+      let guard=0;
+      while(over>0 && guard<1000){
+        let progressed=false;
+        for(const o of order){
+          const floor = minMap[groups[o.i]]||1;
+          if(counts[o.i]>floor){ counts[o.i]--; over--; progressed=true; if(over<=0) break; }
+        }
+        guard++;
+        if(!progressed) break;
+      }
+    }
+    return groups.map((g,i)=>[g,counts[i]]);
+  }
+
+  // ¿Perfil "en su prime" (Juan): edad 19-35 y peso 73-93kg → un poco más de
+  // volumen. Si edad/peso no están cargados, no hay bump (comportamiento
+  // normal de siempre).
+  function profileHasPrimeBump(){
+    const p = state.profile;
+    if(!p) return false;
+    const edad = p.edad, peso = p.peso;
+    return edad!=null && peso!=null && edad>=19 && edad<=35 && peso>=73 && peso<=93;
+  }
+  // Rango de ejercicios por sesión según días/semana: a más frecuencia, menos
+  // volumen por sesión (nunca menos de 6); con 2-3 días/semana cada sesión es
+  // full-body-ish y necesita más ejercicios para cubrir todo el cuerpo.
+  function sessionCountRange(numDays){
+    const table = { 2:[10,12], 3:[8,10], 4:[7,9], 5:[6,8], 6:[6,7] };
+    return table[numDays] || table[3];
+  }
+  function randInt(lo,hi){ return lo + Math.floor(Math.random()*(hi-lo+1)); }
+
+  // Todos los subgrupos "de tren superior/core" que tienen que aparecer en la
+  // semana completa (piernas se controla aparte con los 4 sub-focos de abajo,
+  // porque "piernas" como bloque no alcanza — hay que exigir cuádriceps,
+  // isquios, glúteo y pantorrilla cada uno por separado).
+  const REQUIRED_WEEK_SUBGROUPS = ["pecho","espalda","hombros","biceps","triceps","core"];
+  const REQUIRED_LEG_FOCI = ["quads","hamstrings","glutes","calves"];
+
+  function generateAutoRoutine(numDays, sexo){
+    const templ = SPLIT_DAYS[numDays] || SPLIT_DAYS[3];
+    const bump = profileHasPrimeBump();
+    const [lo,hi] = sessionCountRange(numDays);
     const avoid = new Set();
-    return templ.map(dd=>{
+    const legFociCovered = new Set();
+    const subgroupsCovered = new Set();
+    // Orden de prioridad de sub-foco de pierna según sexo — Femenino exige
+    // glúteo/cuádriceps primero (casi obligatorio todas las semanas), y
+    // Masculino prioriza igual pero con menos peso relativo en el reparto.
+    const legFocusPriority = sexo==="Femenino" ? ["glutes","quads","hamstrings","calves"] : ["quads","hamstrings","glutes","calves"];
+
+    const days = templ.map(dd=>{
+      let target = randInt(lo,hi);
+      if(bump) target = Math.min(hi+3, target + randInt(1,3));
+      target = Math.max(6, target);
+      const dist = distributeCount(dd.groups, target, sexo, { piernas:2 });
       const names = [];
-      dd.slots.forEach(([sg,count])=> names.push(...pickForSubgroup(sg,count,avoid)));
+      dist.forEach(([sg,count])=>{
+        const opts = {};
+        if(sg==="piernas"){
+          const uncovered = legFocusPriority.filter(f=>!legFociCovered.has(f));
+          if(uncovered.length) opts.forceLegFocus = uncovered.slice(0, count);
+        }
+        const picked = pickForSubgroup(sg,count,avoid,opts);
+        if(sg==="piernas") picked.forEach(n=>{ const f=exerciseLegFocus(n); if(f) legFociCovered.add(f); });
+        else if(picked.length) subgroupsCovered.add(sg);
+        names.push(...picked);
+      });
       const exercises = names.map(n=>({ id:uid(), nombre:n, series:"3", reps:"10", notas:"", imagenUrl:"" }));
       return { id:uid(), nombre: dd.nombre, exercises };
     });
+
+    // Red de seguridad: garantiza SIEMPRE (sin importar sexo o cómo cayeron los
+    // cupos por día) que la semana completa cubra los 4 sub-focos de pierna y
+    // los 6 subgrupos de tren superior/core — nunca se puede saltear un grupo
+    // muscular entero, el sexo solo cambia el ÉNFASIS/volumen relativo.
+    const focusPools = legFocusPools();
+    const piernasDaysIdx = templ.map((dd,i)=> dd.groups.indexOf("piernas")!==-1 ? i : -1).filter(i=>i!==-1);
+    REQUIRED_LEG_FOCI.filter(f=>!legFociCovered.has(f)).forEach((f,idx)=>{
+      const pool = (focusPools[f]||[]).filter(n=>!avoid.has(n));
+      const name = pool[0] || (focusPools[f]||[])[0];
+      const dayIdx = piernasDaysIdx.length ? piernasDaysIdx[idx % piernasDaysIdx.length] : 0;
+      if(name && days[dayIdx]){
+        days[dayIdx].exercises.push({ id:uid(), nombre:name, series:"3", reps:"10", notas:"", imagenUrl:"" });
+        avoid.add(name); legFociCovered.add(f);
+      }
+    });
+    const pools = subgroupPools();
+    REQUIRED_WEEK_SUBGROUPS.filter(sg=>!subgroupsCovered.has(sg)).forEach(sg=>{
+      const pool = (pools[sg]||[]).filter(n=>!avoid.has(n));
+      const name = pool[0] || (pools[sg]||[])[0];
+      if(!name) return;
+      const dayIdx = days.reduce((best,d,i)=> d.exercises.length < days[best].exercises.length ? i : best, 0);
+      days[dayIdx].exercises.push({ id:uid(), nombre:name, series:"3", reps:"10", notas:"", imagenUrl:"" });
+      avoid.add(name); subgroupsCovered.add(sg);
+    });
+
+    return days;
   }
 
   function openAutoRoutineModal(){
     let numDays = 3;
+    let sexo = null; // se pide explícitamente antes de poder generar
     let plan = null;
     const modalEl = openModal("", null);
 
     function bodyHtml(){
       const daysBtns = [2,3,4,5,6].map(n=>`<button class="btn btn-sm ${n===numDays?'btn-primary':'btn-ghost'}" data-days="${n}">${n}</button>`).join("");
+      const sexoBtns = ["Femenino","Masculino"].map(s=>`<button class="btn btn-sm ${s===sexo?'btn-primary':'btn-ghost'}" data-sexo="${s}" style="flex:1">${s}</button>`).join("");
       const previewHtml = plan ? `
         <div class="stack" style="max-height:260px; overflow-y:auto">
           ${plan.map(d=>`
@@ -2052,9 +2624,13 @@
             </div>
           `).join("")}
         </div>
-      ` : `<p class="helptext">Elegí cuántos días por semana entrenás. Vamos a armar una rutina completa combinando ejercicios compuestos y de aislamiento, que después podés revisar y editar como cualquier otra.</p>`;
+      ` : `<p class="helptext">Elegí sexo y días por semana. Vamos a armar una rutina completa (basada en splits reales — empuje/tirón/pierna o torso/pierna según la frecuencia) combinando ejercicios compuestos y de aislamiento, que después podés revisar y editar como cualquier otra.</p>`;
       return `
         <h3>Rutina automática</h3>
+        <div class="field">
+          <label>Sexo</label>
+          <div class="row" style="gap:8px">${sexoBtns}</div>
+        </div>
         <div class="field">
           <label>Días por semana</label>
           <div class="autoroutine-daybtns">${daysBtns}</div>
@@ -2066,7 +2642,7 @@
             <button class="btn btn-primary" data-act="use">Usar esta rutina</button>
           ` : `
             <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
-            <button class="btn btn-primary" data-act="gen">Generar</button>
+            <button class="btn btn-primary" data-act="gen" ${sexo?"":"disabled"}>Generar</button>
           `}
         </div>
       `;
@@ -2077,12 +2653,15 @@
       modalEl.querySelectorAll("[data-days]").forEach(b=>{
         b.onclick = ()=>{ numDays = parseInt(b.dataset.days,10); plan = null; draw(); };
       });
+      modalEl.querySelectorAll("[data-sexo]").forEach(b=>{
+        b.onclick = ()=>{ sexo = b.dataset.sexo; plan = null; draw(); };
+      });
       const cancelBtn = modalEl.querySelector('[data-act="cancel"]');
       if(cancelBtn) cancelBtn.onclick = closeModal;
       const genBtn = modalEl.querySelector('[data-act="gen"]');
-      if(genBtn) genBtn.onclick = ()=>{ plan = generateAutoRoutine(numDays); draw(); };
+      if(genBtn) genBtn.onclick = ()=>{ if(!sexo) return; plan = generateAutoRoutine(numDays, sexo); draw(); };
       const regenBtn = modalEl.querySelector('[data-act="regen"]');
-      if(regenBtn) regenBtn.onclick = ()=>{ plan = generateAutoRoutine(numDays); draw(); };
+      if(regenBtn) regenBtn.onclick = ()=>{ plan = generateAutoRoutine(numDays, sexo); draw(); };
       const useBtn = modalEl.querySelector('[data-act="use"]');
       if(useBtn) useBtn.onclick = async ()=>{
         const apply = async ()=>{
@@ -2229,7 +2808,7 @@
       b.onclick = ()=>{ state.explorerGroup = b.dataset.group; renderExplorer(); };
     });
     el.querySelectorAll("[data-ex-explore]").forEach(row=>{
-      row.onclick = ()=> openHowtoModal({ nombre: row.dataset.exExplore });
+      row.onclick = ()=> openExerciseDetail(row.dataset.exExplore, { returnTab:"explorar" });
     });
   }
 
@@ -2312,7 +2891,7 @@
         const [dayId, exId] = b.dataset.howtoEx.split("|");
         const day = state.rutina.days.find(d=>d.id===dayId);
         const ex = day && day.exercises.find(x=>x.id===exId);
-        if(ex) openHowtoModal(ex);
+        if(ex) openExerciseDetail(ex, { returnTab:"rutina" });
       };
     });
     el.querySelectorAll("[data-start-session]").forEach(b=>{
@@ -2403,7 +2982,7 @@
     el.querySelectorAll("[data-howto-ex-session]").forEach(b=>{
       b.onclick = ()=>{
         const ex = (day.exercises||[]).find(x=>x.id===b.dataset.howtoExSession);
-        if(ex) openHowtoModal(ex);
+        if(ex) openExerciseDetail(ex, { returnTab:"sesion" });
       };
     });
     const cancelBtn = el.querySelector("#btn-cancel-session");
@@ -3041,6 +3620,14 @@
 
   render(); // initial loading frame
   boot();
+
+  // Hook de solo-lectura para tests automatizados (Playwright) — no se usa en
+  // la app real, no afecta el funcionamiento normal.
+  window.__appTest = {
+    generateAutoRoutine, exerciseEquipment, exercisePrincipalSecondaryGroups,
+    exerciseMuscleGroup, muscleGroupPools, subgroupPools, MUSCLE_GROUPS,
+    exerciseLegFocus, get state(){ return state; },
+  };
 
 })();
 </script>
