@@ -1,6 +1,6 @@
 {
-  "name": "Rutina de Gimnasio",
-  "short_name": "Gimnasio",
+  "name": "VodaFit",
+  "short_name": "VodaFit",
   "description": "Rutina, registro de pesos y cronómetro para el gimnasio",
   "start_url": "./index.html",
   "scope": "./",
