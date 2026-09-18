@@ -128,10 +128,11 @@
   }
   .brand{ display:flex; align-items:center; gap:10px; }
   .brand-mark{
-    width:30px;height:30px;border-radius:9px;background:var(--accent);
+    width:32px;height:32px;border-radius:10px;background:var(--accent);
+    color:var(--accent-on);
     display:flex;align-items:center;justify-content:center;flex:none;
   }
-  .brand-mark svg{ width:18px; height:18px; }
+  .brand-mark svg{ width:19px; height:19px; }
   .brand h1{ font-size:22px; line-height:1; color:var(--text); }
   .profile-chip{
     display:flex; align-items:center; gap:8px;
@@ -170,6 +171,9 @@
 
   .day-card .day-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .day-head h3{ font-size:18px; color:var(--text); }
+  .day-title{ display:flex; flex-direction:column; gap:1px; min-width:0; }
+  .day-title-main{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:19px; letter-spacing:.01em; }
+  .day-title-sub{ font-size:12.5px; font-weight:500; color:var(--text-muted); text-transform:none; letter-spacing:0; font-family:"Work Sans",sans-serif; }
   .day-head .actions{ display:flex; gap:6px; }
   .exlist{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
   .exrow{
@@ -250,6 +254,19 @@
   .navbtn svg{ width:22px; height:22px; }
   .navbtn span{ font-size:11px; font-weight:600; }
   .navbtn.active{ color:var(--accent); }
+
+  /* Timer central: mismo botón e igual lógica de navegación de siempre —
+     solo se destaca visualmente (más grande, elevado, ícono en un badge
+     circular con los colores de marca) para que sea el más fácil de
+     encontrar y tocar en pleno entrenamiento. */
+  .navbtn-central{ margin-top:-16px; }
+  .bottomnav .navbtn-central svg{
+    width:46px; height:46px; padding:12px; box-sizing:border-box;
+    background:var(--accent); color:var(--accent-on); border-radius:50%;
+    box-shadow:var(--shadow); transition:transform .15s ease;
+  }
+  .navbtn-central span{ margin-top:2px; }
+  .navbtn-central:active svg{ transform:scale(.94); }
 
   .banner{
     display:flex; gap:10px; align-items:flex-start;
@@ -359,9 +376,9 @@
   .setdot.done{ background:var(--success); border-color:var(--success); color:#fff; }
   .setdot:active{ transform:scale(.93); }
 
-  .racha-card{ display:flex; flex-direction:column; gap:8px; }
+  .racha-card{ display:flex; flex-direction:column; gap:6px; }
   .racha-top{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .racha-count{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:23px; }
+  .racha-count{ font-family:"Barlow Condensed",sans-serif; font-weight:800; font-size:32px; line-height:1.05; color:var(--accent); letter-spacing:.01em; }
   .racha-streak{ text-align:right; }
   .racha-streak .fire{ font-size:22px; line-height:1; }
 
@@ -434,6 +451,8 @@
     .timer-controls .btn{ width:66px; height:66px; }
     .navbtn{ padding:6px 4px; }
     .navbtn span{ font-size:10px; }
+    .navbtn-central{ margin-top:-12px; }
+    .bottomnav .navbtn-central svg{ width:40px; height:40px; padding:10px; }
   }
 </style>
 </head>
@@ -453,6 +472,12 @@
   /* ---------- Icons (inline SVG, currentColor) ---------- */
   const ICONS = {
     dumbbell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 3 10l4 4M17.5 17.5 21 14l-4-4M2 10l4-4M22 14l-4 4M9 6l9 9M6 9l9 9"/></svg>',
+    // Monograma de marca VodaFit: una "V" trazada de punta a punta y dos
+    // barras cortas que cruzan su pata derecha sugiriendo la "F" — un solo
+    // color (currentColor), pensado para leerse bien chico (badge del header,
+    // 18-22px) y también como marca grande (portada del PDF). No es un ícono
+    // funcional como el resto de ICONS, es la identidad de marca.
+    logoVF:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5L12 20L20 5"/><path d="M18 8.6h5.2"/><path d="M15.6 13.2h4.8"/></svg>',
     routine:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
     log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
     timer:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M18 4l1.5 1.5"/></svg>',
@@ -1097,9 +1122,9 @@
     "Puente de glúteo": "ejercicios/puente-gluteo.jpg",
     "Elevación de talones sentado": "ejercicios/elevacion-talones-sentado.jpg",
     "Elevación de talones de pie": "ejercicios/elevacion-talones-pie.jpg",
-    "Abductores en máquina": "ejercicios/abductores-máquina.jpg",
+    "Abductores en máquina": "ejercicios/abductores-maquina.jpg",
     "Step up": "ejercicios/step-up.jpg",
-    "Aductores en máquina": "ejercicios/aductores-máquina.jpg",
+    "Aductores en máquina": "ejercicios/aductores-maquina.jpg",
     "Peso muerto piernas rígidas": "ejercicios/peso-muerto-piernas-rigidas.jpg",
     "Press militar con barra": "ejercicios/press-militar-barra.jpg",
     "Press militar con mancuernas": "ejercicios/press-militar-mancuernas.jpg",
@@ -1152,7 +1177,7 @@
     "Sentadilla": "ejercicios/sentadilla.mp4",
     "Press con mancuernas plano": "ejercicios/press-mancuernas-plano.mp4",
     "Press con mancuernas inclinado": "ejercicios/press-mancuernas-inclinado.mp4",
-    "Curl martillo": "ejercicios/rizo-martillo.mp4",
+    "Curl martillo": "ejercicios/curl-martillo.mp4",
     "Elevaciones laterales": "ejercicios/elevaciones-laterales.mp4",
     "Curl con barra": "ejercicios/curl-con-barra.mp4",
     "Peso muerto sumo": "ejercicios/peso-muerto-sumo.mp4",
@@ -1943,7 +1968,7 @@
       app.innerHTML = `
         <div class="topbar">
           <div class="brand">
-            <div class="brand-mark">${icon("dumbbell")}</div>
+            <div class="brand-mark">${icon("logoVF")}</div>
             <h1>VodaFit</h1>
           </div>
         </div>
@@ -1971,7 +1996,7 @@
       app.innerHTML = `
         <div class="topbar">
           <div class="brand">
-            <div class="brand-mark">${icon("dumbbell")}</div>
+            <div class="brand-mark">${icon("logoVF")}</div>
             <h1>VodaFit</h1>
           </div>
         </div>
@@ -2001,7 +2026,7 @@
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">
-          <div class="brand-mark">${icon("dumbbell")}</div>
+          <div class="brand-mark">${icon("logoVF")}</div>
           <h1>VodaFit</h1>
         </div>
         <div class="profile-chip" id="chip-profile">
@@ -2013,8 +2038,8 @@
       <nav class="bottomnav">
         ${navBtn("rutina","routine","Rutina")}
         ${navBtn("registro","log","Registro")}
+        ${navBtn("cronometro","timer","Timer",true)}
         ${navBtn("calendario","calendar","Calendario")}
-        ${navBtn("cronometro","timer","Timer")}
         ${navBtn("perfil","user","Perfil")}
       </nav>
     `;
@@ -2025,8 +2050,9 @@
     renderScreen();
   }
 
-  function navBtn(tab, iconName, label){
-    return `<button class="navbtn ${state.tab===tab?"active":""}" data-tab="${tab}">${icon(iconName)}<span>${label}</span></button>`;
+  function navBtn(tab, iconName, label, isCentral){
+    const cls = `navbtn ${isCentral?"navbtn-central":""} ${state.tab===tab?"active":""}`;
+    return `<button class="${cls}" data-tab="${tab}">${icon(iconName)}<span>${label}</span></button>`;
   }
 
   function setTab(t){
@@ -2050,7 +2076,7 @@
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">
-          <div class="brand-mark">${icon("dumbbell")}</div>
+          <div class="brand-mark">${icon("logoVF")}</div>
           <h1>VodaFit</h1>
         </div>
       </div>
@@ -2119,7 +2145,7 @@
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">
-          <div class="brand-mark">${icon("dumbbell")}</div>
+          <div class="brand-mark">${icon("logoVF")}</div>
           <h1>VodaFit</h1>
         </div>
       </div>
@@ -2211,7 +2237,7 @@
     app.innerHTML = `
       <div class="topbar">
         <div class="brand">
-          <div class="brand-mark">${icon("dumbbell")}</div>
+          <div class="brand-mark">${icon("logoVF")}</div>
           <h1>VodaFit</h1>
         </div>
       </div>
@@ -2312,15 +2338,11 @@
         <button data-rutina-slot="automatica" class="${isAuto?"active":""}">Rutina automática${nAutomatica?` (${nAutomatica})`:""}</button>
       </div>
       <p class="helptext" style="margin:2px 0 8px">Tenés dos rutinas guardadas por separado — pasar a "Rutina automática" (o volver a "Mi rutina") no borra la otra, así podés compararlas o usar la que quieras.</p>
-      <div class="row" style="gap:8px">
-        <button class="btn btn-secondary" style="flex:1" id="btn-auto-routine">${icon("shuffle")} ${nAutomatica?"Generar otra rutina automática":"Rutina automática"}</button>
+      <button class="btn btn-primary btn-block" id="btn-auto-routine">${icon("shuffle")} ${nAutomatica?"Generar otra rutina automática":"Generar rutina automática"}</button>
+      <div class="row" style="gap:8px; margin-top:8px">
         <button class="btn btn-outline" style="flex:1" id="btn-explorar-musculos">${icon("search")} Explorar ejercicios</button>
+        ${days.length>0 ? `<button class="btn btn-ghost" style="flex:1" id="btn-export-pdf">${icon("download")} Exportar PDF</button>` : ""}
       </div>
-      ${days.length>0 ? `
-        <div class="row" style="gap:8px; margin-top:8px">
-          <button class="btn btn-ghost btn-block" id="btn-export-pdf">${icon("download")} Exportar rutina en PDF</button>
-        </div>
-      ` : ""}
       <div class="section-title">
         <h2>${isAuto ? "Rutina automática" : "Tu rutina"}</h2>
         <span class="muted">${days.length} día${days.length===1?"":"s"}</span>
@@ -2377,14 +2399,27 @@
     `;
   }
 
+  // Solo presentación: si el nombre del día sigue el patrón "Día N — detalle"
+  // (con guion largo, el que usan las plantillas de la rutina automática) lo
+  // separamos visualmente en un título principal ("Día N") y un subtítulo
+  // secundario (el detalle de grupos musculares). No toca ni reescribe
+  // day.nombre — si el usuario puso un nombre manual que no sigue ese patrón,
+  // se muestra completo y sin partir, como siempre.
+  function formatDayTitle(nombre){
+    const m = /^(.*?)\s+—\s+(.*)$/.exec(nombre||"");
+    if(!m) return { main: nombre||"", sub: null };
+    return { main: m[1], sub: m[2] };
+  }
+
   function dayCard(day, idx){
     const open = state.dayOpen[day.id] !== false; // default open
     const editMode = !!state.dayEditMode[day.id];
     const exs = day.exercises||[];
+    const t = formatDayTitle(day.nombre);
     return `
       <div class="card day-card" data-day="${day.id}">
         <div class="day-head" data-toggle="${day.id}" style="cursor:pointer">
-          <h3>${esc(day.nombre)}</h3>
+          <h3 class="day-title"><span class="day-title-main">${esc(t.main)}</span>${t.sub?`<span class="day-title-sub">${esc(t.sub)}</span>`:""}</h3>
           <div class="actions">
             <span class="iconbtn" data-edit-day="${day.id}" title="Renombrar / mover día">${icon("edit")}</span>
             <span class="iconbtn danger" data-del-day="${day.id}" title="Eliminar día">${icon("trash")}</span>
@@ -3581,6 +3616,86 @@
     };
   }
 
+  // Paleta del PDF: los mismos tonos que usa la app en tema claro (el PDF
+  // siempre se genera sobre página blanca, no sigue el tema claro/oscuro del
+  // celular) — así el documento se siente reconociblemente VodaFit sin
+  // depender de ninguna imagen ni fuente nueva.
+  const PDF_INK = [27,25,23];           // --text (claro)
+  const PDF_MUTED = [107,101,96];       // --text-muted (claro)
+  const PDF_ACCENT = [200,74,34];       // --accent (claro)
+  const PDF_BORDER = [219,216,209];     // --border (claro)
+  const PDF_SUCCESS = [46,158,91];      // --success (claro)
+  const PDF_WATERMARK = [239,235,229];  // igual que --border pero más pálido, solo para la marca de agua
+
+  // Dibuja el monograma VF con líneas vectoriales (misma geometría que el
+  // ícono "logoVF" de la app, en escala 0-24) — nada de imágenes ni fuentes
+  // nuevas, así se ve idéntico en la app y en el PDF.
+  function pdfDrawMark(doc, x, y, size, inkColor, accentColor, weight){
+    const s = size/24;
+    doc.setLineWidth(weight*s);
+    doc.setDrawColor(inkColor[0], inkColor[1], inkColor[2]);
+    doc.line(x+4*s, y+5*s, x+12*s, y+20*s);
+    doc.line(x+12*s, y+20*s, x+20*s, y+5*s);
+    doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2]);
+    doc.line(x+18*s, y+8.6*s, x+23.2*s, y+8.6*s);
+    doc.line(x+15.6*s, y+13.2*s, x+20.4*s, y+13.2*s);
+  }
+
+  function pdfWatermark(doc, pageW, pageH){
+    const size = 230;
+    pdfDrawMark(doc, pageW/2 - size/2, pageH/2 - size/2, size, PDF_WATERMARK, PDF_WATERMARK, 9);
+  }
+
+  // Encabezado grande, solo en la primera página — hace las veces de portada
+  // sin gastar una hoja aparte (una portada vacía solo con el logo no suma
+  // nada práctico acá): marca + nombre + qué rutina es + para quién + fecha.
+  function pdfBigHeader(doc, pageW, marginX, data){
+    doc.setFillColor(PDF_INK[0], PDF_INK[1], PDF_INK[2]);
+    doc.rect(0, 0, pageW, 92, "F");
+    pdfDrawMark(doc, marginX, 22, 46, [255,255,255], PDF_ACCENT, 3.2);
+    doc.setFont("helvetica","bold"); doc.setFontSize(24);
+    doc.setTextColor(255,255,255);
+    doc.text("V O D A F I T", marginX+58, 45); // espaciado manual entre letras: sin fuente nueva, sin riesgo de carga
+    doc.setFont("helvetica","normal"); doc.setFontSize(11);
+    doc.setTextColor(224,219,212);
+    doc.text("Rutina de entrenamiento", marginX+58, 62);
+    doc.setFont("helvetica","bold"); doc.setFontSize(10.5);
+    doc.setTextColor(255,255,255);
+    doc.text(data.routineLabel, pageW-marginX, 45, { align:"right" });
+    doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+    doc.setTextColor(224,219,212);
+    doc.text(data.profileName, pageW-marginX, 60, { align:"right" });
+    doc.text(`Generado el ${fmtDate(data.generatedAt)}`, pageW-marginX, 73, { align:"right" });
+    return 92 + 24;
+  }
+
+  // Encabezado chico, repetido en cada página siguiente.
+  function pdfSlimHeader(doc, pageW, marginX, data){
+    pdfDrawMark(doc, marginX, 14, 20, PDF_INK, PDF_ACCENT, 2.6);
+    doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.setTextColor(PDF_INK[0], PDF_INK[1], PDF_INK[2]);
+    doc.text("VODAFIT", marginX+28, 28);
+    doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+    doc.setTextColor(PDF_MUTED[0], PDF_MUTED[1], PDF_MUTED[2]);
+    doc.text(data.routineLabel, pageW-marginX, 28, { align:"right" });
+    doc.setDrawColor(PDF_BORDER[0], PDF_BORDER[1], PDF_BORDER[2]);
+    doc.setLineWidth(0.75);
+    doc.line(marginX, 40, pageW-marginX, 40);
+    return 40 + 20;
+  }
+
+  // Pie de página — se dibuja al final, en una segunda pasada, porque recién
+  // ahí se sabe cuántas páginas salieron en total.
+  function pdfFooter(doc, pageW, pageH, marginX, pageNum, totalPages){
+    doc.setDrawColor(PDF_BORDER[0], PDF_BORDER[1], PDF_BORDER[2]);
+    doc.setLineWidth(0.6);
+    doc.line(marginX, pageH-34, pageW-marginX, pageH-34);
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+    doc.setTextColor(PDF_MUTED[0], PDF_MUTED[1], PDF_MUTED[2]);
+    doc.text("VodaFit", marginX, pageH-20);
+    doc.text(`Página ${pageNum} de ${totalPages}`, pageW-marginX, pageH-20, { align:"right" });
+  }
+
   function exportRoutinePDF(){
     if(!window.jspdf || !window.jspdf.jsPDF){
       alert("No se pudo cargar el generador de PDF. Revisá tu conexión a internet e intentá de nuevo.");
@@ -3596,49 +3711,65 @@
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
     const marginX = 40;
-    let y = 50;
+    const bottomLimit = pageH - 46; // deja lugar para el pie de página
 
+    let y = pdfBigHeader(doc, pageW, marginX, data);
+    pdfWatermark(doc, pageW, pageH);
+
+    function newPage(){
+      doc.addPage();
+      pdfWatermark(doc, pageW, pageH);
+      y = pdfSlimHeader(doc, pageW, marginX, data);
+    }
     function ensureSpace(lineH){
-      if(y + lineH > pageH - 40){ doc.addPage(); y = 50; }
+      if(y + lineH > bottomLimit){ newPage(); }
     }
     function line(text, opts){
       opts = opts || {};
-      const size = opts.size||11, bold = !!opts.bold, gap = opts.gap||16, color = opts.color||[20,20,20];
+      const size = opts.size||11, bold = !!opts.bold, gap = opts.gap||16;
+      const color = opts.color||PDF_INK, x = opts.x||marginX;
       doc.setFont("helvetica", bold ? "bold" : "normal");
       doc.setFontSize(size);
       doc.setTextColor(color[0], color[1], color[2]);
-      const wrapped = doc.splitTextToSize(text, pageW - marginX*2);
+      const wrapWidth = pageW - x - marginX;
+      const wrapped = doc.splitTextToSize(text, wrapWidth);
       wrapped.forEach(w=>{
         ensureSpace(gap);
-        doc.text(w, marginX, y);
+        doc.text(w, x, y);
         y += gap;
       });
     }
 
-    line("Fierros — Resumen de rutina", { size:18, bold:true, gap:24 });
-    line(`${data.routineLabel} · ${data.profileName}`, { size:12, gap:18, color:[90,90,90] });
-    line(`Generado el ${fmtDate(data.generatedAt)}`, { size:10, gap:20, color:[130,130,130] });
-    y += 6;
-
     data.days.forEach(day=>{
-      ensureSpace(26);
-      line(day.nombre, { size:14, bold:true, gap:20 });
+      ensureSpace(30);
+      // barrita de acento a la izquierda del título del día — el mismo
+      // recurso visual (naranja como identidad) que ya usa el resto de la app.
+      doc.setFillColor(PDF_ACCENT[0], PDF_ACCENT[1], PDF_ACCENT[2]);
+      doc.rect(marginX, y-11, 3, 15, "F");
+      line(day.nombre, { size:14, bold:true, gap:20, x: marginX+10 });
       if(day.exercises.length===0){
-        line("Sin ejercicios cargados.", { size:10.5, gap:16, color:[130,130,130] });
+        line("Sin ejercicios cargados.", { size:10.5, gap:16, color:PDF_MUTED, x: marginX+10 });
       } else {
         day.exercises.forEach(ex=>{
           const base = `${ex.nombre} — ${ex.series}×${ex.reps}${ex.notas?` (${ex.notas})`:""}`;
-          line(base, { size:11, gap:15 });
+          line(base, { size:11, gap:15, x: marginX+10 });
           const maxTxt = ex.max
             ? `Máximo registrado: ${ex.max.peso} kg (${fmtDate(ex.max.date)})`
             : "Sin registros de peso todavía.";
-          line(maxTxt, { size:9.5, gap:16, color: ex.max?[30,110,60]:[150,150,150] });
+          line(maxTxt, { size:9.5, gap:16, color: ex.max?PDF_SUCCESS:PDF_MUTED, x: marginX+10 });
         });
       }
       y += 8;
     });
 
-    const fname = `fierros-rutina-${(data.profileName||"perfil").toLowerCase().replace(/\s+/g,"-")}-${data.generatedAt}.pdf`;
+    // Pie de página en una segunda pasada sobre todas las páginas ya generadas.
+    const totalPages = doc.internal.getNumberOfPages();
+    for(let p=1; p<=totalPages; p++){
+      doc.setPage(p);
+      pdfFooter(doc, pageW, pageH, marginX, p, totalPages);
+    }
+
+    const fname = `vodafit-rutina-${(data.profileName||"perfil").toLowerCase().replace(/\s+/g,"-")}-${data.generatedAt}.pdf`;
     doc.save(fname);
   }
 
