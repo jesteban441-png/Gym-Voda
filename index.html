@@ -375,6 +375,38 @@
   }
   .setdot.done{ background:var(--success); border-color:var(--success); color:#fff; }
   .setdot:active{ transform:scale(.93); }
+  /* V28: dentro de cada ejercicio, .next resalta la próxima serie a marcar y
+     .locked indica que todavía no se puede tocar (van en orden) — nunca se
+     usan para bloquear el paso a OTRO ejercicio, solo el orden interno. */
+  .setdot.next{ border-color:var(--accent); color:var(--accent); background:var(--surface); }
+  .setdot.locked{ opacity:.45; cursor:default; }
+
+  /* V28.1: una línea por serie ya registrada (peso/reps de ESA serie
+     puntual, ej. "Serie 2 · 70 kg × 10") dentro de la tarjeta de
+     Entrenamiento — tocable para reabrir y editar ese registro puntual. */
+  .setlog-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:7px 10px; border-radius:8px; background:var(--surface-2);
+    font-size:13px; cursor:pointer;
+  }
+  .setlog-row:active{ transform:scale(.98); }
+  .setlog-row .sl-num{ color:var(--text-muted); }
+  .setlog-row .sl-val{ font-weight:700; }
+
+  /* V28: mismos íconos de siempre (info/descanso), acceso más grande y fácil
+     de tocar solo dentro de la tarjeta de ejercicio en Entrenamiento — no
+     toca el tamaño de .iconbtn en el resto de la app. */
+  .iconbtn-lg{ width:42px; height:42px; border-radius:11px; }
+  .iconbtn-lg svg{ width:20px; height:20px; }
+
+  .toast{
+    position:fixed; left:50%; bottom:calc(76px + env(safe-area-inset-bottom));
+    transform:translate(-50%, 12px); background:var(--text); color:var(--surface);
+    padding:10px 18px; border-radius:999px; font-size:13.5px; font-weight:600;
+    box-shadow:var(--shadow); z-index:50; opacity:0; pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease; max-width:86vw; text-align:center;
+  }
+  .toast.show{ opacity:1; transform:translate(-50%, 0); }
 
   .racha-card{ display:flex; flex-direction:column; gap:6px; }
   .racha-top{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -423,11 +455,11 @@
   }
 
   /* Calendario */
-  .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
   .cal-weekday{ font-size:11px; color:var(--text-muted); text-align:center; text-transform:uppercase; font-weight:600; padding-bottom:2px; }
   .cal-cell{
-    aspect-ratio:1; display:flex; align-items:center; justify-content:center;
-    border-radius:10px; font-size:13px; color:var(--text-muted); font-weight:600;
+    aspect-ratio:1.2; display:flex; align-items:center; justify-content:center;
+    border-radius:9px; font-size:13px; color:var(--text-muted); font-weight:600;
     min-width:0; min-height:0; width:100%;
   }
   .cal-cell.empty{ visibility:hidden; }
@@ -1369,12 +1401,34 @@
     return `<div class="muscle-diagram-pic" style="${sizeStyle}">${bodyDiagramSvg(m.diagram, m.list)}</div>`;
   }
 
-  // Gráfico de línea peso-a-lo-largo-del-tiempo para la pestaña "Estadísticas"
-  // de la ficha de ejercicio — mismo estilo que el sparkline de Registro, pero
-  // más grande y con eje de fechas.
-  function exerciseLineChart(historyAsc){
+  // V28: el gráfico de progreso pasa de graficar cada registro individual a
+  // graficar el MÁXIMO de peso por semana (semana ISO lunes-domingo, mismo
+  // criterio que usa la racha — ver isoWeekMonday/ymd) — un punto por cada
+  // semana en la que realmente hubo al menos un registro de ese ejercicio.
+  // No se inventan semanas sin datos: si el usuario no registró nada esa
+  // semana, esa semana simplemente no aparece en el gráfico. La curva puede
+  // bajar (no se fuerza que sea creciente) — es información real, no un
+  // error a esconder.
+  function exerciseWeeklyMax(historyAsc){
+    const byWeek = {};
+    historyAsc.forEach(r=>{
+      const parts = (r.date||"").split("-").map(n=>parseInt(n,10));
+      if(parts.length!==3 || parts.some(isNaN)) return;
+      const dt = new Date(parts[0], parts[1]-1, parts[2]);
+      const key = ymd(isoWeekMonday(dt));
+      const peso = parseFloat(r.peso)||0;
+      if(!byWeek[key] || peso > byWeek[key].peso) byWeek[key] = { weekStart: key, peso };
+    });
+    return Object.keys(byWeek).sort().map(k=>byWeek[k]);
+  }
+
+  // Gráfico de línea peso máximo-por-semana para la pestaña "Estadísticas" de
+  // la ficha de ejercicio — mismo estilo visual que antes, pero cada punto es
+  // ahora una semana (ver exerciseWeeklyMax) y el período representado queda
+  // explícito debajo del gráfico en vez de mostrar fechas de registros sueltos.
+  function exerciseLineChart(weeklyAsc){
     const w = 300, h = 140, padX = 10, padY = 18;
-    const weights = historyAsc.map(r=> parseFloat(r.peso)||0);
+    const weights = weeklyAsc.map(r=> r.peso);
     const best = Math.max(...weights);
     const min = Math.min(...weights);
     const range = (best-min)||1;
@@ -1384,7 +1438,7 @@
       return [x,y];
     });
     const path = pts.map((p,i)=> (i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
-    const first = historyAsc[0], last = historyAsc[historyAsc.length-1];
+    const first = weeklyAsc[0], last = weeklyAsc[weeklyAsc.length-1];
     return `
       <div class="exchart-wrap">
         <svg class="exchart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
@@ -1392,11 +1446,12 @@
           <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           ${pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="var(--accent)"/>`).join("")}
         </svg>
-        <div class="row between"><span class="helptext">${esc(fmtDate(first.date))}</span><span class="helptext">${esc(fmtDate(last.date))}</span></div>
+        <div class="row between"><span class="helptext">Semana del ${esc(fmtDate(first.weekStart))}</span><span class="helptext">Semana del ${esc(fmtDate(last.weekStart))}</span></div>
         <div class="row between" style="margin-top:8px">
-          <div><div class="num" style="font-weight:700; font-size:16px">${min} kg</div><div class="helptext">Mínimo</div></div>
-          <div style="text-align:right"><div class="num" style="font-weight:700; font-size:16px">${best} kg</div><div class="helptext">Mejor marca</div></div>
+          <div><div class="num" style="font-weight:700; font-size:16px">${min} kg</div><div class="helptext">Mínimo semanal</div></div>
+          <div style="text-align:right"><div class="num" style="font-weight:700; font-size:16px">${best} kg</div><div class="helptext">Mejor marca (máx. semanal)</div></div>
         </div>
+        <div class="helptext" style="text-align:center; margin-top:6px">${weeklyAsc.length} semana${weeklyAsc.length===1?"":"s"} con registros · máximo de peso por semana</div>
       </div>
     `;
   }
@@ -1413,6 +1468,11 @@
   function openExerciseDetail(exOrName, opts){
     opts = opts || {};
     const isObj = exOrName && typeof exOrName === "object";
+    // V28: se guarda el scroll de la pantalla que se está dejando (Entrenamiento,
+    // Rutina, Explorador...) para poder restaurarlo al volver con "back" — ver
+    // el handler de #btn-exdetail-back en renderExerciseDetail. Antes volver de
+    // la ficha de un ejercicio siempre mandaba la pantalla de origen al tope.
+    state.navScrollY = window.scrollY;
     state.exDetail = {
       nombre: isObj ? exOrName.nombre : exOrName,
       imagenUrl: isObj ? (exOrName.imagenUrl||"") : "", // link personalizado pegado en ESTE día/sesión (si lo hay)
@@ -1434,7 +1494,7 @@
   }
   function exStatsTabHtml(history){
     if(!history.length) return `<p class="helptext" style="text-align:center; padding:16px 0">No hay datos todavía.</p>`;
-    return exerciseLineChart(history);
+    return exerciseLineChart(exerciseWeeklyMax(history));
   }
   function exHistoryTabHtml(history){
     if(!history.length) return `<p class="helptext" style="text-align:center; padding:16px 0">No hay datos todavía.</p>`;
@@ -1589,6 +1649,14 @@
       state.explorerGroup = d ? d.returnExplorerGroup : null;
       state.exDetail = null;
       render();
+      // V28: restaura el scroll guardado al entrar (mismo día/ejercicio/posición
+      // en Entrenamiento, Rutina o el resto de pantallas) — con rAF para que la
+      // restauración ocurra después de que el nuevo contenido ya esté pintado.
+      const y = state.navScrollY;
+      state.navScrollY = null;
+      if(y){
+        requestAnimationFrame(()=> requestAnimationFrame(()=> window.scrollTo(0, y)));
+      }
     };
     document.getElementById("screen").innerHTML = screenExerciseDetail();
     mountExerciseDetail();
@@ -1845,12 +1913,30 @@
     }
 
     function rowToRegistro(r){
-      return { id: r.id, exercise: r.exercise, peso: r.peso, date: r.date, series: r.series||"", reps: r.reps||"", nota: r.nota||"", createdAt: r.created_at||0 };
+      return { id: r.id, exercise: r.exercise, peso: r.peso, date: r.date, series: r.series||"", reps: r.reps||"", nota: r.nota||"", createdAt: r.created_at||0, setNumber: (r.set_number==null? null : r.set_number) };
     }
 
+    // v28.1: `setNumber` es opcional (nullable en la base — ver
+    // supabase-migration-v28.sql) — el formulario clásico de la pestaña
+    // Registro sigue sin mandarlo (queda null, comportamiento de siempre).
+    // Solo el registro por-serie desde dentro de una sesión lo manda.
+    // Devuelve el `id` de la fila creada (antes devolvía solo un booleano) —
+    // hace falta para poder reabrir y editar ESA serie puntual más tarde sin
+    // crear un registro duplicado; ningún llamador existente miraba el valor
+    // de retorno, así que este cambio de forma no rompe nada ya escrito.
     async function addRegistro(pid, data){
-      const row = { profile_id: pid, exercise: data.exercise, peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now() };
-      const { error } = await client().from("registros").insert(row);
+      const row = { profile_id: pid, exercise: data.exercise, peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now(), set_number: (data.setNumber==null? null : data.setNumber) };
+      const { data: inserted, error } = await client().from("registros").insert(row).select().single();
+      return { ok: !error, id: inserted && inserted.id };
+    }
+
+    // v28.1: actualiza un registro ya existente en el lugar (en vez de crear
+    // uno nuevo) — se usa para editar la serie activa cuando ya tenía un
+    // registro cargado (ver openSessionLogModal). No toca `set_number` a
+    // propósito (una serie no cambia de número al editarse).
+    async function updateRegistro(pid, id, data){
+      const row = { peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"" };
+      const { error } = await client().from("registros").update(row).eq("id", id).eq("profile_id", pid);
       return !error;
     }
 
@@ -1867,11 +1953,16 @@
     }
 
     function rowToEntreno(r){
-      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0 };
+      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual };
     }
 
+    // V28: `is_manual` distingue un entrenamiento cerrado desde "Finalizar"
+    // (con series/sets reales) de uno marcado a mano desde el calendario
+    // ("entrené este día", sin inventar series/pesos — ver openMarkTrainedModal).
+    // Requiere la columna nueva de supabase-migration-v28.sql (default false,
+    // así que las filas viejas siguen leyéndose como entrenamientos reales).
     async function addEntreno(pid, data){
-      const row = { profile_id: pid, date: data.date, day_id: data.dayId, day_nombre: data.dayNombre, sets_completados: data.setsCompletados, sets_totales: data.setsTotales, created_at: data.createdAt||Date.now() };
+      const row = { profile_id: pid, date: data.date, day_id: data.dayId, day_nombre: data.dayNombre, sets_completados: data.setsCompletados, sets_totales: data.setsTotales, created_at: data.createdAt||Date.now(), is_manual: !!data.isManual };
       const { error } = await client().from("entrenos").insert(row);
       return !error;
     }
@@ -1888,7 +1979,7 @@
       return !error;
     }
 
-    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos, deleteEntreno };
+    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro, updateRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos, deleteEntreno };
   })();
 
   function mapAuthError(error){
@@ -1920,10 +2011,11 @@
     exerciseSelForm:"",  // currently selected exercise name in registro form
     historyFilter:{ exercise:"", from:"", to:"" },
     historyExpanded:null,        // nombre del ejercicio desplegado en el Historial agrupado (null = ninguno)
-    session:null,        // { dayId, sets:{exId:[bool,...]} } while "entrenando"
+    session:null,        // { dayId, slot, dayNombre, startedAt, sets:{exId:[bool,...]}, setLogs:{exId:[{registroId,peso,reps,nota,date}|null,...]} } while "entrenando" — v28: persistido en rutinas.data.sesionActiva para poder resumirlo. setLogs (v28.1) es una CACHE de resumibilidad (qué fila de `registros` corresponde a cada serie de esta sesión), no una segunda fuente de verdad — el peso/reps real siempre vive en `registros`.
     calMonth:null,       // { y, m } mes mostrado en el calendario (m = 0-indexado)
     explorerGroup:null,  // grupo muscular seleccionado en el explorador (null = lista de grupos)
     exDetail:null,       // { nombre, tab, mobileView, filtros..., returnTab } — ficha de ejercicio a pantalla completa
+    navScrollY:null,      // v28: scroll (window.scrollY) guardado al entrar a exdetail/registro desde otra pantalla, para restaurarlo al volver
   };
 
   const app = document.getElementById("app");
@@ -1945,6 +2037,25 @@
     document.addEventListener("keydown", escHandler);
     if(onMount) onMount(back.querySelector(".modal"));
     return back.querySelector(".modal");
+  }
+
+  // V28: pequeña confirmación visual no-bloqueante (guardar progreso,
+  // registrar peso, marcar un día en el calendario) — a diferencia de un
+  // modal, no requiere tocar nada para cerrarse y no interrumpe el flujo.
+  let toastTimer = null;
+  function showToast(msg){
+    let t = document.querySelector(".toast");
+    if(!t){
+      t = document.createElement("div");
+      t.className = "toast";
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.remove("show");
+    void t.offsetWidth; // reinicia la animación si ya estaba mostrándose
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>{ t.classList.remove("show"); }, 1800);
   }
 
   function confirmDialog(title, msg, confirmLabel){
@@ -2295,18 +2406,49 @@
     state.rutina = slots[state.activeSlot];
     state.registros = registros || [];
     state.entrenos = entrenos || [];
+    // V28: recuperar el entrenamiento en curso (si el usuario cerró la app o
+    // recargó con una sesión activa sin guardar/finalizar). Se guarda dentro
+    // del mismo blob `rutinas.data` (ver persistRutina) para no crear una
+    // segunda fuente de verdad ni una tabla nueva. Se valida que el día
+    // todavía exista en el slot en el que se guardó la sesión — si el usuario
+    // borró ese día o la rutina cambió mientras tanto, se descarta la sesión
+    // guardada en vez de romper la pantalla de Entrenamiento con datos viejos.
+    state.session = null;
+    if(raw && raw.sesionActiva && raw.sesionActiva.dayId && raw.sesionActiva.sets){
+      const s = raw.sesionActiva;
+      const slot = (s.slot==="automatica") ? "automatica" : "personalizada";
+      const slotDays = (slots[slot] && slots[slot].days) || [];
+      const day = slotDays.find(d=>d.id===s.dayId);
+      if(day){
+        // v28.1: setLogs puede faltar (sesión guardada antes de este cambio,
+        // o dato corrupto) — se completa con nulls del mismo largo que
+        // `sets` para ese ejercicio en vez de romper la restauración.
+        const setLogs = {};
+        Object.keys(s.sets).forEach(exId=>{
+          const savedLog = (s.setLogs && s.setLogs[exId]) || [];
+          const n = s.sets[exId].length;
+          setLogs[exId] = new Array(n).fill(null).map((_,i)=> savedLog[i] || null);
+        });
+        state.session = { dayId: s.dayId, slot, dayNombre: s.dayNombre||day.nombre, startedAt: s.startedAt||Date.now(), sets: s.sets, setLogs };
+      }
+    }
   }
 
-  // Guarda las DOS rutinas (personalizada + automática) y cuál está activa,
-  // en una sola fila de la base (misma tabla `rutinas` de siempre). Como
+  // Guarda las DOS rutinas (personalizada + automática), cuál está activa, y
+  // (desde v28) el entrenamiento en curso si lo hay, en una sola fila de la
+  // base (misma tabla `rutinas` de siempre, mismo blob `data`). Como
   // `state.rutina` es siempre el MISMO objeto que `state.rutinaSlots[state.activeSlot]`
   // (por referencia), cualquier cambio hecho sobre `state.rutina.days` ya está
-  // reflejado en `state.rutinaSlots` antes de llamar a esta función.
+  // reflejado en `state.rutinaSlots` antes de llamar a esta función. Reusar
+  // esta única vía de persistencia (en vez de una tabla/migración nueva) es
+  // lo que permite que "Guardar entrenamiento" y el resumen automático al
+  // reabrir la app funcionen sin crear una segunda fuente de verdad.
   async function persistRutina(){
     await Store.saveRutina(state.profile.id, {
       personalizada: state.rutinaSlots.personalizada,
       automatica: state.rutinaSlots.automatica,
       activeSlot: state.activeSlot,
+      sesionActiva: state.session,
     });
   }
 
@@ -2386,15 +2528,39 @@
     `;
   }
 
+  // V28: helper único para ubicar el día de la sesión activa. Antes se hacía
+  // `state.rutina.days.find(...)`, que asume que la rutina activa hoy es la
+  // misma en la que se inició el entrenamiento — se rompía si el usuario
+  // cambiaba de slot (Mi rutina ↔ Rutina automática) mientras entrenaba, y
+  // era directamente incorrecto al RESUMIR una sesión guardada después de
+  // recargar la app (el slot activo al recargar puede no ser el de la
+  // sesión). Ahora la sesión guarda su propio `slot` y se busca siempre ahí.
+  function sessionDay(){
+    if(!state.session) return null;
+    const slotObj = state.rutinaSlots[state.session.slot] || state.rutina;
+    return (slotObj.days||[]).find(d=>d.id===state.session.dayId) || null;
+  }
+
+  function sessionProgress(){
+    const setsObj = (state.session && state.session.sets) || {};
+    let total=0, done=0;
+    Object.keys(setsObj).forEach(exId=>{ (setsObj[exId]||[]).forEach(v=>{ total++; if(v) done++; }); });
+    return { done, total };
+  }
+
   function sessionResumeBannerHtml(){
-    const day = state.rutina.days.find(d=>d.id===state.session.dayId);
+    const day = sessionDay();
+    const p = sessionProgress();
     return `
-      <div class="card row between" style="border-color:var(--accent)">
+      <div class="card stack" style="border-color:var(--accent)">
         <div>
           <div style="font-weight:700">Entrenamiento en curso</div>
-          <div class="helptext">${esc(day?day.nombre:"")}</div>
+          <div class="helptext">${esc(day?day.nombre:(state.session.dayNombre||""))} · ${p.done}/${p.total} series completadas</div>
         </div>
-        <button class="btn btn-primary btn-sm" id="btn-resume-session">Continuar</button>
+        <div class="row" style="gap:8px">
+          <button class="btn btn-primary btn-sm" style="flex:1" id="btn-resume-session">Continuar entrenamiento</button>
+          <button class="btn btn-outline btn-sm" id="btn-finalize-session">Finalizar</button>
+        </div>
       </div>
     `;
   }
@@ -2427,7 +2593,7 @@
           </div>
         </div>
         <div class="row" style="gap:8px; margin-top:8px">
-          <button class="btn btn-secondary btn-sm" data-start-session="${day.id}" style="flex:1">${icon("play")} Entrenar este día</button>
+          <button class="btn btn-outline btn-sm" data-start-session="${day.id}" style="flex:1; border-color:var(--accent); color:var(--accent)">${icon("play")} Entrenar este día</button>
           ${exs.length>0 ? `<button class="btn ${editMode?"btn-primary":"btn-ghost"} btn-sm" data-toggle-editex="${day.id}">${icon("edit")} ${editMode?"Listo":"Editar ejercicios"}</button>` : ""}
         </div>
         ${open ? `
@@ -2579,6 +2745,7 @@
       const notas = m.querySelector("#ex-notas").value.trim();
       const imagenUrl = m.querySelector("#ex-imagen").value.trim();
       if(!nombre) return;
+      const isNew = !existing;
       if(existing){
         Object.assign(existing, { nombre, series, reps, notas, imagenUrl });
       } else {
@@ -2587,6 +2754,15 @@
       await persistRutina();
       closeModal();
       renderScreen();
+      // V28: cada ejercicio agregado empuja el botón "+ Ejercicio" una fila
+      // más abajo — sin esto, cargar varios ejercicios seguidos obligaba a
+      // scrollear la lista entera cada vez para volver a encontrarlo. Se lo
+      // lleva a la vista automáticamente (sin agregar ningún botón/UI nueva)
+      // solo cuando se acaba de AGREGAR uno (no al editar uno existente).
+      if(isNew){
+        const addBtn = document.querySelector(`[data-add-ex="${day.id}"]`);
+        if(addBtn) addBtn.scrollIntoView({ block:"center", behavior:"smooth" });
+      }
     };
   }
 
@@ -2867,9 +3043,19 @@
     // Brazos — el único press cerrado es multiarticular, el resto de brazos es aislamiento
     "Press cerrado",
   ]);
+  // V28: Juan pidió que 2 series NO sea la configuración normal — antes,
+  // cualquier ejercicio de aislamiento con base=3 (edad 30-49, o sin edad
+  // cargada — el caso más común de todos) caía a max(2, 3-1) = 2 series,
+  // que terminaba siendo el piso real para la enorme mayoría de cuentas, no
+  // una excepción. Se sube el piso de aislamiento a 3 (antes 2): ahora un
+  // ejercicio de aislamiento nunca baja de 3 series salvo que el compuesto
+  // de referencia ya esté en 2 (perfil 50+, ver seriesForAge) — en ese único
+  // caso, ya justificado por la edad desde v20, el aislamiento se mantiene en
+  // 3 en vez de bajar más, y el "2" queda acotado solo al compuesto de ese
+  // perfil (una excepción real y ya explicada, no la regla general).
   function seriesForExercise(nombre, edad){
     const base = seriesForAge(edad);
-    return EXERCISES_COMPOUND.has(nombre) ? base : Math.max(2, base-1);
+    return EXERCISES_COMPOUND.has(nombre) ? base : Math.max(3, base-1);
   }
   // ---- Descanso sugerido entre series según edad — pasó Juan: 60-90s para
   // perfiles jóvenes, 120-180s para 50+ (la recuperación metabólica entre
@@ -3212,7 +3398,13 @@
       const dateStr = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
       const done = doneByDate[dateStr];
       const isToday = dateStr===todayS;
-      cells.push(`<div class="cal-cell ${done?"done":""} ${isToday?"today":""}" ${done?`data-cal-day="${dateStr}"`:""}>${d}</div>`);
+      // V28: antes solo los días ya marcados eran clickeables. Ahora CUALQUIER
+      // día de hoy hacia atrás es clickeable — si está vacío, tocarlo ofrece
+      // "marcar como entrenado" (openMarkTrainedModal); si ya tiene registros,
+      // muestra el detalle de siempre. Los días futuros quedan sin marcar
+      // (no tiene sentido registrar un entrenamiento que todavía no pasó).
+      const clickable = !!done || dateStr<=todayS;
+      cells.push(`<div class="cal-cell ${done?"done":""} ${isToday?"today":""}" ${clickable?`data-cal-day="${dateStr}"`:""}>${d}</div>`);
     }
     const monthCount = Object.keys(doneByDate).filter(k=>k.startsWith(`${y}-${String(m+1).padStart(2,"0")}`)).length;
     return `
@@ -3227,7 +3419,7 @@
           ${["L","M","X","J","V","S","D"].map(w=>`<div class="cal-weekday">${w}</div>`).join("")}
           ${cells.join("")}
         </div>
-        <p class="helptext">${monthCount} entrenamiento${monthCount===1?"":"s"} este mes. Tocá un día marcado para ver el detalle.</p>
+        <p class="helptext">${monthCount} entrenamiento${monthCount===1?"":"s"} este mes. Tocá un día para ver el detalle o marcarlo como entrenado.</p>
       </div>
     `;
   }
@@ -3247,15 +3439,24 @@
 
   function openCalDayModal(date){
     const list = (state.entrenos||[]).filter(e=>e.date===date);
-    if(list.length===0){ renderScreen(); return; } // se borró el último y ya no queda nada que mostrar
+    // V28: un día sin entrenamientos ya no se ignora — se ofrece marcarlo
+    // manualmente como entrenado (ver openMarkTrainedModal). Esto también
+    // cubre el caso de borrar el último registro de un día: al reabrir ya no
+    // hay nada que listar, así que directamente pasa a ofrecer marcarlo.
+    if(list.length===0){ openMarkTrainedModal(date); return; }
     const m = openModal(`
       <h3>${esc(fmtDate(date))}</h3>
       <div class="loglist">
         ${list.map(e=>`
           <div class="logrow">
-            <div><div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div></div>
+            <div>
+              <div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div>
+              ${e.isManual ? `<div class="ldate">Marcado manualmente</div>` : ""}
+            </div>
             <div class="row" style="gap:8px; align-items:center">
-              <div><div class="lval num">${e.setsCompletados}/${e.setsTotales}</div><div class="lsub">series</div></div>
+              ${e.isManual
+                ? `<div class="lsub">Sin detalle de series</div>`
+                : `<div><div class="lval num">${e.setsCompletados}/${e.setsTotales}</div><div class="lsub">series</div></div>`}
               <span class="iconbtn danger" data-del-entreno="${e.id}" title="Borrar (marcado por error)">${icon("trash")}</span>
             </div>
           </div>
@@ -3281,6 +3482,40 @@
       };
     });
     m.querySelector('[data-act="ok"]').onclick = closeModal;
+  }
+
+  // V28: marcar manualmente "entrené este día" desde un día vacío del
+  // calendario — sin inventar series, pesos ni ejercicios (queda un registro
+  // en `entrenos` con sets en 0 y `isManual:true`, ver Store.addEntreno).
+  // Cuenta para la racha y la meta semanal igual que cualquier entrenamiento
+  // (computeRacha ya usa solo `e.date`, no distingue el origen), y se puede
+  // borrar como cualquier otro desde el mismo modal de detalle del día.
+  function openMarkTrainedModal(date){
+    const m = openModal(`
+      <h3>${esc(fmtDate(date))}</h3>
+      <p class="helptext" style="font-size:14px; color:var(--text)">¿Marcar este día como entrenado? No se van a inventar series, pesos ni ejercicios — solo queda anotado que entrenaste, y cuenta para tu racha y tu meta semanal.</p>
+      <div class="field">
+        <label>Nota (opcional)</label>
+        <input type="text" id="calmark-nota" maxlength="40" placeholder="Ej: entrené en casa">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="ok">Marcar como entrenado</button>
+      </div>
+    `);
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    m.querySelector('[data-act="ok"]').onclick = async ()=>{
+      const btn = m.querySelector('[data-act="ok"]');
+      if(btn.disabled) return; // evita doble registro por doble tap
+      btn.disabled = true;
+      const nota = m.querySelector("#calmark-nota").value.trim();
+      const data = { date, dayId: null, dayNombre: nota || "Entrenamiento (marcado manualmente)", setsCompletados: 0, setsTotales: 0, createdAt: Date.now(), isManual: true };
+      await Store.addEntreno(state.profile.id, data);
+      state.entrenos = await Store.listEntrenos(state.profile.id);
+      closeModal();
+      renderScreen();
+      showToast("Día marcado como entrenado");
+    };
   }
 
   /* ================= EXPLORADOR POR GRUPO MUSCULAR ================= */
@@ -3442,22 +3677,39 @@
     });
     const resumeBtn = el.querySelector("#btn-resume-session");
     if(resumeBtn) resumeBtn.onclick = ()=>{ state.tab = "sesion"; render(); };
+    const finalizeBtn = el.querySelector("#btn-finalize-session");
+    if(finalizeBtn) finalizeBtn.onclick = async ()=>{
+      const day = sessionDay();
+      const p = sessionProgress();
+      const ok = await confirmDialog("Finalizar entrenamiento", `Vas a cerrar este entrenamiento (${p.done}/${p.total} series) y contará para tu racha y meta semanal. ¿Confirmar?`, "Finalizar");
+      if(!ok) return;
+      await finalizeSession(day);
+    };
   }
 
   /* ================= MODO ENTRENANDO ================= */
+  // V28: la pantalla de Entrenamiento pasa a ser el centro operativo real de
+  // la sesión de gimnasio — desde acá, sin salir: marcar series, registrar
+  // peso/reps, ver info del ejercicio, abrir el descanso, saltar libremente
+  // entre ejercicios, guardar el progreso y (desde el banner de Mi rutina)
+  // finalizar. Ver comentarios en sessionExerciseCardHtml/toggleSessionSet/
+  // saveSessionProgress/finalizeSession para el detalle de cada parte.
   function startSession(day){
     const sets = {};
+    const setLogs = {};
     (day.exercises||[]).forEach(ex=>{
       const n = Math.max(1, Math.min(12, parseInt(ex.series,10)||1));
       sets[ex.id] = new Array(n).fill(false);
+      setLogs[ex.id] = new Array(n).fill(null);
     });
-    state.session = { dayId: day.id, sets };
+    state.session = { dayId: day.id, slot: state.activeSlot, dayNombre: day.nombre, startedAt: Date.now(), sets, setLogs };
     state.tab = "sesion";
+    persistRutina(); // guardado inmediato: si cierran la app un segundo después, el entrenamiento ya quedó recuperable
     render();
   }
 
   function renderSession(){
-    const day = state.rutina.days.find(d=>d.id===state.session.dayId);
+    const day = sessionDay();
     if(!day){ state.session=null; state.tab="rutina"; render(); return; }
     app.innerHTML = `
       <div class="topbar">
@@ -3467,13 +3719,26 @@
       </div>
       <main><div class="screen" id="screen"></div></main>
       <nav class="bottomnav">
-        <button class="btn btn-primary btn-block" id="btn-finish-session" style="max-width:444px; margin:0 auto">${icon("check")} Terminar entrenamiento</button>
+        <button class="btn btn-primary btn-block" id="btn-save-session" style="max-width:444px; margin:0 auto">${icon("check")} Guardar entrenamiento</button>
       </nav>
     `;
     document.getElementById("btn-session-back").onclick = ()=>{ state.tab="rutina"; render(); };
     document.getElementById("screen").innerHTML = screenSession(day);
     mountSession(day);
-    document.getElementById("btn-finish-session").onclick = ()=> finishSession(day);
+    document.getElementById("btn-save-session").onclick = saveSessionProgress;
+  }
+
+  // Reemplaza a `render()`/`renderSession()` para un simple refresco del
+  // contenido tras marcar una serie: reconstruye solo #screen (misma idea que
+  // renderScreenExerciseDetail para la ficha de ejercicio), sin recrear el
+  // topbar/bottomnav ni perder el scroll de la pantalla.
+  function renderScreenSession(){
+    const day = sessionDay();
+    if(!day){ state.session=null; state.tab="rutina"; render(); return; }
+    const el = document.getElementById("screen");
+    if(!el) return;
+    el.innerHTML = screenSession(day);
+    mountSession(day);
   }
 
   function screenSession(day){
@@ -3481,38 +3746,68 @@
     if(exs.length===0){
       return `<div class="card empty">${icon("routine")}<h3>Este día no tiene ejercicios</h3><p>Agregale ejercicios desde "Rutina" antes de entrenar.</p></div>`;
     }
-    return exs.map(ex=>{
-      const done = state.session.sets[ex.id] || [];
-      return `
-        <div class="card stack">
-          <div class="row between">
-            <div style="display:flex; align-items:center; gap:10px; min-width:0">
-              ${exerciseThumbHtml(ex, "width:40px; height:50px; flex:none")}
-              <div style="min-width:0">
-                <div class="exname" style="font-size:16px">${esc(ex.nombre)}</div>
-                <div class="exmeta">${esc(ex.series)} series × ${esc(ex.reps)} reps${ex.notas? " · "+esc(ex.notas):""}</div>
-              </div>
-            </div>
-            <div class="row" style="gap:4px; flex:none">
-              <span class="iconbtn" data-howto-ex-session="${ex.id}" title="Cómo hacerlo" style="flex:none">${icon("info")}</span>
-              <span class="iconbtn" data-rest-btn title="Descansar" style="flex:none">${icon("timer")}</span>
+    return exs.map(ex=> sessionExerciseCardHtml(ex)).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
+  }
+
+  // Una sola tarjeta por ejercicio con todo lo necesario para entrenar sin
+  // salir de la pantalla. Los ejercicios NUNCA se bloquean entre sí — el
+  // usuario puede saltar a cualquier otro en cualquier momento (superseries,
+  // orden libre, lo que haya hecho de verdad); lo secuencial es solo DENTRO
+  // de cada ejercicio (ver toggleSessionSet) y es una ayuda de uso, no una
+  // restricción de flujo entre ejercicios.
+  function sessionExerciseCardHtml(ex){
+    const done = state.session.sets[ex.id] || [];
+    const logs = state.session.setLogs[ex.id] || [];
+    const allDone = done.length>0 && done.every(Boolean);
+    const nextIdx = done.findIndex(v=>!v);
+    // v28.1: registro POR SERIE (progresión de carga dentro del mismo
+    // ejercicio, ej. sentadilla 60/70/80/90kg) — cada línea con datos ya
+    // cargados es tocable para reabrirla y editarla; el botón único de abajo
+    // siempre apunta a la serie activa (la misma que se resalta como
+    // "next" en los círculos), nunca a una lista de botones por serie.
+    const loggedRows = logs.map((log,i)=> log ? `
+      <div class="setlog-row" data-edit-set="${ex.id}" data-idx="${i}">
+        <span class="sl-num">Serie ${i+1}</span>
+        <span class="sl-val">${esc(log.peso)} kg × ${esc(log.reps||"-")}</span>
+      </div>` : "").join("");
+    return `
+      <div class="card stack" data-exercise-card="${ex.id}">
+        <div class="row between">
+          <div style="display:flex; align-items:center; gap:10px; min-width:0">
+            ${exerciseThumbHtml(ex, "width:40px; height:50px; flex:none")}
+            <div style="min-width:0">
+              <div class="exname" style="font-size:16px">${esc(ex.nombre)}</div>
+              <div class="exmeta">${esc(ex.series)} series × ${esc(ex.reps)} reps${ex.notas? " · "+esc(ex.notas):""}</div>
             </div>
           </div>
-          <div class="setrow">
-            ${done.map((v,i)=>`<div class="setdot ${v?"done":""}" data-ex="${ex.id}" data-idx="${i}">${i+1}</div>`).join("")}
-          </div>
+          ${allDone ? `<span class="badge pr" style="flex:none">${icon("check")} Completo</span>` : ""}
         </div>
-      `;
-    }).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
+        <div class="setrow">
+          ${done.map((v,i)=>{
+            const isNext = i===nextIdx;
+            const locked = !v && !isNext;
+            return `<div class="setdot ${v?"done":""}${isNext?" next":""}${locked?" locked":""}" data-ex="${ex.id}" data-idx="${i}">${i+1}</div>`;
+          }).join("")}
+        </div>
+        ${loggedRows ? `<div class="stack" style="gap:4px">${loggedRows}</div>` : ""}
+        <div class="row" style="gap:8px">
+          <span class="iconbtn iconbtn-lg" data-howto-ex-session="${ex.id}" title="Cómo hacerlo" style="flex:none">${icon("info")}</span>
+          <span class="iconbtn iconbtn-lg" data-rest-btn title="Descansar" style="flex:none">${icon("timer")}</span>
+          ${nextIdx!==-1 ? `<button class="btn btn-outline btn-sm" style="flex:1" data-log-weight="${ex.id}" data-log-idx="${nextIdx}">${icon("dumbbell")} Registrar peso y reps</button>` : ""}
+        </div>
+      </div>
+    `;
   }
 
   function mountSession(day){
     const el = document.getElementById("screen");
     el.querySelectorAll(".setdot").forEach(dot=>{
+      if(dot.classList.contains("locked")) return; // v28: bloqueada hasta completar la anterior de ESE ejercicio
       dot.onclick = ()=>{
         const exId = dot.dataset.ex, idx = parseInt(dot.dataset.idx,10);
-        state.session.sets[exId][idx] = !state.session.sets[exId][idx];
-        dot.classList.toggle("done");
+        toggleSessionSet(exId, idx);
+        persistRutina();
+        renderScreenSession();
       };
     });
     el.querySelectorAll("[data-rest-btn]").forEach(b=>{
@@ -3524,24 +3819,141 @@
         if(ex) openExerciseDetail(ex, { returnTab:"sesion" });
       };
     });
+    el.querySelectorAll("[data-log-weight]").forEach(b=>{
+      b.onclick = ()=>{
+        const ex = (day.exercises||[]).find(x=>x.id===b.dataset.logWeight);
+        if(ex) openSessionLogModal(ex, parseInt(b.dataset.logIdx,10));
+      };
+    });
+    el.querySelectorAll("[data-edit-set]").forEach(row=>{
+      row.onclick = ()=>{
+        const ex = (day.exercises||[]).find(x=>x.id===row.dataset.editSet);
+        if(ex) openSessionLogModal(ex, parseInt(row.dataset.idx,10));
+      };
+    });
     const cancelBtn = el.querySelector("#btn-cancel-session");
     if(cancelBtn) cancelBtn.onclick = async ()=>{
-      const ok = await confirmDialog("Cancelar entrenamiento", "¿Salir sin registrar este entrenamiento?");
+      const ok = await confirmDialog("Cancelar entrenamiento", "¿Salir sin guardar este entrenamiento? Se va a perder el progreso marcado.");
       if(!ok) return;
       state.session = null;
+      await persistRutina();
       state.tab = "rutina";
       render();
     };
   }
 
-  async function finishSession(day){
-    const setsObj = state.session.sets;
-    let total=0, done=0;
-    Object.keys(setsObj).forEach(exId=>{ setsObj[exId].forEach(v=>{ total++; if(v) done++; }); });
-    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: done, setsTotales: total, createdAt: Date.now() };
+  // Dentro de cada ejercicio las series se completan en orden: tocar la
+  // próxima pendiente la marca; tocar una ya marcada la desmarca a ELLA y a
+  // todas las que venían después (si esas dependían de que esta estuviera
+  // hecha, dejarlas marcadas sería un dato falso — esta es la "corrección en
+  // cascada" pedida). Tocar una serie todavía no alcanzada no hace nada (está
+  // bloqueada visualmente, ver sessionExerciseCardHtml). Esto NUNCA bloquea
+  // pasar a otro ejercicio — es solo el orden dentro de este.
+  function toggleSessionSet(exId, idx){
+    const arr = state.session.sets[exId];
+    if(!arr) return;
+    if(arr[idx]){
+      for(let i=idx;i<arr.length;i++) arr[i]=false;
+    } else {
+      const nextIdx = arr.findIndex(v=>!v);
+      if(nextIdx !== idx) return;
+      arr[idx] = true;
+    }
+  }
+
+  // V28.1: registrar peso/reps POR SERIE sin salir de "Entrenamiento" — un
+  // solo acceso de registro por ejercicio (nunca un botón por serie), que
+  // opera siempre sobre la serie activa (la próxima pendiente, `idx`); si esa
+  // serie puntual ya tiene un registro cargado (se reabre tocando su propia
+  // línea en la tarjeta, ver sessionExerciseCardHtml), el modal se abre en
+  // modo EDICIÓN de ese mismo registro en vez de crear uno duplicado. Como el
+  // resto de los modales de la app, se monta directo sobre document.body sin
+  // tocar #app/#screen (openModal/closeModal), así que no se pierde el
+  // scroll ni el estado de la pantalla de sesión al cerrarlo. Reusa
+  // Store.addRegistro/updateRegistro (misma tabla `registros` de siempre,
+  // con `set_number` = idx+1 para las filas nuevas) para que el historial y
+  // el gráfico de Registro queden al día al instante.
+  function openSessionLogModal(ex, idx){
+    const existing = (state.session.setLogs[ex.id] || [])[idx] || null;
+    const m = openModal(`
+      <h3>${existing?"Editar serie":"Registrar serie"} ${idx+1}</h3>
+      <p class="helptext" style="margin:-8px 0 4px">${esc(ex.nombre)}</p>
+      <div class="stack">
+        <div class="field-row">
+          <div class="field"><label>Fecha</label><input type="date" id="slog-date" value="${esc(existing? existing.date : todayStr())}"></div>
+          <div class="field"><label>Peso (kg)</label><input type="number" id="slog-peso" step="0.5" min="0" placeholder="Ej: 40" value="${existing? esc(existing.peso) : ""}"></div>
+        </div>
+        <div class="field">
+          <label>Reps</label>
+          <input type="text" id="slog-reps" maxlength="12" value="${esc(existing? existing.reps : (ex.reps||""))}">
+        </div>
+        <div class="field"><label>Nota (opcional)</label><input type="text" id="slog-nota" maxlength="60" placeholder="Ej: sentí bien la técnica" value="${existing? esc(existing.nota||"") : ""}"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="save">Guardar</button>
+      </div>
+    `);
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    m.querySelector('[data-act="save"]').onclick = async ()=>{
+      const pesoInput = m.querySelector("#slog-peso");
+      const peso = pesoInput.value;
+      if(peso===""){ pesoInput.focus(); return; }
+      const date = m.querySelector("#slog-date").value || todayStr();
+      const reps = m.querySelector("#slog-reps").value;
+      const nota = m.querySelector("#slog-nota").value.trim();
+      const saveBtn = m.querySelector('[data-act="save"]');
+      if(saveBtn.disabled) return; // evita doble registro por doble tap mientras guarda
+      saveBtn.disabled = true;
+      const pesoNum = parseFloat(peso);
+      if(existing){
+        // Edición: actualiza la fila que ya existía para ESTA serie, nunca
+        // crea una nueva. `set_number` no se toca (no cambia de serie).
+        await Store.updateRegistro(state.profile.id, existing.registroId, { peso: pesoNum, date, series: "1", reps, nota });
+        state.session.setLogs[ex.id][idx] = { registroId: existing.registroId, peso: pesoNum, reps, nota, date };
+      } else {
+        // Alta: una fila = una serie (series:"1" es correcto acá, no es el
+        // total de series del ejercicio). set_number = idx+1 (1-indexado).
+        const data = { exercise: ex.nombre, peso: pesoNum, date, series: "1", reps: reps||"", nota, setNumber: idx+1, createdAt: Date.now() };
+        const res = await Store.addRegistro(state.profile.id, data);
+        state.session.setLogs[ex.id][idx] = { registroId: res.id, peso: pesoNum, reps, nota, date };
+        toggleSessionSet(ex.id, idx); // idx es siempre la serie activa (next) acá, nunca una ya hecha — no hay riesgo de descascadear
+      }
+      state.registros = await Store.listRegistros(state.profile.id);
+      state.exerciseSelForm = ex.nombre;
+      await persistRutina();
+      closeModal();
+      renderScreenSession();
+      showToast(existing ? "Registro actualizado" : "Registro guardado");
+    };
+  }
+
+  // V28: "Guardar entrenamiento" ahora es un guardado de PROGRESO, no un
+  // cierre del entrenamiento — persiste el estado actual (mismo blob de
+  // rutinas.data, ver persistRutina) y vuelve al menú, pero la sesión sigue
+  // viva: no crea ningún registro en `entrenos` ni cuenta para la racha/meta
+  // todavía. Eso solo lo hace "Finalizar" (ver finalizeSession), para no
+  // duplicar registros de un mismo entrenamiento.
+  async function saveSessionProgress(){
+    await persistRutina();
+    state.tab = "rutina";
+    render();
+    showToast("Progreso guardado");
+  }
+
+  // V28: "Finalizar" es la acción que de verdad cierra el entrenamiento y lo
+  // cuenta para el calendario/racha/meta semanal — antes esto era lo único
+  // que hacía "Terminar entrenamiento" en la propia pantalla de sesión; ahora
+  // vive en el banner "Entrenamiento en curso" de Mi rutina (spec v28 sección
+  // 11), separado de guardar progreso, para que no se puedan crear dos
+  // registros del mismo entrenamiento.
+  async function finalizeSession(day){
+    const p = sessionProgress();
+    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now() };
     await Store.addEntreno(state.profile.id, data);
     state.entrenos = await Store.listEntrenos(state.profile.id);
     state.session = null;
+    await persistRutina();
     state.tab = "rutina";
     render();
     const m = openModal(`
@@ -3928,10 +4340,14 @@
     `;
   }
 
+  // V28: mismo criterio que exerciseLineChart — un punto por semana (máximo
+  // de peso registrado esa semana), no por registro individual, con el
+  // período representado indicado debajo.
   function sparklineFor(history){
-    const asc = history.slice().sort((a,b)=> a.date<b.date?-1:1).slice(-10);
-    if(asc.length===0) return `<p class="helptext">Todavía no hay registros de este ejercicio.</p>`;
-    const weights = asc.map(r=> parseFloat(r.peso)||0);
+    const historyAsc = history.slice().sort((a,b)=> a.date<b.date?-1:1);
+    const weekly = exerciseWeeklyMax(historyAsc).slice(-10);
+    if(weekly.length===0) return `<p class="helptext">Todavía no hay registros de este ejercicio.</p>`;
+    const weights = weekly.map(r=> r.peso);
     const best = Math.max(...weights);
     const min = Math.min(...weights);
     const w = 260, h = 40, pad = 6;
@@ -3952,9 +4368,10 @@
         </svg>
         <div class="spark-stats">
           <div class="best num">${best} kg</div>
-          <div class="lbl">Mejor marca</div>
+          <div class="lbl">Máx. semanal</div>
         </div>
       </div>
+      <div class="helptext" style="margin-top:4px">Semana del ${esc(fmtDate(weekly[0].weekStart))}${weekly.length>1?` – semana del ${esc(fmtDate(weekly[weekly.length-1].weekStart))}`:""}</div>
     `;
   }
 
@@ -4481,6 +4898,8 @@
     FOCUS_OPTIONS, FOCUS_LABELS, FOCUS_MAX_GROUPS, buildRoutinePdfData, exportRoutinePDF,
     sessionCountRange, exercisePrimarySubgroup, MUSCLE_MAP, EXERCISE_TIPS, EXERCISE_EQUIPMENT,
     openExerciseDetail,
+    // v28
+    exerciseWeeklyMax, sessionProgress, sessionDay, reorderDayExercisesByGroup,
   };
 
 })();
