@@ -2116,7 +2116,10 @@
       // funcionando igual aunque la migración v29 todavía no se haya corrido.
       if(data.isSpecial) row.is_special = true;
       const { error } = await client().from("entrenos").insert(row);
-      return !error;
+      // V29.2: devuelve también el error REAL de Supabase (antes solo un
+      // booleano, y finalizeSession mostraba un mensaje genérico que
+      // escondía la causa). Los demás llamadores ignoran el resultado.
+      return error ? { ok:false, error } : { ok:true, error:null };
     }
 
     async function listEntrenos(pid){
@@ -4126,7 +4129,7 @@
       <main><div class="screen" id="screen"></div></main>
     `;
     document.getElementById("btn-explorer-back").onclick = ()=>{
-      if(state.explorerGroup){ state.explorerGroup = null; renderExplorer(); }
+      if(state.explorerGroup){ state.explorerGroup = null; state.explorerLegSub = null; renderExplorer(); }
       else { state.tab = "rutina"; render(); }
     };
     document.getElementById("screen").innerHTML = state.explorerGroup ? screenExplorerList(state.explorerGroup) : screenExplorerGroups();
@@ -4148,11 +4151,32 @@
     `;
   }
 
+  // V29.2: dentro de "Piernas", el explorador permite filtrar por subgrupo.
+  // Solo navegación/filtrado: usa la clasificación que ya existe
+  // (exerciseLegFocus = región de mayor intensidad en MUSCLE_MAP), no cambia
+  // la clasificación principal ni la lógica de Rutina automática/Día Especial.
+  const EXPLORER_LEG_SUBGROUPS = [
+    ["quads","Cuádriceps"], ["glutes","Glúteos"], ["hamstrings","Isquiosurales"], ["calves","Gemelos"], ["adductors","Aductores"],
+  ];
   function screenExplorerList(group){
     const pools = muscleGroupPools();
-    const names = pools[group] || [];
+    const all = pools[group] || [];
+    let names = all;
+    let legChips = "";
+    if(group==="Piernas"){
+      const sub = state.explorerLegSub || null;
+      const countOf = f => all.filter(n=> exerciseLegFocus(n)===f).length;
+      if(sub) names = all.filter(n=> exerciseLegFocus(n)===sub);
+      legChips = `
+        <div class="row explorer-legsubs" style="gap:6px; flex-wrap:wrap; margin-bottom:10px">
+          <button class="btn btn-sm ${!sub?'btn-primary':'btn-ghost'}" data-leg-sub="">Todos (${all.length})</button>
+          ${EXPLORER_LEG_SUBGROUPS.map(([f,label])=>`<button class="btn btn-sm ${sub===f?'btn-primary':'btn-ghost'}" data-leg-sub="${f}">${label} (${countOf(f)})</button>`).join("")}
+        </div>`;
+    }
+    const subLabel = (group==="Piernas" && state.explorerLegSub) ? (EXPLORER_LEG_SUBGROUPS.find(x=>x[0]===state.explorerLegSub)||[])[1] : null;
     return `
-      <div class="section-title"><h2>${esc(group)}</h2><span class="muted">${names.length} ejercicio${names.length===1?"":"s"}</span></div>
+      <div class="section-title"><h2>${esc(group)}${subLabel?` · ${esc(subLabel)}`:""}</h2><span class="muted">${names.length} ejercicio${names.length===1?"":"s"}</span></div>
+      ${legChips}
       <div class="exlist">
         ${names.map(n=>`
           <div class="exrow" data-ex-explore="${esc(n)}" style="cursor:pointer">
@@ -4170,7 +4194,10 @@
   function mountExplorer(){
     const el = document.getElementById("screen");
     el.querySelectorAll("[data-group]").forEach(b=>{
-      b.onclick = ()=>{ state.explorerGroup = b.dataset.group; renderExplorer(); };
+      b.onclick = ()=>{ state.explorerGroup = b.dataset.group; state.explorerLegSub = null; renderExplorer(); };
+    });
+    el.querySelectorAll("[data-leg-sub]").forEach(b=>{
+      b.onclick = ()=>{ state.explorerLegSub = b.dataset.legSub || null; renderExplorer(); };
     });
     el.querySelectorAll("[data-ex-explore]").forEach(row=>{
       row.onclick = ()=> openExerciseDetail(row.dataset.exExplore, { returnTab:"explorar" });
@@ -4570,11 +4597,24 @@
     const isSpecial = !!(state.session && state.session.slot==="especial");
     const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now(), isSpecial };
     const saved = await Store.addEntreno(state.profile.id, data);
-    // V29: si la base rechaza el registro (ej. falta correr la migración de
-    // is_special), NO se borra la sesión — antes se limpiaba igual y el
-    // entrenamiento se perdía sin aviso.
-    if(!saved){
-      showToast("No se pudo registrar el entrenamiento. Tu sesión sigue guardada — probá de nuevo.");
+    // Si la base rechaza el registro, NO se borra la sesión y se muestra el
+    // error EXACTO que devolvió Supabase (V29.2). Causa conocida: si la
+    // columna entrenos.is_special no existe (falta correr
+    // supabase-migration-v29.sql), PostgREST responde PGRST204
+    // "Could not find the 'is_special' column of 'entrenos' in the schema cache"
+    // — solo afecta al Día Especial, porque solo él manda is_special.
+    if(!saved || !saved.ok){
+      const err = (saved && saved.error) || {};
+      console.error("finalizeSession: Supabase rechazó el insert en entrenos", err, data);
+      const missingSpecialCol = /is_special/.test(err.message||"") && (err.code==="PGRST204" || err.code==="42703");
+      const m = openModal(`
+        <h3>No se pudo registrar el entrenamiento</h3>
+        <p class="helptext" style="font-size:14px; color:var(--text)">Tu sesión sigue guardada — no se perdió nada.</p>
+        ${missingSpecialCol ? `<p class="helptext" style="font-size:14px; color:var(--text)">La base de datos todavía no tiene la columna <b>is_special</b> en la tabla <b>entrenos</b>: hay que correr <b>supabase-migration-v29.sql</b> en Supabase (SQL Editor). Después, volvé a tocar "Finalizar".</p>` : ""}
+        <p class="helptext">Error de Supabase${err.code?` (${esc(String(err.code))})`:""}: ${esc(err.message || "sin detalle")}</p>
+        <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Entendido</button></div>
+      `);
+      m.querySelector('[data-act="ok"]').onclick = closeModal;
       return;
     }
     state.entrenos = await Store.listEntrenos(state.profile.id);
