@@ -413,6 +413,20 @@
   .racha-count{ font-family:"Barlow Condensed",sans-serif; font-weight:800; font-size:32px; line-height:1.05; color:var(--accent); letter-spacing:.01em; }
   .racha-streak{ text-align:right; }
   .racha-streak .fire{ font-size:22px; line-height:1; }
+  /* V29: navegación del historial semanal dentro de la tarjeta de la semana */
+  .week-nav{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .week-nav .iconbtn[aria-disabled="true"]{ opacity:.3; pointer-events:none; }
+  .week-nav-label{ font-size:12.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); text-align:center; flex:1; }
+  .week-extra{ font-size:12.5px; }
+  .week-list{ display:flex; flex-direction:column; gap:6px; margin-top:4px; }
+  .week-list .logrow{ padding:8px 10px; }
+  /* V29: Día Especial */
+  .special-badge{ display:inline-block; font-size:11px; font-weight:700; letter-spacing:.03em; text-transform:uppercase; background:var(--accent-soft); color:var(--accent); padding:2px 8px; border-radius:999px; vertical-align:middle; }
+  .special-note{ display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-color:var(--accent); }
+  .special-note .special-badge{ align-self:flex-start; }
+  .special-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .special-grid .btn{ width:100%; min-height:44px; justify-content:center; }
+  .howto-link{ display:flex; align-items:center; justify-content:center; gap:6px; text-decoration:none; }
 
   .muscle-diagram{ display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 0 2px; }
   .muscle-diagram-pic{ width:74px; height:92px; }
@@ -774,7 +788,43 @@
     if(!excludeSet) _legFocusPoolsCache = pools;
     return pools;
   }
+  // ---- V29: 10 subgrupos (Día Especial) ----
+  // "piernas" se divide en cuádriceps / glúteos / isquiosurales / gemelos
+  // usando SOLO la clasificación que ya existía en MUSCLE_MAP (región de
+  // mayor intensidad, vía exerciseLegFocus) — no se inventa ninguna
+  // clasificación nueva. Los ejercicios cuya región principal es "adductors"
+  // (aductores) no caen de forma inequívoca en ninguno de los 4 → quedan
+  // SIN subgrupo de 10 (ambiguos, ver ambiguousLegExercises) y no se usan en
+  // los pools de Día Especial.
+  // IMPORTANTE: esto es ADITIVO. El subgrupo "piernas" se mantiene tal cual
+  // para el generador de rutina automática semanal (SPLIT_DAYS, reparto por
+  // sexo, cobertura semanal de v16), que ya maneja los sub-focos de pierna
+  // por su cuenta con legFocusPools — cambiarlo rompería esa rutina.
+  const LEG_FOCUS_TO_SUBGROUP10 = { quads:"cuadriceps", glutes:"gluteos", hamstrings:"isquiosurales", calves:"gemelos" };
+  const LEG_SUBGROUPS10 = ["cuadriceps","gluteos","isquiosurales","gemelos"];
+  const SPECIAL_SUBGROUPS = ["pecho","espalda","hombros","biceps","triceps","cuadriceps","gluteos","isquiosurales","gemelos","core"];
+  const SPECIAL_SUBGROUP_LABELS = {
+    pecho:"Pecho", espalda:"Espalda", hombros:"Hombros", biceps:"Bíceps", triceps:"Tríceps",
+    cuadriceps:"Cuádriceps", gluteos:"Glúteos", isquiosurales:"Isquiosurales", gemelos:"Gemelos", core:"Core",
+  };
+  function exerciseSubgroup10(name){
+    const sg = exercisePrimarySubgroup(name);
+    if(!sg) return null;
+    if(sg!=="piernas") return sg;
+    return LEG_FOCUS_TO_SUBGROUP10[exerciseLegFocus(name)] || null;
+  }
+  // Ejercicios de "piernas" que no se pueden asignar sin ambigüedad a uno de
+  // los 4 subgrupos (hoy: los de región principal "aductores").
+  function ambiguousLegExercises(){
+    return Object.keys(MUSCLE_MAP).filter(n=> exercisePrimarySubgroup(n)==="piernas" && !exerciseSubgroup10(n));
+  }
+
   let _subgroupPoolsCache = null;
+  // V29: además de los 7 subgrupos de siempre (incluido "piernas" completo,
+  // que sigue usando la rutina automática), el objeto trae 4 claves nuevas
+  // — cuadriceps, gluteos, isquiosurales, gemelos — para Día Especial. Todo
+  // el código existente accede por clave, así que agregar claves no cambia
+  // nada de lo que ya funcionaba.
   function subgroupPools(excludeSet){
     if(!excludeSet && _subgroupPoolsCache) return _subgroupPoolsCache;
     const pools = {};
@@ -783,6 +833,10 @@
       const sg = exercisePrimarySubgroup(name);
       if(!sg) return;
       (pools[sg] = pools[sg]||[]).push(name);
+      if(sg==="piernas"){
+        const sg10 = exerciseSubgroup10(name);
+        if(sg10) (pools[sg10] = pools[sg10]||[]).push(name);
+      }
     });
     if(!excludeSet) _subgroupPoolsCache = pools;
     return pools;
@@ -1237,6 +1291,97 @@
     return EXERCISE_VIDEOS[exerciseName] || null;
   }
 
+  // V29: "Cómo hacerlo ↗" — enlace a una fuente externa (MuscleWiki) que
+  // explica el ejercicio. SOLO enlaces: no se descarga, copia ni aloja
+  // contenido externo. Cada URL de esta tabla fue abierta y verificada
+  // (la página carga y su título corresponde al mismo ejercicio y equipo).
+  // Los ejercicios que NO están acá quedaron pendientes a propósito (nombre
+  // ambiguo, varias variantes posibles o sin página equivalente) — no se
+  // inventan URLs. Los medios locales (EXERCISE_IMAGES/EXERCISE_VIDEOS) se
+  // mantienen sin cambios en esta versión.
+  const EXERCISE_HOWTO_LINKS = {
+    "Press banca plano": "https://musclewiki.com/exercise/barbell-bench-press",
+    "Press banca inclinado": "https://musclewiki.com/exercise/barbell-incline-bench-press",
+    "Press banca declinado": "https://musclewiki.com/exercise/barbell-decline-bench-press",
+    "Press con mancuernas plano": "https://musclewiki.com/exercise/dumbbell-bench-press",
+    "Press con mancuernas inclinado": "https://musclewiki.com/exercise/dumbbell-incline-bench-press",
+    "Press con mancuernas declinado": "https://musclewiki.com/exercise/dumbbell-decline-bench-press",
+    "Aperturas con mancuernas": "https://musclewiki.com/exercise/dumbbell-chest-fly",
+    "Cruce de poleas (aperturas en polea)": "https://musclewiki.com/exercise/cable-pec-fly",
+    "Pec deck (contractora)": "https://musclewiki.com/exercise/machine-pec-fly",
+    "Fondos en paralelas": "https://musclewiki.com/exercise/parralel-bar-dips",
+    "Flexiones de brazos": "https://musclewiki.com/exercise/push-up",
+    "Pullover con mancuerna": "https://musclewiki.com/exercise/dumbbell-pullover",
+    "Flexiones inclinadas (manos elevadas)": "https://musclewiki.com/exercise/incline-push-up",
+    "Press en el piso con barra": "https://musclewiki.com/exercise/barbell-floor-press",
+    "Flexiones con peso": "https://musclewiki.com/exercise/weighted-push-ups",
+    "Dominadas": "https://musclewiki.com/exercise/pull-ups",
+    "Dominadas supinas": "https://musclewiki.com/exercise/chin-ups",
+    "Jalón al pecho": "https://musclewiki.com/exercise/machine-pulldown",
+    "Remo con barra": "https://musclewiki.com/exercise/barbell-bent-over-row",
+    "Remo con mancuerna": "https://musclewiki.com/exercise/dumbbell-single-arm-row",
+    "Remo en polea baja": "https://musclewiki.com/exercise/machine-seated-cable-row",
+    "Peso muerto": "https://musclewiki.com/exercise/barbell-deadlift",
+    "Peso muerto rumano": "https://musclewiki.com/exercise/barbell-romanian-deadlift",
+    "Peso muerto sumo": "https://musclewiki.com/exercise/barbell-sumo-deadlift",
+    "Face pull": "https://musclewiki.com/exercise/machine-face-pulls",
+    "Sentadilla": "https://musclewiki.com/exercise/barbell-squat",
+    "Sentadilla frontal": "https://musclewiki.com/exercise/barbell-front-squat-olympic",
+    "Sentadilla hack": "https://musclewiki.com/exercise/machine-hack-squat",
+    "Prensa de piernas": "https://musclewiki.com/exercise/machine-leg-press",
+    "Extensión de cuádriceps": "https://musclewiki.com/exercise/machine-leg-extension",
+    "Curl femoral acostado": "https://musclewiki.com/exercise/machine-hamstring-curl",
+    "Curl femoral sentado": "https://musclewiki.com/exercise/machine-seated-leg-curl",
+    "Zancadas": "https://musclewiki.com/exercise/forward-lunges",
+    "Zancadas con mancuernas": "https://musclewiki.com/exercise/dumbbell-forward-lunge",
+    "Hip thrust": "https://musclewiki.com/exercise/barbell-hip-thrust",
+    "Hip thrust en máquina": "https://musclewiki.com/exercise/machine-hip-thrust",
+    "Puente de glúteo": "https://musclewiki.com/exercise/glute-bridge",
+    "Puente de glúteo con barra": "https://musclewiki.com/exercise/barbell-glute-bridge",
+    "Puente de glúteo a una pierna": "https://musclewiki.com/exercise/single-leg-glute-bridge",
+    "Patada de glúteo en el piso": "https://musclewiki.com/exercise/kickbacks",
+    "Elevación de talones de pie": "https://musclewiki.com/exercise/calf-raises",
+    "Elevación de talones sentado": "https://musclewiki.com/exercise/machine-seated-calf-raises",
+    "Abductores en máquina": "https://musclewiki.com/exercise/machine-hip-abduction",
+    "Aductores en máquina": "https://musclewiki.com/exercise/machine-hip-adduction",
+    "Peso muerto piernas rígidas": "https://musclewiki.com/exercise/barbell-stiff-leg-deadlifts",
+    "Press militar con barra": "https://musclewiki.com/exercise/barbell-overhead-press",
+    "Press militar con mancuernas": "https://musclewiki.com/exercise/dumbbell-overhead-press",
+    "Press militar con mancuernas sentado": "https://musclewiki.com/exercise/dumbbell-seated-overhead-press",
+    "Press Arnold": "https://musclewiki.com/exercise/dumbbell-arnold-press",
+    "Press tras nuca": "https://musclewiki.com/exercise/barbell-behind-the-neck-press",
+    "Elevaciones laterales": "https://musclewiki.com/exercise/dumbbell-lateral-raise",
+    "Elevaciones frontales": "https://musclewiki.com/exercise/dumbbell-front-raise",
+    "Pájaro (deltoide posterior)": "https://musclewiki.com/exercise/dumbbell-rear-delt-fly",
+    "Remo al mentón": "https://musclewiki.com/exercise/barbell-upright-row/",
+    "Curl con barra": "https://musclewiki.com/exercise/barbell-curl",
+    "Curl con mancuernas alternado": "https://musclewiki.com/exercise/dumbbell-curl",
+    "Curl con mancuernas banco inclinado": "https://musclewiki.com/exercise/dumbbell-incline-curl",
+    "Curl martillo": "https://musclewiki.com/exercise/dumbbell-hammer-curl",
+    "Curl concentrado": "https://musclewiki.com/exercise/dumbbell-concentration-curl",
+    "Press francés": "https://musclewiki.com/exercise/barbell-skullcrusher",
+    "Extensión de tríceps en polea con barra": "https://musclewiki.com/exercise/cable-bar-pushdown",
+    "Extensión tríceps polea agarre prono": "https://musclewiki.com/exercise/cable-bar-pushdown",
+    "Fondos de tríceps en banco": "https://musclewiki.com/exercise/bench-dips",
+    "Patada de tríceps": "https://musclewiki.com/exercise/dumbbell-tricep-kickback",
+    "Press cerrado": "https://musclewiki.com/exercise/barbell-close-grip-bench-press",
+    "Abdominales crunch": "https://musclewiki.com/exercise/crunches",
+    "Plancha": "https://musclewiki.com/exercise/forearm-plank",
+    "Plancha lateral": "https://musclewiki.com/exercise/elbow-side-plank",
+    "Giro ruso (russian twist)": "https://musclewiki.com/exercise/bodyweight-russian-twist",
+    "Mountain climbers": "https://musclewiki.com/exercise/mountain-climber",
+    "Elíptico": "https://musclewiki.com/exercise/elliptical",
+    "Máquina de remo": "https://musclewiki.com/exercise/cardio-row-erg-rower",
+    "Salto de soga": "https://musclewiki.com/exercise/jump-rope",
+    "Burpees": "https://musclewiki.com/exercise/burpee",
+    "Kettlebell swing": "https://musclewiki.com/exercise/kettlebell-swing",
+    "Patada de glúteo en polea": "https://musclewiki.com/exercise/cable-standing-glute-kickback",
+    "Patada de glúteo en máquina": "https://musclewiki.com/exercise/machine-glute-kickback",
+  };
+  function exerciseHowtoLinkFor(exerciseName){
+    return EXERCISE_HOWTO_LINKS[exerciseName] || null;
+  }
+
   // Equipamiento por ejercicio (para la ficha de ejercicio). Inferido a mano
   // a partir del nombre/naturaleza de cada ejercicio, agrupado en categorías
   // simples y consistentes con lo que ya usan apps de referencia (Hevy, etc.):
@@ -1574,6 +1719,9 @@
           ${mediaUrl ? photoBlock : diagramBlock}
         </div>
         ${mediaUrl && m ? diagramBlock : ""}
+        ${(()=>{ const link = exerciseHowtoLinkFor(nombre); return link ? `
+          <a class="btn btn-outline btn-block howto-link" id="btn-howto-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer" style="margin-top:10px; border-color:var(--accent); color:var(--accent)">Cómo hacerlo ↗</a>
+          <p class="helptext" style="text-align:center; margin-top:4px">Se abre MuscleWiki, un sitio externo.</p>` : ""; })()}
         <div class="segmented" style="margin-top:14px">
           <button data-extab="stats" class="${d.tab==="stats"?"active":""}">Estadísticas</button>
           <button data-extab="history" class="${d.tab==="history"?"active":""}">Historial</button>
@@ -1953,7 +2101,7 @@
     }
 
     function rowToEntreno(r){
-      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual };
+      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual, isSpecial: !!r.is_special };
     }
 
     // V28: `is_manual` distingue un entrenamiento cerrado desde "Finalizar"
@@ -1963,6 +2111,10 @@
     // así que las filas viejas siguen leyéndose como entrenamientos reales).
     async function addEntreno(pid, data){
       const row = { profile_id: pid, date: data.date, day_id: data.dayId, day_nombre: data.dayNombre, sets_completados: data.setsCompletados, sets_totales: data.setsTotales, created_at: data.createdAt||Date.now(), is_manual: !!data.isManual };
+      // V29: is_special (supabase-migration-v29.sql) se manda SOLO cuando es
+      // true — así los entrenamientos normales y los marcados a mano siguen
+      // funcionando igual aunque la migración v29 todavía no se haya corrido.
+      if(data.isSpecial) row.is_special = true;
       const { error } = await client().from("entrenos").insert(row);
       return !error;
     }
@@ -2416,9 +2568,13 @@
     state.session = null;
     if(raw && raw.sesionActiva && raw.sesionActiva.dayId && raw.sesionActiva.sets){
       const s = raw.sesionActiva;
-      const slot = (s.slot==="automatica") ? "automatica" : "personalizada";
-      const slotDays = (slots[slot] && slots[slot].days) || [];
-      const day = slotDays.find(d=>d.id===s.dayId);
+      // V29: una sesión de Día Especial trae su propio día embebido.
+      const isSpecial = s.slot==="especial";
+      const slot = isSpecial ? "especial" : ((s.slot==="automatica") ? "automatica" : "personalizada");
+      const slotDays = isSpecial ? [] : ((slots[slot] && slots[slot].days) || []);
+      const day = isSpecial
+        ? ((s.specialDay && s.specialDay.id===s.dayId && Array.isArray(s.specialDay.exercises)) ? s.specialDay : null)
+        : slotDays.find(d=>d.id===s.dayId);
       if(day){
         // v28.1: setLogs puede faltar (sesión guardada antes de este cambio,
         // o dato corrupto) — se completa con nulls del mismo largo que
@@ -2430,6 +2586,7 @@
           setLogs[exId] = new Array(n).fill(null).map((_,i)=> savedLog[i] || null);
         });
         state.session = { dayId: s.dayId, slot, dayNombre: s.dayNombre||day.nombre, startedAt: s.startedAt||Date.now(), sets: s.sets, setLogs };
+        if(isSpecial) state.session.specialDay = day;
       }
     }
   }
@@ -2481,6 +2638,7 @@
       </div>
       <p class="helptext" style="margin:2px 0 8px">Tenés dos rutinas guardadas por separado — pasar a "Rutina automática" (o volver a "Mi rutina") no borra la otra, así podés compararlas o usar la que quieras.</p>
       <button class="btn btn-primary btn-block" id="btn-auto-routine">${icon("shuffle")} ${nAutomatica?"Generar otra rutina automática":"Generar rutina automática"}</button>
+      <button class="btn btn-outline btn-block" id="btn-special-day" style="margin-top:8px; border-color:var(--accent); color:var(--accent)">${icon("plus")} Día Especial</button>
       <div class="row" style="gap:8px; margin-top:8px">
         <button class="btn btn-outline" style="flex:1" id="btn-explorar-musculos">${icon("search")} Explorar ejercicios</button>
         ${days.length>0 ? `<button class="btn btn-ghost" style="flex:1" id="btn-export-pdf">${icon("download")} Exportar PDF</button>` : ""}
@@ -2505,25 +2663,119 @@
     `;
   }
 
+  // ---- V29: historial semanal navegable ----
+  // Semana 0 = la actual (lunes a domingo, mismo isoWeekMonday que usa
+  // computeRacha). Se puede ir hacia atrás hasta la semana del registro más
+  // viejo (entrenos o registros de peso); nunca hacia semanas futuras.
+  // "Reiniciar" el contador al empezar una semana nueva no borra nada: las
+  // semanas anteriores se calculan siempre desde los mismos datos guardados.
+  function weekRangeFor(offset){
+    const mon = isoWeekMonday(new Date());
+    const start = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate()-7*offset);
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate()+6);
+    return { start: ymd(start), end: ymd(end), startD: start, endD: end };
+  }
+  function maxWeekOffset(){
+    let oldest = null;
+    (state.entrenos||[]).forEach(e=>{ if(e.date && (!oldest || e.date<oldest)) oldest = e.date; });
+    (state.registros||[]).forEach(r=>{ if(r.date && (!oldest || r.date<oldest)) oldest = r.date; });
+    if(!oldest) return 0;
+    const p = oldest.split("-").map(n=>parseInt(n,10));
+    const oldMon = isoWeekMonday(new Date(p[0], p[1]-1, p[2]));
+    const curMon = isoWeekMonday(new Date());
+    return Math.max(0, Math.round((curMon - oldMon) / (7*24*3600*1000)));
+  }
+  function weekShortLabel(rg){
+    const d1 = rg.startD, d2 = rg.endD;
+    const m1 = MONTH_NAMES[d1.getMonth()].slice(0,3).toLowerCase(), m2 = MONTH_NAMES[d2.getMonth()].slice(0,3).toLowerCase();
+    return d1.getMonth()===d2.getMonth() ? `${d1.getDate()} al ${d2.getDate()} ${m2}` : `${d1.getDate()} ${m1} al ${d2.getDate()} ${m2}`;
+  }
+  function weekDetailHtml(rg){
+    const ents = (state.entrenos||[]).filter(e=> e.date>=rg.start && e.date<=rg.end)
+      .slice().sort((a,b)=> a.date===b.date ? (a.createdAt||0)-(b.createdAt||0) : (a.date<b.date?-1:1));
+    const regs = (state.registros||[]).filter(r=> r.date>=rg.start && r.date<=rg.end)
+      .slice().sort((a,b)=> a.date===b.date ? (a.createdAt||0)-(b.createdAt||0) : (a.date<b.date?-1:1));
+    const entsHtml = ents.length ? ents.map(e=>`
+      <div class="logrow">
+        <div>
+          <div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div>
+          <div class="ldate">${esc(fmtDate(e.date))}${e.isManual?" · marcado a mano":""}${e.isSpecial?` · <span class="special-badge">Día Especial</span>`:""}</div>
+        </div>
+        ${e.isManual ? `<div class="lsub">Sin detalle</div>` : `<div><div class="lval num">${e.setsCompletados}/${e.setsTotales}</div><div class="lsub">series</div></div>`}
+      </div>`).join("") : `<p class="helptext">Sin entrenamientos registrados esta semana.</p>`;
+    const regsHtml = regs.length ? regs.map(r=>`
+      <div class="logrow">
+        <div><div class="lex">${esc(r.exercise)}${r.setNumber?` · serie ${r.setNumber}`:""}</div><div class="ldate">${esc(fmtDate(r.date))}</div></div>
+        <div><div class="lval num">${esc(r.peso)} kg</div><div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div></div>
+      </div>`).join("") : `<p class="helptext">Sin registros de peso esta semana.</p>`;
+    return `
+      <div class="week-list">
+        <div class="helptext" style="font-weight:700">Entrenamientos</div>
+        <div class="loglist">${entsHtml}</div>
+        <div class="helptext" style="font-weight:700; margin-top:6px">Registros de peso (${regs.length})</div>
+        <div class="loglist">${regsHtml}</div>
+      </div>`;
+  }
+
   function rachaCardHtml(){
     const goal = state.profile.metaSemanal || 3;
-    const r = computeRacha(state.entrenos||[], goal);
+    const all = state.entrenos||[];
+    // V29: el objetivo semanal NO cuenta los Día Especial (4/4 sigue 4/4).
+    const normal = all.filter(e=>!e.isSpecial);
+    const r = computeRacha(normal, goal);
+    // La RACHA se deja exactamente como estaba en v28.1 (lista completa):
+    // hoy la racha = semanas seguidas que cumplieron el objetivo, o sea que
+    // depende del mismo contador. No se modifica sin la confirmación de Juan
+    // (ver reporte V29).
+    const streak = computeRacha(all, goal).streak;
     const frase = fraseDelDia();
+    const maxOff = maxWeekOffset();
+    const offset = Math.min(Math.max(0, state.weekOffset||0), maxOff);
+    state.weekOffset = offset;
+    const rg = weekRangeFor(offset);
+    const inWeek = all.filter(e=> e.date>=rg.start && e.date<=rg.end);
+    const specialCount = inWeek.filter(e=>e.isSpecial).length;
+    const normalCount = inWeek.length - specialCount;
+    const daysTrained = new Set(inWeek.map(e=>e.date)).size;
+    const nav = `
+      <div class="week-nav">
+        <span class="iconbtn" id="week-prev" aria-disabled="${offset>=maxOff}" title="Semana anterior">${icon("chevronLeft")}</span>
+        <span class="week-nav-label">${offset===0 ? "Esta semana" : "Semana del "+weekShortLabel(rg)}</span>
+        <span class="iconbtn" id="week-next" aria-disabled="${offset===0}" title="Semana siguiente">${icon("chevronRight")}</span>
+      </div>`;
+    const extra = `<p class="helptext week-extra">Días entrenados: <b>${daysTrained}</b>${specialCount?` · +${specialCount} Día Especial (no suma al objetivo)`:""}</p>`;
+    const detailOpen = !!state.weekDetailOpen;
+    const detailToggle = `<button class="btn btn-ghost btn-sm" id="week-toggle" style="align-self:flex-start">${detailOpen?"Ocultar detalle":"Ver detalle de la semana"}</button>`;
+    if(offset>0){
+      return `
+        <div class="card racha-card">
+          ${nav}
+          <div class="racha-count num">${normalCount} entrenamiento${normalCount===1?"":"s"}</div>
+          ${extra}
+          <p class="helptext">El objetivo semanal de semanas anteriores no se guarda, por eso acá solo se muestra lo que entrenaste.</p>
+          ${detailToggle}
+          ${detailOpen ? weekDetailHtml(rg) : ""}
+        </div>
+      `;
+    }
     const met = r.remaining<=0;
     return `
       <div class="card racha-card" style="${met?"background:var(--success-soft)":""}">
+        ${nav}
         <div class="racha-top">
           <div>
-            <div class="helptext" style="text-transform:uppercase; letter-spacing:.04em; font-weight:700; ${met?"color:var(--success)":""}">Esta semana</div>
             <div class="racha-count num">${r.thisWeekCount} / ${goal} entrenamientos</div>
           </div>
-          ${r.streak>0 ? `<div class="racha-streak"><div class="fire">🔥${r.streak}</div><div class="helptext">semana${r.streak===1?"":"s"} seguida${r.streak===1?"":"s"}</div></div>` : ""}
+          ${streak>0 ? `<div class="racha-streak"><div class="fire">🔥${streak}</div><div class="helptext">semana${streak===1?"":"s"} seguida${streak===1?"":"s"}</div></div>` : ""}
         </div>
+        ${extra}
         <p class="helptext" style="font-size:13px; color:var(--text)">${
           met ? "¡Meta semanal cumplida! 🎉"
               : `Te ${r.remaining===1?"falta":"faltan"} ${r.remaining} entrenamiento${r.remaining===1?"":"s"} — tenés ${r.daysLeft} día${r.daysLeft===1?"":"s"} para lograrlo.`
         }</p>
         <p class="helptext" style="font-style:italic">${esc(frase)}</p>
+        ${detailToggle}
+        ${detailOpen ? weekDetailHtml(rg) : ""}
       </div>
     `;
   }
@@ -2537,6 +2789,8 @@
   // sesión). Ahora la sesión guarda su propio `slot` y se busca siempre ahí.
   function sessionDay(){
     if(!state.session) return null;
+    // V29: el Día Especial no pertenece a ninguna rutina — viaja dentro de la sesión.
+    if(state.session.slot==="especial") return state.session.specialDay || null;
     const slotObj = state.rutinaSlots[state.session.slot] || state.rutina;
     return (slotObj.days||[]).find(d=>d.id===state.session.dayId) || null;
   }
@@ -2554,7 +2808,7 @@
     return `
       <div class="card stack" style="border-color:var(--accent)">
         <div>
-          <div style="font-weight:700">Entrenamiento en curso</div>
+          <div style="font-weight:700">Entrenamiento en curso${state.session.slot==="especial" ? ` <span class="special-badge">Día Especial</span>` : ""}</div>
           <div class="helptext">${esc(day?day.nombre:(state.session.dayNombre||""))} · ${p.done}/${p.total} series completadas</div>
         </div>
         <div class="row" style="gap:8px">
@@ -2994,14 +3248,20 @@
 
   // ---- Volumen (series por ejercicio) según edad — curva descendente que
   // pasó Juan: 18-29 años tolerancia máxima (100% del volumen: 4 series por
-  // ejercicio), 30-49 empieza a bajar (≈15-20% menos: 3 series), 50+ baja más
-  // (≈30-40% menos: 2 series). Sin edad cargada, se usa el nivel intermedio
-  // de siempre (3 series) para no asumir de más ni de menos.
+  // ejercicio), 30+ baja a 3 series (hasta v28.1 50+ bajaba a 2 — eliminado
+  // en V29, ver abajo). Sin edad cargada, se usa el nivel intermedio de
+  // siempre (3 series) para no asumir de más ni de menos.
+  // V29: Juan definió la regla definitiva — la edad YA NO baja
+  // automáticamente a 2 series. Antes (v20-v28.1) un perfil de 50+ recibía 2
+  // series en todos sus compuestos por regla general, sin excepción
+  // justificada. Ahora: <=29 → 4, >=30 → 3, sin edad → 3. No existe (por
+  // decisión explícita) ningún mecanismo automático de 2 series. La edad
+  // 50+ sigue influyendo solo en el descanso sugerido (restRangeForAge) y en
+  // qué variantes se eligen (EXERCISES_RISKY_50PLUS), ambos sin cambios.
   function seriesForAge(edad){
     if(edad==null) return 3;
     if(edad<=29) return 4;
-    if(edad<=49) return 3;
-    return 2;
+    return 3;
   }
   // ---- Ejercicios "potentes"/compuestos (multiarticulares, con más fatiga
   // sistémica) vs. accesorios/aislamiento — pedido de Juan: press de banca,
@@ -3053,6 +3313,8 @@
   // caso, ya justificado por la edad desde v20, el aislamiento se mantiene en
   // 3 en vez de bajar más, y el "2" queda acotado solo al compuesto de ese
   // perfil (una excepción real y ya explicada, no la regla general).
+  // V29: con seriesForAge en 3/4, el resultado es siempre compuesto 3-4 y
+  // aislamiento 3 — ningún ejercicio generado sale con 2 series.
   function seriesForExercise(nombre, edad){
     const base = seriesForAge(edad);
     return EXERCISES_COMPOUND.has(nombre) ? base : Math.max(3, base-1);
@@ -3127,8 +3389,19 @@
     if(legF && REQUIRED_LEG_FOCI.indexOf(legF)!==-1){
       if(weekCount(e=>exerciseLegFocus(e.nombre)===legF) <= 1) return false;
     }
+    // V29.1: aun con enfoque explícito, el tren inferior mantiene una
+    // estructura razonable — nunca se saca el último cuádriceps ni el último
+    // glúteo de ESE día (los grupos grandes no pueden quedar desplazados del todo).
+    if(legF==="quads" || legF==="glutes"){
+      const inDay = days[dayIdx].exercises.filter(e=> exercisePrimarySubgroup(e.nombre)==="piernas" && exerciseLegFocus(e.nombre)===legF).length;
+      if(inDay <= 1) return false;
+    }
     return true;
   }
+  // V29.1: con enfoque en un subgrupo secundario (isquios/gemelos), tope de
+  // 2 ejercicios de ese subgrupo por día — el enfoque manda sobre el reparto
+  // automático, pero nunca da "3 de gemelos" o "3 de isquios" en un mismo día.
+  const LEG_FOCUS_DAY_CAP = { hamstrings:2, calves:2 };
 
   function applyFocusReplace(days, templ, focus, avoid, riskyExclude, edad){
     (focus||[]).slice(0,FOCUS_MAX_GROUPS).forEach(key=>{
@@ -3145,6 +3418,7 @@
         const dayIdx = candidateDaysIdx[di % candidateDaysIdx.length];
         di++;
         const day = days[dayIdx];
+        if(isLeg && LEG_FOCUS_DAY_CAP[key] && day.exercises.filter(e=> exercisePrimarySubgroup(e.nombre)==="piernas" && exerciseLegFocus(e.nombre)===key).length >= LEG_FOCUS_DAY_CAP[key]) continue;
         // Preferí sacar un accesorio/aislamiento antes que un compuesto (así
         // no le sacamos a Juan el ejercicio "grande" del día para meterle el
         // de enfoque) — si no hay ninguno sacrificable así, probá con
@@ -3168,6 +3442,119 @@
     });
   }
 
+  /* ---- V29.1: "Piernas" ponderado por subgrupo, con énfasis por día ----
+     "Piernas" sigue siendo UN grupo general en plantillas/reparto/cobertura
+     (SPLIT_DAYS, distributeCount, distributeCountByRatio no cambian: CUÁNTOS
+     ejercicios de pierna tiene cada día es exactamente lo de siempre). Lo que
+     cambia es CUÁLES: antes se sorteaban del pool entero de piernas sin
+     distinguir subgrupo; ahora cada día de piernas tiene un énfasis
+     (cuádriceps o glúteos, alternado en la semana) y se arma respetando:
+       - el dominante tiene más ejercicios que cualquier otro subgrupo;
+       - su primer ejercicio es compuesto (EXERCISES_COMPOUND) si hay uno;
+       - con 2+ ejercicios siempre aparece el acompañante (el otro de prioridad alta);
+       - isquios preferentes desde 3+ (entran como fijo desde 4, porque con 3
+         la regla del dominante ya ocupa los 3 lugares: 2 dominante + 1 acompañante);
+       - cuádriceps+glúteos >= isquios+gemelos+aductores;
+       - isquios nunca más que el acompañante;
+       - máximo 1 de gemelos y 1 de aductores por día;
+       - nunca el mismo ejercicio dos veces en el día.
+     Las reglas estructurales mandan; los pesos solo deciden entre las
+     opciones que las reglas permiten. Clasificación: la de siempre
+     (exerciseLegFocus, región de mayor intensidad en MUSCLE_MAP) — por
+     ejemplo "Abductores en máquina" es glúteo y "Sentadilla sumo" es aductor
+     según esos datos, y así se usan. */
+  const LEG_PRIORITY = { quads:"alta", glutes:"alta", hamstrings:"media", calves:"secundaria", adductors:"accesoria" };
+  // Pesos iniciales del sorteo por ROL dentro del día (parámetros, no reparto fijo).
+  const LEG_ROLE_WEIGHTS = { dominante:4, acompanante:2.5, hamstrings:1.5, calves:0.7, adductors:0.4 };
+  const LEG_EMPHASIS_LABELS = { quads:"Énfasis cuádriceps", glutes:"Énfasis glúteos" };
+  // Orden de énfasis de la semana: arranca según sexo (misma prioridad de
+  // siempre: Femenino glúteos, Masculino cuádriceps) y alterna.
+  function legEmphasisSequence(sexo){
+    return sexo==="Femenino" ? ["glutes","quads"] : ["quads","glutes"];
+  }
+  function legDayRulesOk(c, dom, acc, n){
+    const others = ["quads","glutes","hamstrings","calves","adductors"].filter(f=>f!==dom);
+    // Con exactamente 2 ejercicios de pierna no se puede cumplir a la vez
+    // "dominante > cualquier otro" y "acompañante obligatorio": se prioriza el
+    // acompañante (queda 1 y 1). Desde 3 el dominante es estrictamente mayor.
+    if(n>=3 && others.some(f=> (c[f]||0) >= c[dom])) return false;
+    if((c.quads||0)+(c.glutes||0) < (c.hamstrings||0)+(c.calves||0)+(c.adductors||0)) return false;
+    if((c.hamstrings||0) > (c[acc]||0)) return false;
+    if((c.calves||0)>1 || (c.adductors||0)>1) return false;
+    return true;
+  }
+  // Devuelve exactamente `count` nombres (salvo que no queden ejercicios
+  // válidos en ningún subgrupo, caso que con los pools actuales no ocurre).
+  // weekAvoid: ejercicios ya usados en la semana (se evitan si hay alternativas).
+  // weekCovered: sub-focos de pierna ya presentes en la semana (para que, en
+  // el ÚLTIMO día de piernas, isquios/gemelos faltantes entren dentro del
+  // cupo del día en vez de que la red de seguridad tenga que sumar de más).
+  function pickLegDayExercises(count, emphasis, weekAvoid, riskyExclude, opts){
+    opts = opts || {};
+    const dom = emphasis==="glutes" ? "glutes" : "quads";
+    const acc = dom==="quads" ? "glutes" : "quads";
+    const pools = legFocusPools(riskyExclude);
+    const c = { quads:0, glutes:0, hamstrings:0, calves:0, adductors:0 };
+    const dayNames = [];
+    function hasOption(f){ return (pools[f]||[]).some(n=> dayNames.indexOf(n)===-1); }
+    function take(f, preferCompound){
+      const avail = (pools[f]||[]).filter(n=> dayNames.indexOf(n)===-1);
+      if(!avail.length) return false;
+      let cand = avail;
+      if(preferCompound){
+        const comp = avail.filter(n=> EXERCISES_COMPOUND.has(n));
+        if(comp.length) cand = comp;
+      }
+      const fresh = cand.filter(n=> !weekAvoid.has(n));
+      const pick = shuffleArr(fresh.length ? fresh : cand)[0];
+      dayNames.push(pick); weekAvoid.add(pick); c[f]++;
+      return true;
+    }
+    function canAdd(f){
+      if(!hasOption(f)) return false;
+      const t = Object.assign({}, c); t[f]++;
+      return legDayRulesOk(t, dom, acc, count);
+    }
+    // 1) estructura fija: dominante (compuesto primero), acompañante, 2º del dominante, isquios
+    // (el 2º del dominante va antes que el acompañante para que, con 3+, la
+    // regla "dominante estrictamente mayor" se cumpla en cada paso)
+    if(count>=1) take(dom, true);
+    if(count>=3 && canAdd(dom)) take(dom, false);
+    if(count>=2 && dayNames.length<count && canAdd(acc)) take(acc, false);
+    // Isquios preferentes (no obligatorios): en el último día de piernas de la
+    // semana, si isquios ya aparecieron y gemelos todavía no, ese lugar va a
+    // gemelos para cubrir la semana sin sumar ejercicios de más.
+    const swapHamForCalves = opts.lastLegDay && opts.weekCovered && opts.weekCovered.has("hamstrings") && !opts.weekCovered.has("calves");
+    if(count>=4 && dayNames.length<count && !swapHamForCalves && canAdd("hamstrings")) take("hamstrings", false);
+    // 2) último día de piernas de la semana: sub-focos que todavía no aparecieron
+    if(opts.lastLegDay && opts.weekCovered){
+      ["hamstrings","calves"].forEach(f=>{
+        if(dayNames.length<count && !opts.weekCovered.has(f) && c[f]===0 && canAdd(f)) take(f, false);
+      });
+    }
+    // 3) resto: sorteo ponderado entre lo que las reglas permiten
+    const roleWeight = f => f===dom ? LEG_ROLE_WEIGHTS.dominante : f===acc ? LEG_ROLE_WEIGHTS.acompanante : LEG_ROLE_WEIGHTS[f];
+    let guard = 0;
+    while(dayNames.length<count && guard<50){
+      guard++;
+      const cands = ["quads","glutes","hamstrings","calves","adductors"].filter(canAdd);
+      if(!cands.length) break;
+      const total = cands.reduce((s,f)=> s+roleWeight(f), 0);
+      let r = Math.random()*total, chosen = cands[cands.length-1];
+      for(const f of cands){ r -= roleWeight(f); if(r<=0){ chosen = f; break; } }
+      take(chosen, false);
+    }
+    // 4) red de último recurso (solo si las reglas dejaron lugares vacíos por
+    // falta de ejercicios): completar con dominante/acompañante sin repetir.
+    [dom, acc].forEach(f=>{ while(dayNames.length<count && hasOption(f)) take(f, false); });
+    // Orden: dominante (compuesto primero), acompañante, isquios, accesorios —
+    // reorderDayExercisesByGroup después ordena compuestos primero dentro del
+    // bloque de piernas con un sort estable, así el compuesto del dominante
+    // queda primero.
+    const roleOrder = [dom, acc, "hamstrings", "calves", "adductors"];
+    return dayNames.slice().sort((a,b)=> roleOrder.indexOf(exerciseLegFocus(a)) - roleOrder.indexOf(exerciseLegFocus(b)));
+  }
+
   function generateAutoRoutine(numDays, sexo, focus){
     const templ = SPLIT_DAYS[numDays] || SPLIT_DAYS[3];
     const bump = profileHasPrimeBump();
@@ -3180,9 +3567,15 @@
     // Orden de prioridad de sub-foco de pierna según sexo — Femenino exige
     // glúteo/cuádriceps primero (casi obligatorio todas las semanas), y
     // Masculino prioriza igual pero con menos peso relativo en el reparto.
-    const legFocusPriority = sexo==="Femenino" ? ["glutes","quads","hamstrings","calves"] : ["quads","hamstrings","glutes","calves"];
+    // V29.1: énfasis por día de piernas (puros, tren inferior o full body con
+    // piernas): arranca según sexo y alterna cuádriceps ↔ glúteos.
+    const emphSeq = legEmphasisSequence(sexo);
+    const legDayIdxs = templ.map((dd,i)=> dd.groups.indexOf("piernas")!==-1 ? i : -1).filter(i=>i!==-1);
+    const emphasisByDay = {};
+    legDayIdxs.forEach((dayI,k)=>{ emphasisByDay[dayI] = emphSeq[k % emphSeq.length]; });
+    const lastLegDayIdx = legDayIdxs.length ? legDayIdxs[legDayIdxs.length-1] : -1;
 
-    const days = templ.map(dd=>{
+    const days = templ.map((dd, dayI)=>{
       const modality = dayModality(dd.groups);
       let target = biasedTarget(lo, hi, modality, sexo);
       // Tope duro en 8: Juan pidió explícitamente "máximo 8 ejercicios por
@@ -3196,18 +3589,28 @@
         : distributeCount(dd.groups, target, sexo, { piernas:2 });
       const names = [];
       dist.forEach(([sg,count])=>{
-        const opts = { riskyExclude };
+        let picked;
         if(sg==="piernas"){
-          const uncovered = legFocusPriority.filter(f=>!legFociCovered.has(f));
-          if(uncovered.length) opts.forceLegFocus = uncovered.slice(0, count);
+          // V29.1: misma CANTIDAD de siempre (count), selección por subgrupo con énfasis.
+          picked = pickLegDayExercises(count, emphasisByDay[dayI], avoid, riskyExclude,
+            { lastLegDay: dayI===lastLegDayIdx, weekCovered: legFociCovered });
+          picked.forEach(n=>{ const f=exerciseLegFocus(n); if(f) legFociCovered.add(f); });
+        } else {
+          picked = pickForSubgroup(sg,count,avoid,{ riskyExclude });
+          if(picked.length) subgroupsCovered.add(sg);
         }
-        const picked = pickForSubgroup(sg,count,avoid,opts);
-        if(sg==="piernas") picked.forEach(n=>{ const f=exerciseLegFocus(n); if(f) legFociCovered.add(f); });
-        else if(picked.length) subgroupsCovered.add(sg);
         names.push(...picked);
       });
       const exercises = names.map(n=>({ id:uid(), nombre:n, series:String(seriesForExercise(n,edad)), reps:"10", notas:"", imagenUrl:"" }));
-      return { id:uid(), nombre: dd.nombre, exercises };
+      // V29.1: el énfasis se muestra en el nombre del día ("Día 2 — Tren
+      // inferior A — Énfasis cuádriceps"). formatDayTitle parte en el primer
+      // " — ", así que el título sigue siendo "Día 2" y el subtítulo muestra
+      // el resto. `legEmphasis` queda además como dato del día.
+      const emph = emphasisByDay[dayI];
+      const nombre = emph ? `${dd.nombre} — ${LEG_EMPHASIS_LABELS[emph]}` : dd.nombre;
+      const dayObj = { id:uid(), nombre, exercises };
+      if(emph) dayObj.legEmphasis = emph;
+      return dayObj;
     });
 
     // Red de seguridad: garantiza SIEMPRE (sin importar sexo, edad o cómo
@@ -3253,10 +3656,14 @@
     return days;
   }
 
-  function reorderDayExercisesByGroup(day, templateGroups){
+  // classifyFn (opcional, V29): permite ordenar por los 10 subgrupos de Día
+  // Especial (exerciseSubgroup10). Sin ese parámetro el comportamiento es
+  // exactamente el de siempre (exercisePrimarySubgroup) para la rutina automática.
+  function reorderDayExercisesByGroup(day, templateGroups, classifyFn){
+    const classify = classifyFn || exercisePrimarySubgroup;
     const byGroup = {};
     day.exercises.forEach(ex=>{
-      const g = exercisePrimarySubgroup(ex.nombre) || "otros";
+      const g = classify(ex.nombre) || "otros";
       (byGroup[g] = byGroup[g] || []).push(ex);
     });
     Object.keys(byGroup).forEach(g=>{
@@ -3273,6 +3680,99 @@
     day.exercises = result;
   }
 
+  /* ================= V29: DÍA ESPECIAL — generación ================= */
+  // Un entrenamiento de UN solo día, fuera de la rutina semanal (no se guarda
+  // en rutinaSlots, no toca Mi rutina ni Rutina automática). Reutiliza los
+  // mismos pools/selección/series que la rutina automática:
+  // subgroupPools → pickForSubgroup → seriesForExercise → EXERCISES_COMPOUND
+  // (orden compuesto primero). Para perfiles 50+ se sigue excluyendo
+  // EXERCISES_RISKY_50PLUS, igual que en la rutina automática.
+  // Tope de 8 ejercicios (mismo tope duro que pidió Juan para cualquier día).
+  const SPECIAL_MAX_EXERCISES = 8;
+  // Cantidad total según cuántos grupos se eligieron: 1 grupo → 4, 2 → 6,
+  // 3 o más → 8. Se reparte parejo entre los grupos elegidos; con más de 8
+  // grupos elegidos no todos entran en una sola generación (se rota al azar).
+  function specialTargetCount(nGroups){
+    return Math.min(SPECIAL_MAX_EXERCISES, Math.max(4, nGroups*3));
+  }
+  // Full Body: las dos variantes originales, tal cual se definieron (8
+  // ejercicios cada una). "piernas" y "brazos" son grupos compuestos que se
+  // expanden al generar (ver expandFullBodyParts) — no se agregan ejercicios
+  // de más por existir ahora 10 subgrupos. Estructura en tabla para poder
+  // sumar variantes nuevas más adelante sin tocar la lógica.
+  const FULL_BODY_VARIANTS = {
+    A: { label:"Full Body A", desc:"2 pecho · 2 espalda · 2 piernas · 1 brazos · 1 hombros",
+         parts:[["pecho",2],["espalda",2],["piernas",2],["brazos",1],["hombros",1]] },
+    B: { label:"Full Body B", desc:"3 piernas · 2 brazos · 2 espalda · 1 hombros",
+         parts:[["piernas",3],["brazos",2],["espalda",2],["hombros",1]] },
+  };
+  // "piernas" N → N subgrupos de pierna DISTINTOS (elegidos al azar entre
+  // cuádriceps/glúteos/isquiosurales/gemelos), 1 ejercicio de cada uno =
+  // selección equilibrada sin repetir sub-foco. "brazos" N → alterna
+  // bíceps/tríceps (1 → uno de los dos al azar; 2 → uno de cada uno).
+  function expandFullBodyParts(parts){
+    const out = [];
+    parts.forEach(([g,n])=>{
+      if(g==="piernas"){
+        shuffleArr(LEG_SUBGROUPS10).slice(0,n).forEach(sg=> out.push([sg,1]));
+        // si algún día se pidiera más de 4 piernas, el resto va a cuádriceps
+        for(let i=4;i<n;i++) out.push(["cuadriceps",1]);
+      } else if(g==="brazos"){
+        const order = shuffleArr(["biceps","triceps"]);
+        for(let i=0;i<n;i++) out.push([order[i%2],1]);
+      } else out.push([g,n]);
+    });
+    // juntar repetidos (ej. dos veces "cuadriceps")
+    const merged = {};
+    const keys = [];
+    out.forEach(([g,n])=>{ if(!(g in merged)){ merged[g]=0; keys.push(g); } merged[g]+=n; });
+    return keys.map(g=>[g, merged[g]]);
+  }
+  // Reparto parejo de "total" entre los grupos elegidos, respetando cuántos
+  // ejercicios DISTINTOS tiene cada pool (nunca pide más de los que hay, así
+  // no se repiten ejercicios mientras existan alternativas).
+  function distributeSpecialCount(groups, total, pools){
+    const cap = {}; groups.forEach(g=> cap[g] = (pools[g]||[]).length);
+    const counts = {}; groups.forEach(g=> counts[g]=0);
+    const order = shuffleArr(groups);
+    let left = total, progressed = true;
+    while(left>0 && progressed){
+      progressed = false;
+      for(const g of order){
+        if(left<=0) break;
+        if(counts[g] < cap[g]){ counts[g]++; left--; progressed = true; }
+      }
+    }
+    return groups.map(g=>[g, counts[g]]).filter(([,n])=>n>0);
+  }
+  function generateSpecialDay(groups, fullBodyKey){
+    const edad = state.profile ? state.profile.edad : null;
+    const riskyExclude = (edad!=null && edad>=50) ? EXERCISES_RISKY_50PLUS : null;
+    const pools = subgroupPools(riskyExclude);
+    let dist, nombre, templateOrder;
+    if(groups && groups.length){
+      const sel = SPECIAL_SUBGROUPS.filter(g=> groups.indexOf(g)!==-1);
+      dist = distributeSpecialCount(sel, specialTargetCount(sel.length), pools);
+      templateOrder = sel;
+      nombre = "Día Especial — " + sel.map(g=>SPECIAL_SUBGROUP_LABELS[g]).join(" · ");
+    } else {
+      const v = FULL_BODY_VARIANTS[fullBodyKey] || FULL_BODY_VARIANTS.A;
+      dist = expandFullBodyParts(v.parts);
+      templateOrder = dist.map(([g])=>g);
+      nombre = "Día Especial — " + v.label;
+    }
+    const avoid = new Set();
+    const names = [];
+    dist.forEach(([sg,count])=>{
+      const picked = pickForSubgroup(sg, count, avoid, { riskyExclude });
+      picked.forEach(n=>{ if(names.indexOf(n)===-1) names.push(n); });
+    });
+    const exercises = names.map(n=>({ id:uid(), nombre:n, series:String(seriesForExercise(n,edad)), reps:"10", notas:"", imagenUrl:"" }));
+    const day = { id:uid(), nombre, exercises, isSpecial:true, specialGroups:(groups&&groups.length)?groups.slice():[], fullBody:(groups&&groups.length)?null:(fullBodyKey||"A") };
+    reorderDayExercisesByGroup(day, templateOrder, exerciseSubgroup10);
+    return day;
+  }
+
   function openAutoRoutineModal(){
     let numDays = 3;
     let sexo = null; // se pide explícitamente antes de poder generar
@@ -3287,7 +3787,10 @@
       const edad = state.profile ? state.profile.edad : null;
       const [restLo,restHi] = restRangeForAge(edad);
       const seriesCompound = seriesForAge(edad);
-      const seriesAccessory = Math.max(2, seriesCompound-1);
+      // V29: mismo cálculo que seriesForExercise (piso 3 en aislamiento) —
+      // antes este texto usaba max(2,...) y mostraba "2" aunque el generador
+      // real ya ponía 3 desde v28.
+      const seriesAccessory = Math.max(3, seriesCompound-1);
       const previewHtml = plan ? `
         <p class="helptext">Series por ejercicio: <b>${seriesCompound}</b> en los compuestos (press, remo, sentadilla, peso muerto, dominadas, etc.) y <b>${seriesAccessory}</b> en los de aislamiento (curl, extensiones, elevaciones, gemelos, core, etc.)${edad!=null?` — según tu edad cargada, ${edad} años`:" — nivel intermedio, cargá tu edad en Perfil para ajustar esto"} · Descanso sugerido entre series: <b>${restLo}-${restHi} segundos</b>.</p>
         <div class="stack" style="max-height:260px; overflow-y:auto">
@@ -3376,6 +3879,93 @@
     draw();
   }
 
+  /* ================= V29: DÍA ESPECIAL — pantalla de configuración ================= */
+  // Mismo patrón de modal que la rutina automática. Elegir grupos (0 a 10);
+  // con 0 grupos se ofrece explícitamente Full Body A/B. "Comenzar" arranca
+  // la sesión de siempre (startSession con {special:true}) — no se guarda
+  // nada en Mi rutina ni en Rutina automática.
+  function openSpecialDayModal(){
+    if(state.session){
+      // No se pisa un entrenamiento en curso (normal o especial).
+      const m = openModal(`
+        <h3>Día Especial</h3>
+        <p class="helptext" style="font-size:14px; color:var(--text)">Ya tenés un entrenamiento en curso (${esc(state.session.dayNombre||"")}). Finalizalo o cancelalo antes de empezar un Día Especial.</p>
+        <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Entendido</button></div>
+      `);
+      m.querySelector('[data-act="ok"]').onclick = closeModal;
+      return;
+    }
+    let groups = [];
+    let fullBody = "A";
+    let plan = null;
+    const modalEl = openModal("", null);
+
+    function bodyHtml(){
+      const chips = SPECIAL_SUBGROUPS.map(g=>`<button class="btn btn-sm ${groups.indexOf(g)!==-1?'btn-primary':'btn-ghost'}" data-sgroup="${g}">${SPECIAL_SUBGROUP_LABELS[g]}</button>`).join("");
+      const fbBtns = Object.keys(FULL_BODY_VARIANTS).map(k=>`<button class="btn btn-sm ${k===fullBody?'btn-primary':'btn-ghost'}" data-fb="${k}" style="flex:1; flex-direction:column; gap:2px; height:auto; padding:8px 6px"><b>${FULL_BODY_VARIANTS[k].label}</b><span style="font-size:11px; font-weight:500; opacity:.85">${FULL_BODY_VARIANTS[k].desc}</span></button>`).join("");
+      const fbBlock = groups.length===0 ? `
+        <div class="field">
+          <label>No elegiste grupos — Full Body</label>
+          <div class="row" style="gap:8px">${fbBtns}</div>
+        </div>` : `
+        <p class="helptext">${groups.length} grupo${groups.length===1?"":"s"} elegido${groups.length===1?"":"s"} · ${specialTargetCount(groups.length)} ejercicios como máximo${groups.length>SPECIAL_MAX_EXERCISES?" (con más de 8 grupos no entran todos: se rota al azar en cada generación)":""}.</p>`;
+      const previewHtml = plan ? `
+        <div class="card" style="padding:10px">
+          <b style="font-size:14px">${esc(plan.nombre)}</b>
+          ${plan.exercises.length ? `<div class="stack" style="gap:4px; margin-top:6px">${plan.exercises.map(e=>`
+            <div class="row between" style="font-size:13.5px"><span>${esc(e.nombre)}</span><span class="helptext num">${esc(e.series)}×${esc(e.reps)}</span></div>`).join("")}</div>`
+            : `<div class="helptext" style="margin-top:4px">No hay ejercicios disponibles para esa selección.</div>`}
+        </div>` : "";
+      return `
+        <h3>Día Especial</h3>
+        <p class="helptext">Un entrenamiento extra de un solo día, aparte de tu rutina semanal. Queda en tu historial y calendario, pero no suma al objetivo semanal. Tu rutina no se modifica.</p>
+        <div class="field">
+          <label>Grupos a priorizar (opcional)</label>
+          <div class="special-grid">${chips}</div>
+        </div>
+        ${fbBlock}
+        ${previewHtml}
+        <div class="modal-actions">
+          ${plan ? `
+            <button class="btn btn-ghost" data-act="regen">${icon("shuffle")} Generar otro</button>
+            <button class="btn btn-primary" data-act="start" ${plan.exercises.length?"":"disabled"}>${icon("play")} Comenzar</button>
+          ` : `
+            <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+            <button class="btn btn-primary" data-act="gen">Generar Día Especial</button>
+          `}
+        </div>
+      `;
+    }
+    function draw(){
+      modalEl.innerHTML = bodyHtml();
+      modalEl.querySelectorAll("[data-sgroup]").forEach(b=>{
+        b.onclick = ()=>{
+          const g = b.dataset.sgroup;
+          const i = groups.indexOf(g);
+          if(i===-1) groups.push(g); else groups.splice(i,1);
+          plan = null; draw();
+        };
+      });
+      modalEl.querySelectorAll("[data-fb]").forEach(b=>{
+        b.onclick = ()=>{ fullBody = b.dataset.fb; plan = null; draw(); };
+      });
+      const cancelBtn = modalEl.querySelector('[data-act="cancel"]');
+      if(cancelBtn) cancelBtn.onclick = closeModal;
+      const genBtn = modalEl.querySelector('[data-act="gen"]');
+      if(genBtn) genBtn.onclick = ()=>{ plan = generateSpecialDay(groups, fullBody); draw(); };
+      const regenBtn = modalEl.querySelector('[data-act="regen"]');
+      if(regenBtn) regenBtn.onclick = ()=>{ plan = generateSpecialDay(groups, fullBody); draw(); };
+      const startBtn = modalEl.querySelector('[data-act="start"]');
+      if(startBtn) startBtn.onclick = ()=>{
+        if(!plan || !plan.exercises.length) return;
+        closeModal();
+        startSession(plan, { special:true });
+        window.scrollTo(0,0); // arrancar arriba, donde está el aviso "Día Especial"
+      };
+    }
+    draw();
+  }
+
   /* ================= CALENDARIO ================= */
   function currentCalMonth(){
     if(!state.calMonth){ const d=new Date(); state.calMonth = { y:d.getFullYear(), m:d.getMonth() }; }
@@ -3452,6 +4042,7 @@
             <div>
               <div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div>
               ${e.isManual ? `<div class="ldate">Marcado manualmente</div>` : ""}
+              ${e.isSpecial ? `<div class="ldate"><span class="special-badge">Día Especial</span> no suma al objetivo semanal</div>` : ""}
             </div>
             <div class="row" style="gap:8px; align-items:center">
               ${e.isManual
@@ -3595,6 +4186,15 @@
 
     const autoBtn = el.querySelector("#btn-auto-routine");
     if(autoBtn) autoBtn.onclick = openAutoRoutineModal;
+    const specialBtn = el.querySelector("#btn-special-day");
+    if(specialBtn) specialBtn.onclick = openSpecialDayModal;
+    // V29: navegación del historial semanal
+    const weekPrev = el.querySelector("#week-prev");
+    if(weekPrev) weekPrev.onclick = ()=>{ if(weekPrev.getAttribute("aria-disabled")==="true") return; state.weekOffset = (state.weekOffset||0)+1; renderScreen(); };
+    const weekNext = el.querySelector("#week-next");
+    if(weekNext) weekNext.onclick = ()=>{ if(weekNext.getAttribute("aria-disabled")==="true") return; state.weekOffset = Math.max(0,(state.weekOffset||0)-1); renderScreen(); };
+    const weekToggle = el.querySelector("#week-toggle");
+    if(weekToggle) weekToggle.onclick = ()=>{ state.weekDetailOpen = !state.weekDetailOpen; renderScreen(); };
     const explorarBtn = el.querySelector("#btn-explorar-musculos");
     if(explorarBtn) explorarBtn.onclick = ()=>{ state.explorerGroup = null; state.tab = "explorar"; render(); };
     const exportPdfBtn = el.querySelector("#btn-export-pdf");
@@ -3694,7 +4294,12 @@
   // entre ejercicios, guardar el progreso y (desde el banner de Mi rutina)
   // finalizar. Ver comentarios en sessionExerciseCardHtml/toggleSessionSet/
   // saveSessionProgress/finalizeSession para el detalle de cada parte.
-  function startSession(day){
+  // V29: opts.special → Día Especial. Es la MISMA sesión de siempre (mismos
+  // sets/setLogs, mismo guardado en sesionActiva), solo que con slot
+  // "especial" y el día completo embebido en `specialDay` (ese día no vive
+  // en ninguna rutina, así que sessionDay() no lo encontraría en rutinaSlots).
+  function startSession(day, opts){
+    const special = !!(opts && opts.special);
     const sets = {};
     const setLogs = {};
     (day.exercises||[]).forEach(ex=>{
@@ -3702,7 +4307,8 @@
       sets[ex.id] = new Array(n).fill(false);
       setLogs[ex.id] = new Array(n).fill(null);
     });
-    state.session = { dayId: day.id, slot: state.activeSlot, dayNombre: day.nombre, startedAt: Date.now(), sets, setLogs };
+    state.session = { dayId: day.id, slot: special ? "especial" : state.activeSlot, dayNombre: day.nombre, startedAt: Date.now(), sets, setLogs };
+    if(special) state.session.specialDay = day;
     state.tab = "sesion";
     persistRutina(); // guardado inmediato: si cierran la app un segundo después, el entrenamiento ya quedó recuperable
     render();
@@ -3746,7 +4352,11 @@
     if(exs.length===0){
       return `<div class="card empty">${icon("routine")}<h3>Este día no tiene ejercicios</h3><p>Agregale ejercicios desde "Rutina" antes de entrenar.</p></div>`;
     }
-    return exs.map(ex=> sessionExerciseCardHtml(ex)).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
+    // V29: aviso visible de que es un Día Especial (no suma al objetivo semanal).
+    const specialNote = (state.session && state.session.slot==="especial")
+      ? `<div class="card special-note"><span class="special-badge">Día Especial</span><span class="helptext">Entrenamiento extra — queda en tu historial y calendario, pero no suma al objetivo semanal.</span></div>`
+      : "";
+    return specialNote + exs.map(ex=> sessionExerciseCardHtml(ex)).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
   }
 
   // Una sola tarjeta por ejercicio con todo lo necesario para entrenar sin
@@ -3949,8 +4559,18 @@
   // registros del mismo entrenamiento.
   async function finalizeSession(day){
     const p = sessionProgress();
-    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now() };
-    await Store.addEntreno(state.profile.id, data);
+    // V29: un Día Especial se registra como cualquier entrenamiento (mismo
+    // Store.addEntreno, misma tabla), marcado con isSpecial → is_special.
+    const isSpecial = !!(state.session && state.session.slot==="especial");
+    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now(), isSpecial };
+    const saved = await Store.addEntreno(state.profile.id, data);
+    // V29: si la base rechaza el registro (ej. falta correr la migración de
+    // is_special), NO se borra la sesión — antes se limpiaba igual y el
+    // entrenamiento se perdía sin aviso.
+    if(!saved){
+      showToast("No se pudo registrar el entrenamiento. Tu sesión sigue guardada — probá de nuevo.");
+      return;
+    }
     state.entrenos = await Store.listEntrenos(state.profile.id);
     state.session = null;
     await persistRutina();
@@ -4889,6 +5509,9 @@
   // Hook de solo-lectura para tests automatizados (Playwright) — no se usa en
   // la app real, no afecta el funcionamiento normal.
   window.__appTest = {
+    pickLegDayExercises, legDayRulesOk, legEmphasisSequence, LEG_ROLE_WEIGHTS, LEG_PRIORITY, reorderDayExercisesByGroup,
+    generateSpecialDay, exerciseSubgroup10, ambiguousLegExercises, SPECIAL_SUBGROUPS, FULL_BODY_VARIANTS,
+    specialTargetCount, EXERCISE_HOWTO_LINKS, exerciseHowtoLinkFor, computeRacha, startSession, sessionDay, openSpecialDayModal,
     generateAutoRoutine, exerciseEquipment, exercisePrincipalSecondaryGroups,
     exerciseMuscleGroup, muscleGroupPools, subgroupPools, MUSCLE_GROUPS,
     exerciseLegFocus, seriesForAge, restRangeForAge, sessionCountRange,
