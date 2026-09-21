@@ -3884,6 +3884,12 @@
   // con 0 grupos se ofrece explícitamente Full Body A/B. "Comenzar" arranca
   // la sesión de siempre (startSession con {special:true}) — no se guarda
   // nada en Mi rutina ni en Rutina automática.
+  // Regla de Juan: Día Especial está disponible SIEMPRE — no depende del
+  // objetivo semanal, del día, del progreso de la semana ni de si ya entrenó
+  // hoy (ni de si ya hizo otro Día Especial). El botón se dibuja sin
+  // condiciones en screenRutina. No agregar chequeos de fecha/progreso acá.
+  // La única verificación es no pisar un entrenamiento que está EN CURSO
+  // (la app maneja una sola sesión activa a la vez).
   function openSpecialDayModal(){
     if(state.session){
       // No se pisa un entrenamiento en curso (normal o especial).
