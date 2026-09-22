@@ -1,0 +1,1241 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VodaFit — Validaciones V31</title>
+<style>
+  :root{ color-scheme: light dark; }
+  body{ font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:0; padding:16px; background:#faf8f6; color:#1d1a17; }
+  @media (prefers-color-scheme: dark){ body{ background:#171412; color:#eee9e3; } }
+  h1{ font-size:18px; margin:0 0 4px; }
+  #summary{ position:sticky; top:0; padding:10px 12px; border-radius:10px; font-weight:700; margin:12px 0; background:#e7e3de; }
+  #summary.pass{ background:#DCF3E6; color:#1d5c38; }
+  #summary.fail{ background:#FBE0DF; color:#8d2b2b; }
+  @media (prefers-color-scheme: dark){
+    #summary{ background:#26221e; } #summary.pass{ background:#173425; color:#8fe0b2; } #summary.fail{ background:#3A1F1E; color:#ff9f98; }
+  }
+  .grp{ margin:14px 0 6px; font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.04em; opacity:.75; }
+  .t{ padding:3px 0 3px 22px; position:relative; border-bottom:1px solid rgba(128,128,128,.14); }
+  .t::before{ position:absolute; left:2px; }
+  .ok::before{ content:"OK"; color:#2E9E5B; font-size:11px; font-weight:700; }
+  .no::before{ content:"XX"; color:#C13B3B; font-size:11px; font-weight:700; }
+  .msg{ display:block; color:#C13B3B; font-size:12.5px; padding-left:2px; }
+  iframe{ position:absolute; width:420px; height:760px; left:-9999px; top:0; border:0; }
+  code{ background:rgba(128,128,128,.14); padding:1px 4px; border-radius:4px; }
+</style>
+</head>
+<body>
+<h1>VodaFit — Validaciones V31</h1>
+<p class="muted">Harness autocontenido: sin npm, sin build system, sin dependencias externas.
+Carga <code>index.html</code> en un iframe y valida contra <code>window.__appTest</code>.
+Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso al iframe).</p>
+<div id="summary">Cargando la app…</div>
+<div id="out"></div>
+<iframe id="app" src="index.html"></iframe>
+
+<script>
+(function(){
+  var out = document.getElementById("out");
+  var summary = document.getElementById("summary");
+  var pass = 0, fail = 0, failures = [];
+  var currentGroup = "";
+
+  function group(name){
+    currentGroup = name;
+    var d = document.createElement("div");
+    d.className = "grp"; d.textContent = name;
+    out.appendChild(d);
+  }
+  function record(ok, name, msg){
+    var d = document.createElement("div");
+    d.className = "t " + (ok ? "ok" : "no");
+    d.textContent = " " + name;
+    if(!ok){
+      var s = document.createElement("span");
+      s.className = "msg"; s.textContent = msg || "";
+      d.appendChild(s);
+      fail++; failures.push(currentGroup + " > " + name + (msg ? " :: " + msg : ""));
+    } else pass++;
+    out.appendChild(d);
+  }
+  // Una aserción que lanza no debe cortar el resto del harness.
+  function test(name, fn){
+    try{
+      var r = fn();
+      if(r === false) record(false, name, "devolvió false");
+      else if(typeof r === "string") record(false, name, r);
+      else record(true, name);
+    }catch(e){ record(false, name, (e && e.message) || String(e)); }
+  }
+  function assert(cond, msg){ if(!cond) throw new Error(msg || "assert falló"); }
+
+  function finish(){
+    var total = pass + fail;
+    summary.className = fail ? "fail" : "pass";
+    summary.textContent = (fail ? "FALLAN " + fail + " de " + total : "TODO OK — " + pass + "/" + total) +
+      "  (pasados: " + pass + ", fallidos: " + fail + ")";
+    // Para leer el resultado desde afuera (consola / automatización).
+    window.__v31Results = { pass: pass, fail: fail, total: total, failures: failures };
+    if(failures.length) console.error("FALLOS V31:\n" + failures.join("\n"));
+    console.log("V31 tests:", pass + "/" + total + " pasados");
+  }
+
+  function run(A){
+    var uniq = function(a){ return Array.from(new Set(a)); };
+    var names = function(day){ return (day.exercises||[]).map(function(e){ return e.nombre; }); };
+    // Repite una generación N veces: los generadores son aleatorios, así que
+    // una sola corrida no prueba nada sobre las reglas.
+    function repeat(n, fn){ for(var i=0;i<n;i++) fn(i); }
+
+    /* ---------------- BIBLIOTECA ---------------- */
+    group("Biblioteca");
+
+    test("EXERCISES no tiene duplicados", function(){
+      var d = A.EXERCISES.filter(function(n,i){ return A.EXERCISES.indexOf(n)!==i; });
+      assert(d.length===0, "duplicados: " + d.join(", "));
+    });
+
+    test("todo nombre de EXERCISES activo existe en MUSCLE_MAP", function(){
+      var missing = A.EXERCISES.filter(function(n){
+        return !A.isRetiredExercise(n) && !A.MUSCLE_MAP[n] && !/^(Cinta|Bicicleta|Elíptico|Máquina de remo|Escaladora|Salto de soga|Burpees|Kettlebell|Battle rope|Trineo)/.test(n);
+      });
+      assert(missing.length===0, "sin MUSCLE_MAP: " + missing.join(", "));
+    });
+
+    test("los nombres canónicos nuevos de Piernas existen", function(){
+      var req = ["Sentadilla con barra","Prensa inclinada","Extensión de piernas","Estocadas con mancuerna",
+        "Peso muerto con barra","Peso muerto con mancuernas","Peso muerto sumo con barra","Peso muerto rumano con barra",
+        "Isquio sentado","Isquio acostado","Gemelos en prensa","Gemelos en máquina","Gemelos sentado en máquina",
+        "Sentadilla Hack","Step Up","Sentadilla Sumo","Puente de glúteos","Sentadilla Smith",
+        "Peso muerto rumano con mancuernas","Peso muerto sumo con mancuernas","Patada de glúteo en máquina",
+        "Aductores en máquina","Gemelos parado con mancuerna"];
+      var missing = req.filter(function(n){ return !A.MUSCLE_MAP[n]; });
+      assert(missing.length===0, "faltan: " + missing.join(", "));
+    });
+
+    test("ningún nombre viejo renombrado quedó como clave activa", function(){
+      var olds = Object.keys(A.EXERCISE_ALIASES);
+      var leaked = olds.filter(function(o){ return A.EXERCISES.indexOf(o)!==-1; });
+      assert(leaked.length===0, "siguen en EXERCISES: " + leaked.join(", "));
+    });
+
+    test("los aliases apuntan a un nombre canónico real", function(){
+      var bad = Object.keys(A.EXERCISE_ALIASES).filter(function(o){
+        return !A.MUSCLE_MAP[A.EXERCISE_ALIASES[o]];
+      });
+      assert(bad.length===0, "alias roto: " + bad.join(", "));
+    });
+
+    test("canonicalExerciseName resuelve el histórico al nombre nuevo", function(){
+      assert(A.canonicalExerciseName("Sentadilla")==="Sentadilla con barra", "Sentadilla");
+      assert(A.canonicalExerciseName("Curl femoral sentado")==="Isquio sentado", "Curl femoral sentado");
+      assert(A.canonicalExerciseName("Extensión de cadera en máquina")==="Patada de glúteo en máquina", "extensión de cadera");
+      assert(A.canonicalExerciseName("Elevación de talones de pie con disco")==="Gemelos parado con mancuerna", "talones con disco");
+      // Idempotente: un nombre ya canónico se devuelve igual.
+      assert(A.canonicalExerciseName("Sentadilla con barra")==="Sentadilla con barra", "idempotencia");
+    });
+
+    test("el histórico viejo sigue encontrando ficha/media/equipamiento", function(){
+      assert(A.exerciseImageFor("Sentadilla")!==null, "imagen por alias");
+      assert(A.exerciseVideoFor("Prensa de piernas")!==null, "video por alias");
+      assert(A.exerciseEquipment("Curl femoral sentado")!=="No especificado", "equipamiento por alias");
+      assert(A.exercisePrimarySubgroup("Peso muerto")!=null, "subgrupo por alias");
+    });
+
+    test("los retirados salen de los pools activos", function(){
+      var pools = A.muscleGroupPools();
+      var all = [];
+      Object.keys(pools).forEach(function(g){ all = all.concat(pools[g]); });
+      var leaked = Array.from(A.EXERCISES_RETIRED).filter(function(n){ return all.indexOf(n)!==-1; });
+      assert(leaked.length===0, "retirados visibles: " + leaked.join(", "));
+    });
+
+    test("los retirados conservan su ficha (no se borró el dato)", function(){
+      var lost = Array.from(A.EXERCISES_RETIRED).filter(function(n){ return !A.MUSCLE_MAP[n]; });
+      assert(lost.length===0, "perdieron MUSCLE_MAP: " + lost.join(", "));
+    });
+
+    /* ---------------- CLASIFICACIÓN ---------------- */
+    group("Clasificación (principal único + secundarios)");
+
+    test("todo ejercicio activo tiene exactamente UN principal", function(){
+      var bad = [];
+      Object.keys(A.MUSCLE_MAP).forEach(function(n){
+        if(A.isRetiredExercise(n)) return;
+        var p = A.exercisePrimarySubgroup(n);
+        if(!p) bad.push(n);
+      });
+      assert(bad.length===0, "sin principal: " + bad.join(", "));
+    });
+
+    test("el principal es estrictamente el de mayor intensidad (sin empate ambiguo)", function(){
+      var bad = [];
+      Object.keys(A.MUSCLE_MAP).forEach(function(n){
+        if(A.isRetiredExercise(n)) return;
+        var t = A.MUSCLE_MAP[n].t || [];
+        if(!t.length) return;
+        var max = Math.max.apply(null, t.map(function(x){ return x[1]; }));
+        // Puede haber varias regiones en el máximo, pero todas deben caer en
+        // el MISMO subgrupo — si no, el principal sería ambiguo.
+        var sgs = uniq(t.filter(function(x){ return x[1]===max; }).map(function(x){ return A.REGION_SUBGROUP[x[0]]; }));
+        if(sgs.length>1) bad.push(n + " (" + sgs.join("/") + ")");
+      });
+      assert(bad.length===0, "principal ambiguo: " + bad.join(", "));
+    });
+
+    var PRINCIPAL_ESPERADO = {
+      "Sentadilla con barra":"quads", "Sentadilla frontal":"quads", "Prensa inclinada":"quads",
+      "Extensión de piernas":"quads", "Sentadilla Hack":"quads", "Sentadilla búlgara":"quads",
+      "Sentadilla Smith":"quads",
+      "Estocadas con mancuerna":"glutes", "Step Up":"glutes", "Sentadilla Sumo":"glutes",
+      "Peso muerto con barra":"glutes", "Peso muerto con mancuernas":"glutes",
+      "Peso muerto sumo con barra":"glutes", "Peso muerto sumo con mancuernas":"glutes",
+      "Hip thrust en máquina":"glutes", "Puente de glúteos":"glutes",
+      "Patada de glúteo en máquina":"glutes", "Patada de glúteo en polea":"glutes",
+      "Abductores en máquina":"glutes",
+      "Peso muerto rumano con barra":"hamstrings", "Peso muerto rumano con mancuernas":"hamstrings",
+      "Isquio sentado":"hamstrings", "Isquio acostado":"hamstrings",
+      "Aductores en máquina":"adductors",
+      "Gemelos en prensa":"calves", "Gemelos en máquina":"calves",
+      "Gemelos parado con mancuerna":"calves", "Gemelos sentado en máquina":"calves"
+    };
+    test("Piernas: principal exacto según la spec §9", function(){
+      var bad = [];
+      Object.keys(PRINCIPAL_ESPERADO).forEach(function(n){
+        var got = A.exerciseLegFocus(n);
+        if(got !== PRINCIPAL_ESPERADO[n]) bad.push(n + ": esperaba " + PRINCIPAL_ESPERADO[n] + ", dio " + got);
+      });
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("Sentadilla con barra tiene glúteos y aductores como SECUNDARIOS", function(){
+      var t = A.MUSCLE_MAP["Sentadilla con barra"].t;
+      var reg = {}; t.forEach(function(x){ reg[x[0]] = x[1]; });
+      assert(reg["glutes"]>0 && reg["glutes"]<1, "glúteos debe ser secundario");
+      assert(reg["adductors"]>0 && reg["adductors"]<1, "aductores debe ser secundario");
+    });
+
+    test("Hiperextensiones es principal Core (no Espalda)", function(){
+      assert(A.exercisePrimarySubgroup("Hiperextensiones")==="core",
+        "dio " + A.exercisePrimarySubgroup("Hiperextensiones"));
+      assert(A.exerciseMuscleGroup("Hiperextensiones")==="Core", "grupo visual");
+    });
+
+    test("Press tras nuca con barra es principal Hombros (no Espalda)", function(){
+      assert(A.exercisePrimarySubgroup("Press tras nuca con barra")==="hombros");
+    });
+
+    test("Remo al mentón es principal Hombros con trapecios secundario", function(){
+      assert(A.exercisePrimarySubgroup("Remo al mentón")==="hombros");
+      var t = A.MUSCLE_MAP["Remo al mentón"].t; var reg = {};
+      t.forEach(function(x){ reg[x[0]] = x[1]; });
+      assert(reg["traps"]>0 && reg["traps"]<1, "trapecios secundario");
+    });
+
+    test("Encogimientos: principal Trapecios dentro del grupo visual Hombros", function(){
+      ["Encogimientos con mancuernas","Encogimientos con barra","Encogimientos en máquina"].forEach(function(n){
+        assert(A.exerciseMuscleGroup(n)==="Hombros", n + " grupo visual dio " + A.exerciseMuscleGroup(n));
+      });
+      assert(A.MUSCLE_GROUPS.length===6, "no se creó un séptimo grupo visual");
+    });
+
+    test("Abductores en máquina pertenece a Glúteos (no a un grupo Abductores)", function(){
+      assert(A.exerciseLegFocus("Abductores en máquina")==="glutes");
+    });
+
+    /* ---------------- PATRONES Y PREDOMINANCIAS ---------------- */
+    group("Patrones y predominancias");
+
+    test("todo ejercicio activo de la biblioteca tiene patrón declarado", function(){
+      var sinPatron = [];
+      Object.keys(A.MUSCLE_MAP).forEach(function(n){
+        if(A.isRetiredExercise(n)) return;
+        if(!A.EXERCISE_PATTERN[n]) sinPatron.push(n);
+      });
+      assert(sinPatron.length===0, "sin patrón: " + sinPatron.join(", "));
+    });
+
+    test("los patrones de Piernas son los de la spec §10", function(){
+      var esperado = {
+        "Sentadilla con barra":"sentadilla","Sentadilla frontal":"sentadilla","Sentadilla Sumo":"sentadilla",
+        "Sentadilla Smith":"sentadilla","Sentadilla Hack":"sentadilla",
+        "Prensa inclinada":"prensa",
+        "Sentadilla búlgara":"unilateral-pierna","Estocadas con mancuerna":"unilateral-pierna","Step Up":"unilateral-pierna",
+        "Extensión de piernas":"extension-rodilla",
+        "Peso muerto con barra":"bisagra","Peso muerto con mancuernas":"bisagra",
+        "Peso muerto rumano con barra":"bisagra","Peso muerto rumano con mancuernas":"bisagra",
+        "Peso muerto sumo con barra":"bisagra-sumo","Peso muerto sumo con mancuernas":"bisagra-sumo",
+        "Hip thrust en máquina":"extension-cadera","Puente de glúteos":"extension-cadera",
+        "Patada de glúteo en máquina":"extension-cadera","Patada de glúteo en polea":"extension-cadera",
+        "Abductores en máquina":"abduccion",
+        "Isquio sentado":"flexion-rodilla","Isquio acostado":"flexion-rodilla",
+        "Aductores en máquina":"aduccion",
+        "Gemelos en prensa":"gemelos-de-pie","Gemelos en máquina":"gemelos-de-pie","Gemelos parado con mancuerna":"gemelos-de-pie",
+        "Gemelos sentado en máquina":"gemelos-sentado"
+      };
+      var bad = [];
+      Object.keys(esperado).forEach(function(n){
+        if(A.exercisePattern(n)!==esperado[n]) bad.push(n + ": " + A.exercisePattern(n));
+      });
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("la escala de predominancia es ÚNICA y de 4 niveles", function(){
+      var keys = Object.keys(A.PATTERN_PREDOMINANCE_WEIGHT).sort();
+      assert(keys.join(",")==="ALTA,BAJA,MEDIA,MEDIA_ALTA", "niveles: " + keys.join(","));
+      var vals = Object.keys(A.PATTERN_PREDOMINANCE).map(function(p){ return A.PATTERN_PREDOMINANCE[p]; });
+      var bad = uniq(vals).filter(function(v){ return keys.indexOf(v)===-1; });
+      assert(bad.length===0, "predominancia fuera de escala: " + bad.join(", "));
+    });
+
+    test("los pesos de predominancia son monótonos (ALTA > MEDIA_ALTA > MEDIA > BAJA)", function(){
+      var W = A.PATTERN_PREDOMINANCE_WEIGHT;
+      assert(W.ALTA > W.MEDIA_ALTA && W.MEDIA_ALTA > W.MEDIA && W.MEDIA > W.BAJA, "no monótono");
+      assert(W.BAJA > 0, "BAJA debe ser > 0 (no es prohibición)");
+    });
+
+    test("todo patrón usado tiene predominancia declarada", function(){
+      var patrones = uniq(Object.keys(A.EXERCISE_PATTERN).map(function(n){ return A.EXERCISE_PATTERN[n]; }));
+      var sin = patrones.filter(function(p){ return !A.PATTERN_PREDOMINANCE[p]; });
+      assert(sin.length===0, "sin predominancia: " + sin.join(", "));
+    });
+
+    /* ---------------- EDAD Y EQUIPAMIENTO ---------------- */
+    group("Edad y equipamiento");
+
+    test("<40 no aplica preferencia (peso 1 para todos)", function(){
+      ["Sentadilla con barra","Prensa inclinada","Sentadilla Smith","Peso muerto con barra"].forEach(function(n){
+        assert(A.ageEquipmentWeight(n, 25)===1, n + " a los 25 dio " + A.ageEquipmentWeight(n,25));
+      });
+      assert(A.ageEquipmentWeight("Prensa inclinada", null)===1, "sin edad");
+    });
+
+    test("40-49 favorece máquina/Smith de forma moderada", function(){
+      assert(A.ageEquipmentWeight("Prensa inclinada",45) > 1, "máquina no favorecida");
+      assert(A.ageEquipmentWeight("Sentadilla con barra",45) === 1, "libre no debe penalizarse");
+      assert(A.ageEquipmentWeight("Prensa inclinada",45) < A.ageEquipmentWeight("Prensa inclinada",55), "50+ debe ser mayor");
+    });
+
+    test("50+ favorece más, pero NUNCA prohíbe los libres", function(){
+      assert(A.ageEquipmentWeight("Prensa inclinada",55) > A.ageEquipmentWeight("Prensa inclinada",45));
+      assert(A.ageEquipmentWeight("Sentadilla búlgara",55) > 0, "un libre nunca puede quedar en peso 0");
+    });
+
+    test("EXERCISES_RISKY_50PLUS sigue siendo una regla independiente", function(){
+      // La ponderación por edad no debe haber absorbido ni vaciado la
+      // exclusión dura: sigue siendo un Set con nombres canónicos válidos.
+      assert(A.EXERCISES_RISKY_50PLUS.size >= 8, "tamaño " + A.EXERCISES_RISKY_50PLUS.size);
+      var invalid = Array.from(A.EXERCISES_RISKY_50PLUS).filter(function(n){ return !A.MUSCLE_MAP[n]; });
+      assert(invalid.length===0, "nombres inválidos tras el renombre: " + invalid.join(", "));
+      // Y un ejercicio riesgoso libre sigue teniendo peso > 0 por sí mismo
+      // (la exclusión la hace el pool, no el peso).
+      assert(A.ageEquipmentWeight("Sentadilla con barra",55) > 0);
+    });
+
+    test("50+ aumenta la proporción de máquina/polea sin llegar al 100%", function(){
+      // Se compara la MISMA generación a dos edades, varias veces, porque el
+      // sorteo es aleatorio.
+      function proporcionGuiada(edad){
+        var guiadas = 0, total = 0;
+        repeat(40, function(){
+          var day = A.generateFocusedDay(["cuadriceps","gluteos"], 0);
+          if(!day) return;
+          names(day).forEach(function(n){
+            total++;
+            var eq = A.exerciseEquipment(n);
+            if(eq==="Máquina" || eq==="Polea") guiadas++;
+          });
+        });
+        return total ? guiadas/total : 0;
+      }
+      var st = A.state;
+      var prev = st.profile ? st.profile.edad : null;
+      if(!st.profile) st.profile = { edad:null };
+      st.profile.edad = 25; var joven = proporcionGuiada(25);
+      st.profile.edad = 55; var mayor = proporcionGuiada(55);
+      st.profile.edad = prev;
+      assert(mayor > joven, "50+ (" + mayor.toFixed(2) + ") no supera a <40 (" + joven.toFixed(2) + ")");
+      assert(mayor < 1, "llegó al 100% de máquinas (" + mayor.toFixed(2) + ")");
+    });
+
+    /* ---------------- ESPALDA ---------------- */
+    group("Espalda");
+
+    test("Dominadas supinas sigue siendo un ejercicio independiente y activo", function(){
+      assert(!!A.MUSCLE_MAP["Dominadas supinas"], "no existe");
+      assert(!A.isRetiredExercise("Dominadas supinas"), "está retirado");
+      assert(A.MUSCLE_MAP["Dominadas"] !== A.MUSCLE_MAP["Dominadas supinas"], "se fusionaron");
+    });
+
+    test("Dominadas y Dominadas supinas comparten patrón (tracción vertical)", function(){
+      assert(A.exercisePattern("Dominadas")===A.exercisePattern("Dominadas supinas"),
+        "patrones distintos: " + A.exercisePattern("Dominadas") + " / " + A.exercisePattern("Dominadas supinas"));
+    });
+
+    test("Jalón tras nuca está fuera del pool activo", function(){
+      assert(A.isRetiredExercise("Jalón tras nuca"), "no está retirado");
+      var pools = A.subgroupPools();
+      assert((pools.espalda||[]).indexOf("Jalón tras nuca")===-1, "sigue en el pool de espalda");
+    });
+
+    test("Remo en polea baja sigue presente y activo", function(){
+      assert(!!A.MUSCLE_MAP["Remo en polea baja"] && !A.isRetiredExercise("Remo en polea baja"));
+      assert((A.subgroupPools().espalda||[]).indexOf("Remo en polea baja")!==-1, "no está en el pool");
+    });
+
+    test("Hiperextensiones sigue presente (reclasificada, no eliminada)", function(){
+      assert(!!A.MUSCLE_MAP["Hiperextensiones"] && !A.isRetiredExercise("Hiperextensiones"));
+    });
+
+    test("las variantes de jalón y remo de la spec §11 existen y están activas", function(){
+      var req = ["Jalón agarre supino","Jalón agarre ancho","Jalón agarre neutro",
+                 "Remo en máquina unilateral","Remo en TRX","Remo en Hammer","Pullover","Remo con mancuerna unilateral"];
+      var bad = req.filter(function(n){ return !A.MUSCLE_MAP[n] || A.isRetiredExercise(n); });
+      assert(bad.length===0, "faltan/retirados: " + bad.join(", "));
+    });
+
+    /* ---------------- HOMBROS ---------------- */
+    group("Hombros");
+
+    test("los ejercicios de la spec §12 existen y están activos", function(){
+      var req = ["Press militar con barra","Press militar con mancuernas sentado","Press de hombros con mancuernas",
+        "Press de hombros en máquina","Press tras nuca con barra","Arnold press","Vuelos laterales con mancuerna",
+        "Elevación lateral en máquina","Elevación lateral en polea","Vuelos frontales","Face Pull","Pec Fly invertido",
+        "Vuelos pájaro","Remo al mentón","Encogimientos con mancuernas","Encogimientos con barra","Encogimientos en máquina"];
+      var bad = req.filter(function(n){ return !A.MUSCLE_MAP[n] || A.isRetiredExercise(n); });
+      assert(bad.length===0, "faltan/retirados: " + bad.join(", "));
+    });
+
+    test("las TRES variantes de encogimiento están activas", function(){
+      var v = ["Encogimientos con mancuernas","Encogimientos con barra","Encogimientos en máquina"];
+      var bad = v.filter(function(n){ return A.isRetiredExercise(n); });
+      assert(bad.length===0, "retiradas: " + bad.join(", "));
+    });
+
+    test("Encogimientos de hombros (genérico) está fuera del pool activo", function(){
+      assert(A.isRetiredExercise("Encogimientos de hombros"), "no está retirado");
+      var pools = A.subgroupPools();
+      assert((pools.hombros||[]).indexOf("Encogimientos de hombros")===-1, "sigue en el pool");
+    });
+
+    test("Press de hombros con mancuernas existe como ejercicio independiente", function(){
+      assert(!!A.MUSCLE_MAP["Press de hombros con mancuernas"], "no existe");
+      assert(!A.isRetiredExercise("Press de hombros con mancuernas"), "está retirado");
+      assert(A.EXERCISES.indexOf("Press de hombros con mancuernas")!==-1, "no está en EXERCISES");
+    });
+
+    test("Press militar con mancuernas sentado existe como ejercicio independiente", function(){
+      assert(!!A.MUSCLE_MAP["Press militar con mancuernas sentado"], "no existe");
+      assert(!A.isRetiredExercise("Press militar con mancuernas sentado"), "está retirado");
+      assert(A.EXERCISES.indexOf("Press militar con mancuernas sentado")!==-1, "no está en EXERCISES");
+    });
+
+    test("los dos press de mancuernas NO se fusionaron entre sí", function(){
+      var a = "Press de hombros con mancuernas", b = "Press militar con mancuernas sentado";
+      assert(A.canonicalExerciseName(a)===a, a + " fue aliaseado a " + A.canonicalExerciseName(a));
+      assert(A.canonicalExerciseName(b)===b, b + " fue aliaseado a " + A.canonicalExerciseName(b));
+      assert(A.MUSCLE_MAP[a] !== A.MUSCLE_MAP[b], "comparten la misma entrada de MUSCLE_MAP");
+      // Ningún alias lleva de uno al otro.
+      assert(A.EXERCISE_ALIASES[a]!==b && A.EXERCISE_ALIASES[b]!==a, "hay un alias entre ambos");
+      // Y ambos siguen apareciendo en el pool activo de hombros.
+      var pool = A.subgroupPools().hombros || [];
+      assert(pool.indexOf(a)!==-1 && pool.indexOf(b)!==-1, "alguno falta en el pool de hombros");
+    });
+
+    test("cada variante de press de hombros conserva su identidad", function(){
+      var variantes = ["Press militar con barra","Press de hombros con mancuernas",
+        "Press militar con mancuernas sentado","Press de hombros en máquina",
+        "Press tras nuca con barra","Arnold press"];
+      var bad = [];
+      variantes.forEach(function(n){
+        if(!A.MUSCLE_MAP[n]) bad.push(n + ": no existe");
+        else if(A.isRetiredExercise(n)) bad.push(n + ": retirado");
+        else if(A.canonicalExerciseName(n)!==n) bad.push(n + ": aliaseado a " + A.canonicalExerciseName(n));
+      });
+      assert(bad.length===0, bad.join(" | "));
+      // Seis entradas DISTINTAS en MUSCLE_MAP (ninguna compartida).
+      var entradas = variantes.map(function(n){ return A.MUSCLE_MAP[n]; });
+      var fusionadas = [];
+      entradas.forEach(function(e,i){ if(entradas.indexOf(e)!==i) fusionadas.push(variantes[i]); });
+      assert(fusionadas.length===0, "comparten entrada: " + fusionadas.join(", "));
+    });
+
+    test("ningún alias fusiona dos ejercicios que deben seguir independientes", function(){
+      // Un alias es legítimo solo si su nombre VIEJO ya no existe como
+      // ejercicio propio: eso es un renombre. Si ambos existieran, sería una
+      // fusión accidental de variantes.
+      var fusiones = Object.keys(A.EXERCISE_ALIASES).filter(function(viejo){
+        return !!A.MUSCLE_MAP[viejo];
+      });
+      assert(fusiones.length===0, "el nombre viejo sigue existiendo: " + fusiones.join(", "));
+    });
+
+    test("los renombres sensibles conservan identidad única", function(){
+      var sensibles = ["Pullover","Remo con mancuerna unilateral","Face Pull",
+        "Press tras nuca con barra","Vuelos laterales con mancuerna"];
+      var bad = [];
+      sensibles.forEach(function(n){
+        if(!A.MUSCLE_MAP[n]) bad.push(n + ": no existe");
+        else if(A.canonicalExerciseName(n)!==n) bad.push(n + ": aliaseado");
+        // Exactamente un alias debe apuntar acá (su nombre viejo), no varios:
+        // varios significarían que se fusionaron dos ejercicios distintos.
+        var apuntan = Object.keys(A.EXERCISE_ALIASES).filter(function(k){ return A.EXERCISE_ALIASES[k]===n; });
+        if(apuntan.length>1) bad.push(n + ": " + apuntan.length + " aliases apuntan acá (" + apuntan.join(", ") + ")");
+      });
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("Face Pull cuenta como Hombros", function(){
+      assert(A.exercisePrimarySubgroup("Face Pull")==="hombros", "dio " + A.exercisePrimarySubgroup("Face Pull"));
+    });
+
+    /* ---------------- BRAZOS ---------------- */
+    group("Brazos");
+
+    test("Extensión tríceps polea agarre prono sigue retirada del pool", function(){
+      assert(A.isRetiredExercise("Extensión tríceps polea agarre prono"), "no está retirada");
+      assert(!!A.MUSCLE_MAP["Extensión tríceps polea agarre prono"], "se perdió su ficha histórica");
+    });
+
+    test("Curl de muñeca existe en la biblioteca activa", function(){
+      assert(!!A.MUSCLE_MAP["Curl de muñeca"], "no existe en MUSCLE_MAP");
+      assert(A.EXERCISES.indexOf("Curl de muñeca")!==-1, "no está en EXERCISES");
+      assert(!A.isRetiredExercise("Curl de muñeca"), "está retirado");
+    });
+
+    test("Curl de muñeca inverso existe en la biblioteca activa", function(){
+      assert(!!A.MUSCLE_MAP["Curl de muñeca inverso"], "no existe en MUSCLE_MAP");
+      assert(A.EXERCISES.indexOf("Curl de muñeca inverso")!==-1, "no está en EXERCISES");
+      assert(!A.isRetiredExercise("Curl de muñeca inverso"), "está retirado");
+    });
+
+    test("ambos curls de muñeca tienen principal Antebrazo", function(){
+      ["Curl de muñeca","Curl de muñeca inverso"].forEach(function(n){
+        assert(A.exercisePrimarySubgroup(n)==="antebrazo",
+          n + " principal dio " + A.exercisePrimarySubgroup(n));
+        assert(A.exerciseArmSubfocus(n)==="antebrazo", n + " sub-foco dio " + A.exerciseArmSubfocus(n));
+      });
+    });
+
+    test("Antebrazo es subgrupo dentro de Brazos (no un séptimo grupo visual)", function(){
+      ["Curl de muñeca","Curl de muñeca inverso"].forEach(function(n){
+        assert(A.exerciseMuscleGroup(n)==="Brazos", n + " grupo dio " + A.exerciseMuscleGroup(n));
+      });
+      assert(A.MUSCLE_GROUPS.length===6, "grupos visuales: " + A.MUSCLE_GROUPS.length);
+      assert((A.muscleGroupPools()["Brazos"]||[]).indexOf("Curl de muñeca")!==-1,
+        "no aparece en el explorador bajo Brazos");
+    });
+
+    test("los curls de muñeca NO son aliases de Curl martillo ni de nada", function(){
+      assert(A.canonicalExerciseName("Curl de muñeca")==="Curl de muñeca", "fue aliaseado");
+      assert(A.canonicalExerciseName("Curl de muñeca inverso")==="Curl de muñeca inverso", "fue aliaseado");
+      var dest = Object.keys(A.EXERCISE_ALIASES).map(function(k){ return A.EXERCISE_ALIASES[k]; });
+      assert(dest.indexOf("Curl de muñeca")===-1, "algo aliasea hacia Curl de muñeca");
+      assert(dest.indexOf("Curl de muñeca inverso")===-1, "algo aliasea hacia Curl de muñeca inverso");
+      assert(A.canonicalExerciseName("Curl martillo")==="Curl martillo", "Curl martillo fue aliaseado");
+      // Y son tres ejercicios DISTINTOS.
+      assert(A.MUSCLE_MAP["Curl martillo"] !== A.MUSCLE_MAP["Curl de muñeca"], "se fusionaron");
+    });
+
+    test("Curl martillo NO hace de antebrazo (vuelve a ser bíceps)", function(){
+      assert(A.exerciseArmSubfocus("Curl martillo")==="biceps",
+        "sub-foco dio " + A.exerciseArmSubfocus("Curl martillo"));
+      assert(A.exercisePrimarySubgroup("Curl martillo")==="biceps", "principal no es bíceps");
+    });
+
+    test("el pool de Antebrazo solo tiene ejercicios propios de antebrazo", function(){
+      var pool = A.armSubfocusPool("antebrazo", null);
+      assert(pool.length>=2, "pool chico: " + pool.join(", "));
+      assert(pool.indexOf("Curl martillo")===-1, "Curl martillo está en el pool de antebrazo");
+      pool.forEach(function(n){
+        assert(A.exercisePrimarySubgroup(n)==="antebrazo", n + " no es principal antebrazo");
+      });
+    });
+
+    test("Antebrazo NO es un foco seleccionable en la UI", function(){
+      assert(A.FOCUSED_GROUPS.indexOf("antebrazo")===-1, "aparece en FOCUSED_GROUPS");
+      assert(A.isValidFocusSelection(["antebrazo"])===false, "se acepta como foco");
+    });
+
+    test("pickArmsDayExercises da exactamente 3 tríceps / 2 bíceps / 1 antebrazo", function(){
+      repeat(25, function(){
+        var got = A.pickArmsDayExercises(new Set(), {});
+        assert(got.length===6, "total " + got.length);
+        var c = { triceps:0, biceps:0, antebrazo:0 };
+        got.forEach(function(n){ var sf = A.exerciseArmSubfocus(n); if(sf) c[sf]++; });
+        assert(c.triceps===3, "tríceps " + c.triceps);
+        assert(c.biceps===2, "bíceps " + c.biceps);
+        assert(c.antebrazo===1, "antebrazo " + c.antebrazo);
+      });
+    });
+
+    test("el día de brazos no repite ejercicios", function(){
+      repeat(25, function(){
+        var got = A.pickArmsDayExercises(new Set(), {});
+        assert(uniq(got).length===got.length, "duplicados: " + got.join(", "));
+      });
+    });
+
+    test("sin redundancia de pushdowns: los 3 tríceps tienen patrones distintos", function(){
+      repeat(25, function(){
+        var got = A.pickArmsDayExercises(new Set(), {});
+        var tri = got.filter(function(n){ return A.exerciseArmSubfocus(n)==="triceps"; });
+        var pats = uniq(tri.map(function(n){ return A.exercisePattern(n); }));
+        assert(pats.length===tri.length, "patrones repetidos: " + pats.join(", "));
+      });
+    });
+
+    test("cabezas de tríceps cubiertas (al menos larga + lateral/medial)", function(){
+      repeat(25, function(){
+        var got = A.pickArmsDayExercises(new Set(), {});
+        var tri = got.filter(function(n){ return A.exerciseArmSubfocus(n)==="triceps"; });
+        var heads = {};
+        tri.forEach(function(n){
+          (A.MUSCLE_MAP[n].t||[]).forEach(function(x){ if(/^triceps-/.test(x[0])) heads[x[0]] = true; });
+        });
+        assert(Object.keys(heads).length>=2, "cabezas cubiertas: " + Object.keys(heads).join(","));
+      });
+    });
+
+    test("los 2 bíceps tienen patrones distintos", function(){
+      repeat(25, function(){
+        var got = A.pickArmsDayExercises(new Set(), {});
+        var bi = got.filter(function(n){ return A.exerciseArmSubfocus(n)==="biceps"; });
+        var pats = uniq(bi.map(function(n){ return A.exercisePattern(n); }));
+        assert(pats.length===bi.length, "patrones repetidos");
+      });
+    });
+
+    /* ---------------- RUTINA ENFOCADA ---------------- */
+    group("Rutina enfocada — validación de focos");
+
+    test("1 foco es válido", function(){ assert(A.isValidFocusSelection(["hombros"])); });
+    test("2 focos son válidos", function(){ assert(A.isValidFocusSelection(["pecho","triceps"])); });
+    test("3 focos son válidos", function(){ assert(A.isValidFocusSelection(["pecho","espalda","hombros"])); });
+    test("4 focos son válidos", function(){ assert(A.isValidFocusSelection(["pecho","espalda","hombros","biceps"])); });
+
+    test("5 focos se rechazan", function(){
+      assert(A.isValidFocusSelection(["pecho","espalda","hombros","biceps","triceps"])===false, "aceptó 5");
+      assert(A.generateFocusedDay(["pecho","espalda","hombros","biceps","triceps"],0)===null, "generó un día con 5 focos");
+    });
+
+    test("0 focos se rechaza", function(){
+      assert(A.isValidFocusSelection([])===false);
+      assert(A.generateFocusedDay([],0)===null);
+    });
+
+    test("Aductores solo → rechazado (pool de 1, no llega al mínimo)", function(){
+      assert(A.focusPoolSize("aductores") < A.FOCUSED_MIN_TOTAL,
+        "el pool de aductores ya no es chico: " + A.focusPoolSize("aductores"));
+      assert(A.canFocusStandAlone("aductores")===false, "canFocusStandAlone lo permite");
+      assert(A.isValidFocusSelection(["aductores"])===false, "la validación lo acepta");
+      assert(A.generateFocusedDay(["aductores"], 0)===null, "generó un día igual");
+    });
+
+    test("Aductores + Glúteos → válido", function(){
+      assert(A.isValidFocusSelection(["aductores","gluteos"]), "no valida");
+      var d = A.generateFocusedDay(["aductores","gluteos"], 0);
+      assert(d, "no generó");
+      assert(d.exercises.length>=A.FOCUSED_MIN_TOTAL, "solo " + d.exercises.length + " ejercicios");
+    });
+
+    test("Aductores + Cuádriceps → válido", function(){
+      assert(A.isValidFocusSelection(["aductores","cuadriceps"]), "no valida");
+      var d = A.generateFocusedDay(["aductores","cuadriceps"], 0);
+      assert(d && d.exercises.length>=A.FOCUSED_MIN_TOTAL, "dio " + (d?d.exercises.length:"null"));
+    });
+
+    test("Aductores + Isquios → válido", function(){
+      assert(A.isValidFocusSelection(["aductores","isquios"]), "no valida");
+      var d = A.generateFocusedDay(["aductores","isquios"], 0);
+      assert(d && d.exercises.length>=A.FOCUSED_MIN_TOTAL, "dio " + (d?d.exercises.length:"null"));
+    });
+
+    test("cualquier combinación de 2-4 focos con Aductores funciona", function(){
+      var otros = A.FOCUSED_GROUPS.filter(function(f){ return f!=="aductores"; });
+      var bad = [];
+      otros.forEach(function(o){
+        var foci = ["aductores", o];
+        if(!A.isValidFocusSelection(foci)){ bad.push(foci.join("+") + ": inválida"); return; }
+        var d = A.generateFocusedDay(foci, 0);
+        if(!d) bad.push(foci.join("+") + ": null");
+        else if(d.exercises.length < A.FOCUSED_MIN_TOTAL) bad.push(foci.join("+") + ": " + d.exercises.length);
+      });
+      // Un trío y un cuarteto con aductores
+      [["aductores","gluteos","cuadriceps"], ["aductores","gluteos","isquios","gemelos"]].forEach(function(foci){
+        var d = A.generateFocusedDay(foci, 0);
+        if(!d) bad.push(foci.join("+") + ": null");
+        else if(d.exercises.length < A.FOCUSED_MIN_TOTAL) bad.push(foci.join("+") + ": " + d.exercises.length);
+      });
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("Aductores NO se completa con otro grupo si se eligió solo", function(){
+      // La respuesta correcta es rechazar, no rellenar con glúteos.
+      assert(A.generateFocusedDay(["aductores"], 0)===null, "devolvió un día en vez de rechazar");
+    });
+
+    test("todos los focos con pool >= 3 siguen siendo válidos como foco único", function(){
+      var bad = [];
+      A.FOCUSED_GROUPS.forEach(function(f){
+        var pool = A.focusPoolSize(f);
+        var permitido = A.canFocusStandAlone(f);
+        if(pool >= A.FOCUSED_MIN_TOTAL){
+          if(!permitido) bad.push(f + ": pool " + pool + " pero no se permite solo");
+          if(!A.isValidFocusSelection([f])) bad.push(f + ": pool " + pool + " pero la validación lo rechaza");
+          var d = A.generateFocusedDay([f], 0);
+          if(!d) bad.push(f + ": no generó");
+        } else {
+          if(permitido) bad.push(f + ": pool " + pool + " y sin embargo se permite solo");
+        }
+      });
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("ningún foco único VÁLIDO genera menos de 3 ejercicios", function(){
+      var bad = [];
+      A.FOCUSED_GROUPS.filter(function(f){ return A.isValidFocusSelection([f]); }).forEach(function(f){
+        repeat(6, function(){
+          var d = A.generateFocusedDay([f], 0);
+          if(!d) bad.push(f + ": null");
+          else if(d.exercises.length < A.FOCUSED_MIN_TOTAL) bad.push(f + ": " + d.exercises.length);
+        });
+      });
+      assert(bad.length===0, uniq(bad).join(" | "));
+    });
+
+    test("la regla sale del tamaño del pool, no de una lista de nombres", function(){
+      // canFocusStandAlone debe coincidir exactamente con "pool >= mínimo"
+      // para TODOS los focos: si estuviera cableado a 'aductores', algún foco
+      // no coincidiría.
+      var bad = [];
+      A.FOCUSED_GROUPS.forEach(function(f){
+        var esperado = A.focusPoolSize(f) >= A.FOCUSED_MIN_TOTAL;
+        if(A.canFocusStandAlone(f)!==esperado) bad.push(f);
+      });
+      assert(bad.length===0, "no derivado del pool: " + bad.join(", "));
+    });
+
+    test("la restricción también vale para un perfil 50+", function(){
+      // Con exclusión dura por edad el pool puede achicarse; la validación
+      // tiene que mirar el MISMO pool que usará la generación.
+      var st = A.state, prev = st.profile ? st.profile.edad : null;
+      if(!st.profile) st.profile = { edad:null };
+      st.profile.edad = 55;
+      var bad = [];
+      A.FOCUSED_GROUPS.forEach(function(f){
+        if(!A.isValidFocusSelection([f])) return;
+        var d = A.generateFocusedDay([f], 0);
+        if(!d) bad.push(f + ": null");
+        else if(d.exercises.length < A.FOCUSED_MIN_TOTAL) bad.push(f + " (50+): " + d.exercises.length);
+      });
+      st.profile.edad = prev;
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("focos duplicados o inexistentes se rechazan", function(){
+      assert(A.isValidFocusSelection(["pecho","pecho"])===false, "aceptó duplicado");
+      assert(A.isValidFocusSelection(["brazos"])===false, "aceptó 'brazos' genérico");
+      assert(A.isValidFocusSelection(["antebrazo"])===false, "aceptó 'antebrazo' como foco");
+    });
+
+    test("los grupos seleccionables son los 11 de la spec §17", function(){
+      var esperado = ["pecho","espalda","hombros","biceps","triceps","cuadriceps","gluteos","isquios","aductores","gemelos","core"];
+      assert(A.FOCUSED_GROUPS.length===11, "cantidad " + A.FOCUSED_GROUPS.length);
+      var bad = esperado.filter(function(g){ return A.FOCUSED_GROUPS.indexOf(g)===-1; });
+      assert(bad.length===0, "faltan: " + bad.join(", "));
+      assert(A.FOCUSED_GROUPS.indexOf("brazos")===-1, "ofrece Brazos genérico");
+      assert(A.FOCUSED_GROUPS.indexOf("antebrazo")===-1, "ofrece Antebrazo como foco");
+    });
+
+    group("Rutina enfocada — cantidades");
+
+    test("topes por cantidad de focos: 1→6, 2→8, 3→9, 4→10", function(){
+      assert(A.focusedMaxExercises(1)===6, "1 foco: " + A.focusedMaxExercises(1));
+      assert(A.focusedMaxExercises(2)===8, "2 focos: " + A.focusedMaxExercises(2));
+      assert(A.focusedMaxExercises(3)===9, "3 focos: " + A.focusedMaxExercises(3));
+      assert(A.focusedMaxExercises(4)===10, "4 focos: " + A.focusedMaxExercises(4));
+    });
+
+    var COMBOS = [
+      ["hombros"], ["cuadriceps"], ["core"],
+      ["pecho","triceps"], ["cuadriceps","gluteos"], ["espalda","biceps"], ["isquios","gluteos"],
+      ["pecho","espalda","hombros"], ["cuadriceps","gluteos","gemelos"],
+      ["pecho","espalda","hombros","biceps"], ["cuadriceps","gluteos","isquios","gemelos"]
+    ];
+
+    test("nunca más de 10 ejercicios, nunca menos de 3", function(){
+      var bad = [];
+      COMBOS.forEach(function(foci){
+        repeat(12, function(){
+          var day = A.generateFocusedDay(foci, 0);
+          if(!day){ bad.push(foci.join("+") + ": null"); return; }
+          var n = day.exercises.length;
+          if(n > A.FOCUSED_HARD_MAX) bad.push(foci.join("+") + ": " + n + " > 10");
+          if(n < A.FOCUSED_MIN_TOTAL) bad.push(foci.join("+") + ": " + n + " < 3");
+        });
+      });
+      assert(bad.length===0, uniq(bad).join(" | "));
+    });
+
+    test("TODO foco individual: o es válido y llega al mínimo, o se rechaza", function(){
+      // Cobertura que COMBOS no daba: los 11 focos de a uno. Ya no hay
+      // excepciones al mínimo de 3 — un foco cuyo pool no alcanza se rechaza
+      // en la validación en vez de generar un día corto.
+      var bad = [], rechazados = [];
+      A.FOCUSED_GROUPS.forEach(function(f){
+        var pool = A.focusPoolSize(f);
+        if(!A.isValidFocusSelection([f])){
+          rechazados.push(f + " (pool=" + pool + ")");
+          if(pool >= A.FOCUSED_MIN_TOTAL) bad.push(f + ": pool " + pool + " y aun así se rechaza");
+          if(A.generateFocusedDay([f],0)!==null) bad.push(f + ": rechazado pero generó igual");
+          return;
+        }
+        repeat(6, function(){
+          var day = A.generateFocusedDay([f], 0);
+          if(!day){ bad.push(f + ": null"); return; }
+          var n = day.exercises.length;
+          if(n < A.FOCUSED_MIN_TOTAL) bad.push(f + ": " + n + " < " + A.FOCUSED_MIN_TOTAL);
+        });
+      });
+      assert(bad.length===0, uniq(bad).join(" | "));
+      // Hoy el único foco que no puede ir solo es Aductores. Si aparece otro,
+      // es un cambio de biblioteca que hay que mirar.
+      assert(rechazados.length<=1 && (rechazados.length===0 || /^aductores/.test(rechazados[0])),
+        "focos rechazados inesperados: " + rechazados.join(", "));
+    });
+
+    test("cada combinación respeta su tope por cantidad de focos", function(){
+      var bad = [];
+      COMBOS.forEach(function(foci){
+        var max = A.focusedMaxExercises(foci.length);
+        repeat(12, function(){
+          var day = A.generateFocusedDay(foci, 0);
+          if(day && day.exercises.length > max) bad.push(foci.join("+") + ": " + day.exercises.length + " > " + max);
+        });
+      });
+      assert(bad.length===0, uniq(bad).join(" | "));
+    });
+
+    test("al menos 2 ejercicios por foco cuando hay candidatos suficientes", function(){
+      var bad = [];
+      COMBOS.filter(function(f){ return f.length>1; }).forEach(function(foci){
+        repeat(12, function(){
+          var day = A.generateFocusedDay(foci, 0);
+          if(!day) return;
+          foci.forEach(function(f){
+            var pool = A.focusedPoolFor(f, null);
+            if(pool.length < A.FOCUSED_MIN_PER_FOCUS) return; // no hay con qué
+            var enDia = names(day).filter(function(n){
+              return A.FOCUSED_LEG_FOCI[f] ? A.exerciseLegFocus(n)===A.FOCUSED_LEG_FOCI[f]
+                                           : A.exercisePrimarySubgroup(n)===f;
+            }).length;
+            if(enDia < A.FOCUSED_MIN_PER_FOCUS) bad.push(foci.join("+") + " → " + f + ": " + enDia);
+          });
+        });
+      });
+      assert(bad.length===0, uniq(bad).join(" | "));
+    });
+
+    test("Bíceps + Tríceps aplica la forma 3/2/1", function(){
+      repeat(20, function(){
+        var day = A.generateFocusedDay(["biceps","triceps"], 0);
+        assert(day, "no generó");
+        assert(day.exercises.length===6, "total " + day.exercises.length);
+        var c = { triceps:0, biceps:0, antebrazo:0 };
+        names(day).forEach(function(n){ var sf = A.exerciseArmSubfocus(n); if(sf) c[sf]++; });
+        assert(c.triceps===3 && c.biceps===2 && c.antebrazo===1,
+          "dio " + c.triceps + "/" + c.biceps + "/" + c.antebrazo);
+      });
+    });
+
+    group("Rutina enfocada — selección");
+
+    test("no hay ejercicios duplicados dentro de un día", function(){
+      var bad = [];
+      COMBOS.forEach(function(foci){
+        repeat(12, function(){
+          var day = A.generateFocusedDay(foci, 0);
+          if(!day) return;
+          var ns = names(day);
+          if(uniq(ns).length !== ns.length) bad.push(foci.join("+"));
+        });
+      });
+      assert(bad.length===0, uniq(bad).join(" | "));
+    });
+
+    test("no se eligen ejercicios retirados", function(){
+      var bad = [];
+      COMBOS.forEach(function(foci){
+        repeat(12, function(){
+          var day = A.generateFocusedDay(foci, 0);
+          if(!day) return;
+          names(day).forEach(function(n){ if(A.isRetiredExercise(n)) bad.push(n); });
+        });
+      });
+      assert(bad.length===0, "retirados elegidos: " + uniq(bad).join(", "));
+    });
+
+    test("el PRINCIPAL de cada ejercicio cae dentro de los focos elegidos", function(){
+      var bad = [];
+      COMBOS.forEach(function(foci){
+        if(foci.length===2 && foci.indexOf("biceps")!==-1 && foci.indexOf("triceps")!==-1) return; // 3/2/1 suma antebrazo a propósito
+        repeat(12, function(){
+          var day = A.generateFocusedDay(foci, 0);
+          if(!day) return;
+          names(day).forEach(function(n){
+            var ok = foci.some(function(f){
+              return A.FOCUSED_LEG_FOCI[f] ? A.exerciseLegFocus(n)===A.FOCUSED_LEG_FOCI[f]
+                                           : A.exercisePrimarySubgroup(n)===f;
+            });
+            if(!ok) bad.push(foci.join("+") + " → " + n);
+          });
+        });
+      });
+      assert(bad.length===0, "fuera de foco: " + uniq(bad).slice(0,6).join(" | "));
+    });
+
+    test("un grupo fuera del foco nunca es protagonista", function(){
+      // Foco Cuádriceps: puede aparecer trabajo de glúteo como SECUNDARIO,
+      // pero ningún ejercicio puede tener glúteo como principal.
+      var bad = [];
+      repeat(20, function(){
+        var day = A.generateFocusedDay(["cuadriceps"], 0);
+        if(!day) return;
+        names(day).forEach(function(n){
+          if(A.exerciseLegFocus(n)!=="quads") bad.push(n);
+        });
+      });
+      assert(bad.length===0, "protagonistas ajenos: " + uniq(bad).join(", "));
+    });
+
+    test("diversidad de patrón: no repite patrón habiendo alternativas", function(){
+      var bad = [];
+      repeat(25, function(){
+        var day = A.generateFocusedDay(["cuadriceps","gluteos"], 0);
+        if(!day) return;
+        var ns = names(day);
+        var pats = ns.map(function(n){ return A.exercisePattern(n); });
+        var dup = pats.filter(function(p,i){ return pats.indexOf(p)!==i; });
+        // Se permite repetir patrón solo si ya se usaron todos los patrones
+        // disponibles de los focos elegidos.
+        var disponibles = uniq(A.focusedPoolFor("cuadriceps",null).concat(A.focusedPoolFor("gluteos",null))
+          .map(function(n){ return A.exercisePattern(n); }));
+        if(dup.length && uniq(pats).length < Math.min(disponibles.length, ns.length)){
+          bad.push(ns.join(" + ") + " [" + pats.join(",") + "]");
+        }
+      });
+      assert(bad.length===0, uniq(bad).slice(0,3).join(" | "));
+    });
+
+    test("el día enfocado se guarda con sus focos y NO es Día Especial", function(){
+      var day = A.generateFocusedDay(["pecho","triceps"], 2);
+      assert(day, "no generó");
+      assert(Array.isArray(day.focusedGroups) && day.focusedGroups.length===2, "focusedGroups");
+      assert(!day.isSpecial, "quedó marcado como especial");
+      assert(/^Día 3 —/.test(day.nombre), "nombre: " + day.nombre);
+    });
+
+    test("regenerar un día produce un día independiente (no toca a los demás)", function(){
+      var d1 = A.generateFocusedDay(["espalda","biceps"], 0);
+      var d2 = A.generateFocusedDay(["espalda","biceps"], 0);
+      assert(d1 && d2, "no generó");
+      assert(d1.id !== d2.id, "mismo id: regenerar pisaría el otro día");
+    });
+
+    /* ---------------- CALENDARIO / ORIGEN ---------------- */
+    group("Calendario y origen");
+
+    test("'enfocada' es un origen propio y no se confunde con 'automatica'", function(){
+      assert(A.calendarOriginFor({ routineOrigin:"enfocada" })==="enfocada");
+      assert(A.calendarOriginFor({ routineOrigin:"automatica" })==="automatica");
+      assert(A.calendarOriginFor({ routineOrigin:"personalizada" })==="personalizada");
+    });
+
+    test("el calendario distingue los cuatro orígenes + manual + desconocido", function(){
+      var L = A.CALENDAR_ORIGIN_LABELS;
+      ["personalizada","automatica","enfocada","especial","manual","unknown"].forEach(function(k){
+        assert(!!L[k], "falta etiqueta para " + k);
+      });
+      assert(L.enfocada !== L.automatica, "misma etiqueta que automática");
+    });
+
+    test("un entreno enfocado NO es especial (suma a meta semanal y racha)", function(){
+      var e = { routineOrigin:"enfocada", isSpecial:false };
+      assert(A.calendarOriginFor(e)==="enfocada");
+      // El Día Especial es el único que no suma; la enfocada es un entreno normal.
+      assert(A.calendarOriginFor({ isSpecial:true })==="especial");
+    });
+
+    test("Día Especial conserva su comportamiento", function(){
+      assert(A.calendarOriginFor({ isSpecial:true, routineOrigin:"enfocada" })==="especial",
+        "isSpecial debe ganar");
+    });
+
+    test("'enfocada' es un slot de rutina, no un origen suelto", function(){
+      assert(A.RUTINA_SLOTS.indexOf("enfocada")!==-1, "no está en RUTINA_SLOTS");
+      assert(A.RUTINA_SLOTS.length===3, "slots: " + A.RUTINA_SLOTS.join(","));
+      assert(A.RUTINA_SLOTS.indexOf("especial")===-1, "especial no debe vivir en rutinaSlots");
+    });
+
+    /* ---------------- REGRESIÓN ---------------- */
+    group("Regresión");
+
+    test("la rutina automática sigue generando 1 a 6 días para ambos sexos", function(){
+      var bad = [];
+      ["Masculino","Femenino"].forEach(function(sexo){
+        for(var d=1; d<=6; d++){
+          var plan = A.generateAutoRoutine(d, sexo, []);
+          if(!plan || plan.length!==d) bad.push(sexo + " " + d + " días → " + (plan?plan.length:"null"));
+        }
+      });
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("la rutina automática no repite ejercicios dentro de un día", function(){
+      var bad = [];
+      ["Masculino","Femenino"].forEach(function(sexo){
+        for(var d=1; d<=6; d++){
+          var plan = A.generateAutoRoutine(d, sexo, []) || [];
+          plan.forEach(function(day){
+            var ns = names(day);
+            if(uniq(ns).length!==ns.length) bad.push(sexo + " d" + d + ": " + ns.join(", "));
+          });
+        }
+      });
+      assert(bad.length===0, uniq(bad).slice(0,3).join(" | "));
+    });
+
+    test("la rutina automática nunca ofrece un ejercicio retirado", function(){
+      var bad = [];
+      ["Masculino","Femenino"].forEach(function(sexo){
+        for(var d=1; d<=6; d++){
+          (A.generateAutoRoutine(d, sexo, [])||[]).forEach(function(day){
+            names(day).forEach(function(n){ if(A.isRetiredExercise(n)) bad.push(n); });
+          });
+        }
+      });
+      assert(bad.length===0, "retirados: " + uniq(bad).join(", "));
+    });
+
+    test("la rutina automática funciona a 25, 45 y 55 años", function(){
+      var st = A.state, prev = st.profile ? st.profile.edad : null;
+      if(!st.profile) st.profile = { edad:null };
+      var bad = [];
+      [25,45,55].forEach(function(edad){
+        st.profile.edad = edad;
+        ["Masculino","Femenino"].forEach(function(sexo){
+          for(var d=1; d<=6; d++){
+            var plan = A.generateAutoRoutine(d, sexo, []);
+            if(!plan || plan.length!==d) bad.push(edad + "/" + sexo + "/" + d);
+          }
+        });
+      });
+      st.profile.edad = prev;
+      assert(bad.length===0, bad.join(", "));
+    });
+
+    test("Día Especial sigue generando y sigue marcado como especial", function(){
+      var day = A.generateSpecialDay(["pecho","triceps"], null);
+      assert(day && day.isSpecial===true, "no es especial");
+      assert(day.exercises.length>0, "sin ejercicios");
+    });
+
+    test("Full Body sigue funcionando (variantes A y B)", function(){
+      ["A","B"].forEach(function(k){
+        var day = A.generateSpecialDay([], k);
+        assert(day && day.exercises.length>0, "variante " + k + " vacía");
+        assert(day.isSpecial===true, "variante " + k + " no es especial");
+      });
+    });
+
+    test("seriesForExercise sigue respondiendo con los nombres nuevos", function(){
+      assert(parseInt(A.seriesForExercise("Sentadilla con barra", 25),10) > 0);
+      assert(parseInt(A.seriesForExercise("Extensión de piernas", 55),10) > 0);
+    });
+
+    test("restRangeForAge y seriesForAge no cambiaron", function(){
+      assert(A.restRangeForAge(55).join("-")==="120-180", "50+");
+      assert(A.restRangeForAge(30).join("-")==="60-90", "<50");
+      assert(A.seriesForAge(25)===4 && A.seriesForAge(35)===3, "series por edad");
+    });
+
+    group("Explorador — sub-filtros de Brazos");
+
+    test("Brazos → Todos = 18", function(){
+      var n = A.explorerNamesFor("Brazos", null).length;
+      assert(n===18, "dio " + n);
+    });
+
+    test("Brazos → Bíceps = 9", function(){
+      var n = A.explorerNamesFor("Brazos", "biceps").length;
+      assert(n===9, "dio " + n + ": " + A.explorerNamesFor("Brazos","biceps").join(", "));
+    });
+
+    test("Brazos → Tríceps = 7", function(){
+      var n = A.explorerNamesFor("Brazos", "triceps").length;
+      assert(n===7, "dio " + n + ": " + A.explorerNamesFor("Brazos","triceps").join(", "));
+    });
+
+    test("Brazos → Antebrazo = 2 (solo los curls de muñeca)", function(){
+      var l = A.explorerNamesFor("Brazos", "antebrazo").slice().sort();
+      assert(l.length===2, "dio " + l.length + ": " + l.join(", "));
+      assert(l.join(" | ")==="Curl de muñeca | Curl de muñeca inverso", "contenido: " + l.join(", "));
+    });
+
+    test("la suma de los tres subgrupos es 18 (= Todos)", function(){
+      var b=A.explorerNamesFor("Brazos","biceps").length,
+          t=A.explorerNamesFor("Brazos","triceps").length,
+          a=A.explorerNamesFor("Brazos","antebrazo").length,
+          todos=A.explorerNamesFor("Brazos",null).length;
+      assert(b+t+a===todos, b + "+" + t + "+" + a + " = " + (b+t+a) + " ≠ " + todos);
+      assert(b+t+a===18, "suma " + (b+t+a));
+    });
+
+    test("ningún ejercicio aparece en más de un subgrupo de Brazos", function(){
+      var subs = ["biceps","triceps","antebrazo"];
+      var visto = {}, repetidos = [];
+      subs.forEach(function(s){
+        A.explorerNamesFor("Brazos", s).forEach(function(n){
+          if(visto[n]) repetidos.push(n + " (" + visto[n] + " y " + s + ")");
+          visto[n] = s;
+        });
+      });
+      assert(repetidos.length===0, "mezclados: " + repetidos.join(" | "));
+    });
+
+    test("cada subgrupo contiene solo ejercicios de ese subgrupo", function(){
+      var bad = [];
+      ["biceps","triceps","antebrazo"].forEach(function(s){
+        A.explorerNamesFor("Brazos", s).forEach(function(n){
+          if(A.exercisePrimarySubgroup(n)!==s) bad.push(n + " está en " + s + " pero es " + A.exercisePrimarySubgroup(n));
+        });
+      });
+      assert(bad.length===0, bad.join(" | "));
+    });
+
+    test("todo ejercicio de Brazos cae en exactamente uno de los tres subgrupos", function(){
+      var huerfanos = A.explorerNamesFor("Brazos", null).filter(function(n){
+        return ["biceps","triceps","antebrazo"].indexOf(A.exercisePrimarySubgroup(n))===-1;
+      });
+      assert(huerfanos.length===0, "sin subgrupo: " + huerfanos.join(", "));
+    });
+
+    test("el sub-filtro de Brazos ofrece Todos + los tres subgrupos", function(){
+      var f = A.EXPLORER_SUBFILTERS["Brazos"];
+      assert(!!f, "Brazos no tiene sub-filtro");
+      assert(f.options.length===3, "opciones: " + f.options.length);
+      var keys = f.options.map(function(o){ return o[0]; }).sort().join(",");
+      assert(keys==="antebrazo,biceps,triceps", "claves: " + keys);
+      var labels = f.options.map(function(o){ return o[1]; }).join(",");
+      assert(labels==="Bíceps,Tríceps,Antebrazo", "etiquetas: " + labels);
+    });
+
+    test("Brazos sigue siendo UN grupo visual (no se creó un séptimo)", function(){
+      assert(A.MUSCLE_GROUPS.length===6, "grupos: " + A.MUSCLE_GROUPS.join(","));
+      assert(A.MUSCLE_GROUPS.indexOf("Brazos")!==-1, "falta Brazos");
+      ["Bíceps","Tríceps","Antebrazo"].forEach(function(g){
+        assert(A.MUSCLE_GROUPS.indexOf(g)===-1, g + " quedó como grupo principal");
+      });
+    });
+
+    test("el sub-filtro reutiliza el mecanismo existente (Piernas intacto)", function(){
+      var p = A.EXPLORER_SUBFILTERS["Piernas"];
+      assert(!!p, "Piernas perdió su sub-filtro");
+      assert(p.options.length===5, "opciones de Piernas: " + p.options.length);
+      // Los conteos de Piernas no cambiaron con esta modificación.
+      var esperado = { quads:7, glutes:12, hamstrings:4, calves:4, adductors:1 };
+      var bad = [];
+      Object.keys(esperado).forEach(function(k){
+        var n = A.explorerNamesFor("Piernas", k).length;
+        if(n!==esperado[k]) bad.push(k + ": " + n + " ≠ " + esperado[k]);
+      });
+      assert(bad.length===0, bad.join(" | "));
+      assert(A.explorerNamesFor("Piernas",null).length===28, "Piernas Todos: " + A.explorerNamesFor("Piernas",null).length);
+    });
+
+    test("los grupos sin sub-filtro no se ven afectados", function(){
+      ["Pecho","Espalda","Hombros","Core"].forEach(function(g){
+        assert(!A.EXPLORER_SUBFILTERS[g], g + " ganó un sub-filtro que no pidió");
+        // Sin sub-filtro, pedir un sub cualquiera devuelve la lista completa.
+        var todos = A.explorerNamesFor(g, null).length;
+        assert(A.explorerNamesFor(g, "biceps").length===todos, g + " se filtró indebidamente");
+      });
+    });
+
+    test("la pantalla del Explorador renderiza los chips de Brazos", function(){
+      var prevG = A.state.explorerGroup, prevS = A.state.explorerSub;
+      A.state.explorerSub = null;
+      var html = A.screenExplorerList("Brazos");
+      assert(/data-sub=""/.test(html), "falta el chip Todos");
+      ["biceps","triceps","antebrazo"].forEach(function(s){
+        assert(html.indexOf('data-sub="'+s+'"')!==-1, "falta el chip " + s);
+      });
+      assert(/Todos \(18\)/.test(html), "conteo de Todos incorrecto");
+      assert(/Bíceps \(9\)/.test(html), "conteo de Bíceps incorrecto");
+      assert(/Tríceps \(7\)/.test(html), "conteo de Tríceps incorrecto");
+      assert(/Antebrazo \(2\)/.test(html), "conteo de Antebrazo incorrecto");
+      A.state.explorerGroup = prevG; A.state.explorerSub = prevS;
+    });
+
+    test("al seleccionar un subgrupo la pantalla muestra solo ese subgrupo", function(){
+      var prevG = A.state.explorerGroup, prevS = A.state.explorerSub;
+      A.state.explorerSub = "antebrazo";
+      var html = A.screenExplorerList("Brazos");
+      assert(/Brazos · Antebrazo/.test(html), "falta el título del subgrupo");
+      assert(/2 ejercicios/.test(html), "no muestra 2 ejercicios");
+      assert(html.indexOf("Curl de muñeca")!==-1, "falta Curl de muñeca");
+      assert(html.indexOf("Curl martillo")===-1, "se coló un ejercicio de bíceps");
+      assert(html.indexOf("Press francés")===-1, "se coló un ejercicio de tríceps");
+      A.state.explorerGroup = prevG; A.state.explorerSub = prevS;
+    });
+
+    test("un sub-filtro de otro grupo no se arrastra al cambiar de grupo", function(){
+      var prevG = A.state.explorerGroup, prevS = A.state.explorerSub;
+      // Sub de Piernas activo, pero el usuario entra a Brazos.
+      A.state.explorerSub = "quads";
+      var html = A.screenExplorerList("Brazos");
+      assert(/18 ejercicios/.test(html), "Brazos no cayó de vuelta a Todos");
+      assert(!/Brazos · /.test(html), "quedó un subtítulo de otro grupo");
+      A.state.explorerGroup = prevG; A.state.explorerSub = prevS;
+    });
+
+    test("el explorador expone los 6 grupos visuales de siempre", function(){
+      assert(A.MUSCLE_GROUPS.length===6, "grupos: " + A.MUSCLE_GROUPS.join(","));
+      var pools = A.muscleGroupPools();
+      A.MUSCLE_GROUPS.forEach(function(g){
+        assert((pools[g]||[]).length>0, "grupo vacío: " + g);
+      });
+    });
+
+    test("el PDF sigue construyéndose con la rutina activa", function(){
+      assert(typeof A.buildRoutinePdfData === "function", "no existe buildRoutinePdfData");
+    });
+
+    finish();
+  }
+
+  var frame = document.getElementById("app");
+  var tries = 0;
+  function waitForApp(){
+    var A = null;
+    try{ A = frame.contentWindow && frame.contentWindow.__appTest; }catch(e){
+      summary.className = "fail";
+      summary.textContent = "No se puede acceder al iframe. Abrí esta página con un servidor estático (http://), no con file://.";
+      return;
+    }
+    if(A){ summary.textContent = "Corriendo validaciones…"; setTimeout(function(){ run(A); }, 0); return; }
+    if(++tries > 120){
+      summary.className = "fail";
+      summary.textContent = "La app no expuso window.__appTest después de 12s.";
+      return;
+    }
+    setTimeout(waitForApp, 100);
+  }
+  frame.addEventListener("load", waitForApp);
+  waitForApp();
+})();
+</script>
+</body>
+</html>
