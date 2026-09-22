@@ -33,6 +33,11 @@
     --success-soft:#DCF3E6;
     --danger:#C13B3B;
     --danger-soft:#FBE0DF;
+    --calendar-special:#7559B8;
+    --calendar-special-soft:#E8E0F7;
+    --calendar-manual:#827B72;
+    --calendar-manual-soft:#E7E4E0;
+    --calendar-unknown:#A49C91;
     --shadow: 0 1px 2px rgba(20,15,10,.06), 0 6px 16px -8px rgba(20,15,10,.15);
     --radius-s: 10px;
     --radius-m: 16px;
@@ -57,6 +62,11 @@
       --success-soft:#173425;
       --danger:#FF8A80;
       --danger-soft:#3A1F1E;
+      --calendar-special:#B9A1FF;
+      --calendar-special-soft:#30284A;
+      --calendar-manual:#A9A198;
+      --calendar-manual-soft:#302C27;
+      --calendar-unknown:#81796F;
       --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.5);
       color-scheme: dark;
     }
@@ -78,6 +88,11 @@
     --success-soft:#173425;
     --danger:#FF8A80;
     --danger-soft:#3A1F1E;
+    --calendar-special:#B9A1FF;
+    --calendar-special-soft:#30284A;
+    --calendar-manual:#A9A198;
+    --calendar-manual-soft:#302C27;
+    --calendar-unknown:#81796F;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.5);
     color-scheme: dark;
   }
@@ -474,12 +489,35 @@
   .cal-cell{
     aspect-ratio:1.2; display:flex; align-items:center; justify-content:center;
     border-radius:9px; font-size:13px; color:var(--text-muted); font-weight:600;
-    min-width:0; min-height:0; width:100%;
+    min-width:0; min-height:0; width:100%; position:relative; overflow:hidden;
   }
   .cal-cell.empty{ visibility:hidden; }
-  .cal-cell.today{ box-shadow: inset 0 0 0 1.5px var(--accent); color:var(--text); }
-  .cal-cell.done{ background:var(--success-soft); color:var(--success); cursor:pointer; }
+  .cal-cell.today{ color:var(--text); }
+  .cal-cell.done{ background:var(--surface-2); color:var(--text); cursor:pointer; }
+  .cal-cell.cal-origin-personalizada{ background:var(--accent); color:var(--accent-on); }
+  .cal-cell.cal-origin-automatica{ background:var(--accent-soft); color:var(--accent-strong); }
+  .cal-cell.cal-origin-especial{ background:var(--calendar-special-soft); color:var(--calendar-special); }
+  .cal-cell.cal-origin-manual{ background:var(--calendar-manual-soft); color:var(--calendar-manual); }
+  .cal-cell.cal-origin-unknown{ background:var(--surface); color:var(--text-muted); box-shadow:inset 0 0 0 1px var(--calendar-unknown); }
+  .cal-cell.cal-origin-mixed{ background:var(--surface); color:var(--text); box-shadow:inset 0 0 0 1px var(--border); }
+  .cal-cell.today{ box-shadow:inset 0 0 0 1.5px var(--accent); }
   .cal-cell.done:active{ transform:scale(.92); }
+  .cal-origin-bars{ position:absolute; left:4px; right:4px; bottom:4px; height:3px; display:flex; gap:2px; }
+  .cal-origin-bar{ flex:1 1 0; min-width:0; border-radius:999px; }
+  .cal-origin-bar.personalizada,.cal-legend-dot.personalizada{ background:var(--accent); }
+  .cal-origin-bar.automatica,.cal-legend-dot.automatica{ background:#E79A5A; }
+  .cal-origin-bar.especial,.cal-legend-dot.especial{ background:var(--calendar-special); }
+  .cal-origin-bar.manual,.cal-legend-dot.manual{ background:var(--calendar-manual); }
+  .cal-origin-bar.unknown,.cal-legend-dot.unknown{ background:var(--calendar-unknown); }
+  .cal-legend{ display:flex; flex-wrap:wrap; gap:5px 10px; font-size:11px; color:var(--text-muted); line-height:1.2; }
+  .cal-legend-item{ display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+  .cal-legend-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .calendar-origin-label{ display:inline-flex; align-items:center; gap:4px; font-weight:600; }
+  .calendar-origin-label::before{ content:""; width:7px; height:7px; border-radius:50%; background:var(--calendar-unknown); }
+  .calendar-origin-label.personalizada::before{ background:var(--accent); }
+  .calendar-origin-label.automatica::before{ background:#E79A5A; }
+  .calendar-origin-label.especial::before{ background:var(--calendar-special); }
+  .calendar-origin-label.manual::before{ background:var(--calendar-manual); }
 
   /* Explorador por grupo muscular */
   .grouptile{
@@ -2101,7 +2139,7 @@
     }
 
     function rowToEntreno(r){
-      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual, isSpecial: !!r.is_special };
+      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual, isSpecial: !!r.is_special, routineOrigin: r.routine_origin||null };
     }
 
     // V28: `is_manual` distingue un entrenamiento cerrado desde "Finalizar"
@@ -2115,6 +2153,10 @@
       // true — así los entrenamientos normales y los marcados a mano siguen
       // funcionando igual aunque la migración v29 todavía no se haya corrido.
       if(data.isSpecial) row.is_special = true;
+      // V30: el origen se toma de la sesión que se inició, no de la rutina
+      // actualmente seleccionada. Los registros históricos y los marcados a
+      // mano no mandan este campo y quedan como NULL en la base.
+      if(data.routineOrigin) row.routine_origin = data.routineOrigin;
       const { error } = await client().from("entrenos").insert(row);
       // V29.2: devuelve también el error REAL de Supabase (antes solo un
       // booleano, y finalizeSession mostraba un mensaje genérico que
@@ -3983,6 +4025,34 @@
 
   const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
+  // V30: el origen visual se deriva solo de datos persistidos en `entrenos`.
+  // Una fila normal histórica sin routine_origin queda explícitamente como
+  // desconocida; nunca se infiere desde day_id, day_nombre ni la rutina actual.
+  const CALENDAR_ORIGIN_LABELS = {
+    personalizada:"Mi rutina", automatica:"Rutina automática", especial:"Día Especial",
+    manual:"Marcado manual", unknown:"Origen desconocido",
+  };
+  function calendarOriginFor(entreno){
+    if(entreno.isManual) return "manual";
+    if(entreno.isSpecial || entreno.routineOrigin==="especial") return "especial";
+    if(entreno.routineOrigin==="personalizada") return "personalizada";
+    if(entreno.routineOrigin==="automatica") return "automatica";
+    return "unknown";
+  }
+  function calendarOriginsFor(entrenos){
+    return Array.from(new Set((entrenos||[]).map(calendarOriginFor)));
+  }
+  function calendarOriginLabelHtml(origin){
+    return `<span class="calendar-origin-label ${origin}">${CALENDAR_ORIGIN_LABELS[origin]||CALENDAR_ORIGIN_LABELS.unknown}</span>`;
+  }
+  function calendarOriginBarsHtml(origins){
+    return `<span class="cal-origin-bars" aria-hidden="true">${origins.map(origin=>`<span class="cal-origin-bar ${origin}"></span>`).join("")}</span>`;
+  }
+  function calendarLegendHtml(){
+    const origins = ["personalizada","automatica","especial","manual","unknown"];
+    return `<div class="cal-legend" aria-label="Leyenda de origen del entrenamiento">${origins.map(origin=>`<span class="cal-legend-item"><span class="cal-legend-dot ${origin}"></span>${CALENDAR_ORIGIN_LABELS[origin]}</span>`).join("")}</div>`;
+  }
+
   function screenCalendario(){
     const { y, m } = currentCalMonth();
     const doneByDate = {};
@@ -3997,13 +4067,15 @@
       const dateStr = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
       const done = doneByDate[dateStr];
       const isToday = dateStr===todayS;
+      const origins = done ? calendarOriginsFor(done) : [];
+      const originClass = origins.length===1 ? `cal-origin-${origins[0]}` : (origins.length>1 ? "cal-origin-mixed" : "");
       // V28: antes solo los días ya marcados eran clickeables. Ahora CUALQUIER
       // día de hoy hacia atrás es clickeable — si está vacío, tocarlo ofrece
       // "marcar como entrenado" (openMarkTrainedModal); si ya tiene registros,
       // muestra el detalle de siempre. Los días futuros quedan sin marcar
       // (no tiene sentido registrar un entrenamiento que todavía no pasó).
       const clickable = !!done || dateStr<=todayS;
-      cells.push(`<div class="cal-cell ${done?"done":""} ${isToday?"today":""}" ${clickable?`data-cal-day="${dateStr}"`:""}>${d}</div>`);
+      cells.push(`<div class="cal-cell ${done?"done":""} ${originClass} ${isToday?"today":""}" ${clickable?`data-cal-day="${dateStr}"`:""}>${d}${origins.length?calendarOriginBarsHtml(origins):""}</div>`);
     }
     const monthCount = Object.keys(doneByDate).filter(k=>k.startsWith(`${y}-${String(m+1).padStart(2,"0")}`)).length;
     return `
@@ -4018,6 +4090,7 @@
           ${["L","M","X","J","V","S","D"].map(w=>`<div class="cal-weekday">${w}</div>`).join("")}
           ${cells.join("")}
         </div>
+        ${calendarLegendHtml()}
         <p class="helptext">${monthCount} entrenamiento${monthCount===1?"":"s"} este mes. Tocá un día para ver el detalle o marcarlo como entrenado.</p>
       </div>
     `;
@@ -4050,8 +4123,7 @@
           <div class="logrow">
             <div>
               <div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div>
-              ${e.isManual ? `<div class="ldate">Marcado manualmente</div>` : ""}
-              ${e.isSpecial ? `<div class="ldate"><span class="special-badge">Día Especial</span> no suma al objetivo semanal</div>` : ""}
+              <div class="ldate">${calendarOriginLabelHtml(calendarOriginFor(e))}${calendarOriginFor(e)==="especial" ? " · no suma al objetivo semanal" : ""}</div>
             </div>
             <div class="row" style="gap:8px; align-items:center">
               ${e.isManual
@@ -4595,7 +4667,10 @@
     // V29: un Día Especial se registra como cualquier entrenamiento (mismo
     // Store.addEntreno, misma tabla), marcado con isSpecial → is_special.
     const isSpecial = !!(state.session && state.session.slot==="especial");
-    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now(), isSpecial };
+    // V30: slot se fija al iniciar/recuperar la sesión, por lo que conserva
+    // el origen real incluso si después cambia la rutina activa.
+    const routineOrigin = state.session && state.session.slot;
+    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now(), isSpecial, routineOrigin };
     const saved = await Store.addEntreno(state.profile.id, data);
     // Si la base rechaza el registro, NO se borra la sesión y se muestra el
     // error EXACTO que devolvió Supabase (V29.2). Causa conocida: si la
@@ -4607,10 +4682,12 @@
       const err = (saved && saved.error) || {};
       console.error("finalizeSession: Supabase rechazó el insert en entrenos", err, data);
       const missingSpecialCol = /is_special/.test(err.message||"") && (err.code==="PGRST204" || err.code==="42703");
+      const missingRoutineOriginCol = /routine_origin/.test(err.message||"") && (err.code==="PGRST204" || err.code==="42703");
       const m = openModal(`
         <h3>No se pudo registrar el entrenamiento</h3>
         <p class="helptext" style="font-size:14px; color:var(--text)">Tu sesión sigue guardada — no se perdió nada.</p>
         ${missingSpecialCol ? `<p class="helptext" style="font-size:14px; color:var(--text)">La base de datos todavía no tiene la columna <b>is_special</b> en la tabla <b>entrenos</b>: hay que correr <b>supabase-migration-v29.sql</b> en Supabase (SQL Editor). Después, volvé a tocar "Finalizar".</p>` : ""}
+        ${missingRoutineOriginCol ? `<p class="helptext" style="font-size:14px; color:var(--text)">La base de datos todavía no tiene la columna <b>routine_origin</b> en la tabla <b>entrenos</b>: hay que correr <b>supabase-migration-v30.sql</b> en Supabase (SQL Editor). Después, volvé a tocar "Finalizar".</p>` : ""}
         <p class="helptext">Error de Supabase${err.code?` (${esc(String(err.code))})`:""}: ${esc(err.message || "sin detalle")}</p>
         <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Entendido</button></div>
       `);
@@ -5569,6 +5646,8 @@
     openExerciseDetail,
     // v28
     exerciseWeeklyMax, sessionProgress, sessionDay, reorderDayExercisesByGroup,
+    // v30
+    calendarOriginFor, calendarOriginsFor,
   };
 
 })();
