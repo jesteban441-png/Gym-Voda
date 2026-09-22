@@ -500,12 +500,12 @@
   .cal-cell.cal-origin-manual{ background:var(--calendar-manual-soft); color:var(--calendar-manual); }
   .cal-cell.cal-origin-unknown{ background:var(--surface); color:var(--text-muted); box-shadow:inset 0 0 0 1px var(--calendar-unknown); }
   .cal-cell.cal-origin-mixed{ background:var(--surface); color:var(--text); box-shadow:inset 0 0 0 1px var(--border); }
-  .cal-cell.today{ box-shadow:inset 0 0 0 1.5px var(--accent); }
+  .cal-cell.today::after{ content:""; position:absolute; inset:1px; border:1.5px solid var(--accent); border-radius:8px; pointer-events:none; }
   .cal-cell.done:active{ transform:scale(.92); }
   .cal-origin-bars{ position:absolute; left:4px; right:4px; bottom:4px; height:3px; display:flex; gap:2px; }
   .cal-origin-bar{ flex:1 1 0; min-width:0; border-radius:999px; }
   .cal-origin-bar.personalizada,.cal-legend-dot.personalizada{ background:var(--accent); }
-  .cal-origin-bar.automatica,.cal-legend-dot.automatica{ background:#E79A5A; }
+  .cal-origin-bar.automatica,.cal-legend-dot.automatica{ background:var(--accent-strong); }
   .cal-origin-bar.especial,.cal-legend-dot.especial{ background:var(--calendar-special); }
   .cal-origin-bar.manual,.cal-legend-dot.manual{ background:var(--calendar-manual); }
   .cal-origin-bar.unknown,.cal-legend-dot.unknown{ background:var(--calendar-unknown); }
@@ -515,7 +515,7 @@
   .calendar-origin-label{ display:inline-flex; align-items:center; gap:4px; font-weight:600; }
   .calendar-origin-label::before{ content:""; width:7px; height:7px; border-radius:50%; background:var(--calendar-unknown); }
   .calendar-origin-label.personalizada::before{ background:var(--accent); }
-  .calendar-origin-label.automatica::before{ background:#E79A5A; }
+  .calendar-origin-label.automatica::before{ background:var(--accent-strong); }
   .calendar-origin-label.especial::before{ background:var(--calendar-special); }
   .calendar-origin-label.manual::before{ background:var(--calendar-manual); }
 
