@@ -33,6 +33,11 @@
     --success-soft:#DCF3E6;
     --danger:#C13B3B;
     --danger-soft:#FBE0DF;
+    --calendar-special:#7559B8;
+    --calendar-special-soft:#E8E0F7;
+    --calendar-manual:#827B72;
+    --calendar-manual-soft:#E7E4E0;
+    --calendar-unknown:#A49C91;
     --shadow: 0 1px 2px rgba(20,15,10,.06), 0 6px 16px -8px rgba(20,15,10,.15);
     --radius-s: 10px;
     --radius-m: 16px;
@@ -57,6 +62,11 @@
       --success-soft:#173425;
       --danger:#FF8A80;
       --danger-soft:#3A1F1E;
+      --calendar-special:#B9A1FF;
+      --calendar-special-soft:#30284A;
+      --calendar-manual:#A9A198;
+      --calendar-manual-soft:#302C27;
+      --calendar-unknown:#81796F;
       --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.5);
       color-scheme: dark;
     }
@@ -78,6 +88,11 @@
     --success-soft:#173425;
     --danger:#FF8A80;
     --danger-soft:#3A1F1E;
+    --calendar-special:#B9A1FF;
+    --calendar-special-soft:#30284A;
+    --calendar-manual:#A9A198;
+    --calendar-manual-soft:#302C27;
+    --calendar-unknown:#81796F;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 24px -12px rgba(0,0,0,.5);
     color-scheme: dark;
   }
@@ -474,12 +489,35 @@
   .cal-cell{
     aspect-ratio:1.2; display:flex; align-items:center; justify-content:center;
     border-radius:9px; font-size:13px; color:var(--text-muted); font-weight:600;
-    min-width:0; min-height:0; width:100%;
+    min-width:0; min-height:0; width:100%; position:relative; overflow:hidden;
   }
   .cal-cell.empty{ visibility:hidden; }
-  .cal-cell.today{ box-shadow: inset 0 0 0 1.5px var(--accent); color:var(--text); }
-  .cal-cell.done{ background:var(--success-soft); color:var(--success); cursor:pointer; }
+  .cal-cell.today{ color:var(--text); }
+  .cal-cell.done{ background:var(--surface-2); color:var(--text); cursor:pointer; }
+  .cal-cell.cal-origin-personalizada{ background:var(--accent); color:var(--accent-on); }
+  .cal-cell.cal-origin-automatica{ background:var(--accent-soft); color:var(--accent-strong); }
+  .cal-cell.cal-origin-especial{ background:var(--calendar-special-soft); color:var(--calendar-special); }
+  .cal-cell.cal-origin-manual{ background:var(--calendar-manual-soft); color:var(--calendar-manual); }
+  .cal-cell.cal-origin-unknown{ background:var(--surface); color:var(--text-muted); box-shadow:inset 0 0 0 1px var(--calendar-unknown); }
+  .cal-cell.cal-origin-mixed{ background:var(--surface); color:var(--text); box-shadow:inset 0 0 0 1px var(--border); }
+  .cal-cell.today::after{ content:""; position:absolute; inset:1px; border:1.5px solid var(--accent); border-radius:8px; pointer-events:none; }
   .cal-cell.done:active{ transform:scale(.92); }
+  .cal-origin-bars{ position:absolute; left:4px; right:4px; bottom:4px; height:3px; display:flex; gap:2px; }
+  .cal-origin-bar{ flex:1 1 0; min-width:0; border-radius:999px; }
+  .cal-origin-bar.personalizada,.cal-legend-dot.personalizada{ background:var(--accent); }
+  .cal-origin-bar.automatica,.cal-legend-dot.automatica{ background:var(--accent-strong); }
+  .cal-origin-bar.especial,.cal-legend-dot.especial{ background:var(--calendar-special); }
+  .cal-origin-bar.manual,.cal-legend-dot.manual{ background:var(--calendar-manual); }
+  .cal-origin-bar.unknown,.cal-legend-dot.unknown{ background:var(--calendar-unknown); }
+  .cal-legend{ display:flex; flex-wrap:wrap; gap:5px 10px; font-size:11px; color:var(--text-muted); line-height:1.2; }
+  .cal-legend-item{ display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+  .cal-legend-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .calendar-origin-label{ display:inline-flex; align-items:center; gap:4px; font-weight:600; }
+  .calendar-origin-label::before{ content:""; width:7px; height:7px; border-radius:50%; background:var(--calendar-unknown); }
+  .calendar-origin-label.personalizada::before{ background:var(--accent); }
+  .calendar-origin-label.automatica::before{ background:var(--accent-strong); }
+  .calendar-origin-label.especial::before{ background:var(--calendar-special); }
+  .calendar-origin-label.manual::before{ background:var(--calendar-manual); }
 
   /* Explorador por grupo muscular */
   .grouptile{
@@ -553,17 +591,16 @@
   /* ---------- Base de ejercicios comunes (para autocompletar) ---------- */
   const EXERCISES = [
     // Pecho
-    "Press banca plano","Press banca inclinado","Press banca declinado",
-    "Press con mancuernas plano","Press con mancuernas inclinado","Press con mancuernas declinado",
-    "Aperturas con mancuernas","Cruce de poleas (aperturas en polea)","Pec deck (contractora)",
-    "Fondos en paralelas","Flexiones de brazos","Press en máquina Smith","Pullover con mancuerna",
-    "Fondos en paralelas con peso","Flexiones inclinadas (manos elevadas)","Press en el piso con barra",
-    "Press banca agarre ancho","Press con disco (plate press)","Around the world (mancuernas)","Flexiones con peso",
+    "Press de banca con barra","Flexiones de brazo","Press de banca inclinado con barra",
+    "Press de banca inclinado con mancuernas","Pec Fly","Aperturas de pecho con mancuernas en banco plano",
+    "Aperturas de pecho con mancuernas en banco inclinado","Press de pecho en polea","Fondos inclinado",
+    "Press de banca declinado","Press de banca plano en Smith","Press de banca inclinado en Smith",
+    "Press de banca declinado en Smith",
     // Espalda
     "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
     "Remo con barra","Remo con mancuerna","Remo en polea baja","Remo en máquina",
     "Remo en máquina agarre ancho","Remo en T",
-    "Peso muerto","Peso muerto rumano","Peso muerto sumo","Peso muerto con mancuerna","Hiperextensiones","Face pull",
+    "Peso muerto","Peso muerto rumano","Peso muerto sumo","Peso muerto con mancuerna","Hiperextensiones","Face pull","Pullover con mancuerna",
     // Piernas
     "Sentadilla","Sentadilla frontal","Sentadilla búlgara","Sentadilla sumo","Sentadilla hack",
     "Prensa de piernas","Extensión de cuádriceps","Curl femoral acostado","Curl femoral sentado",
@@ -603,26 +640,19 @@
   // [región, intensidad] para no hacer este bloque interminable.
   const MUSCLE_MAP = {
     // Pecho
-    "Press banca plano": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.35]] },
-    "Press banca inclinado": { diagram:"front-upper", t:[["chest-upper",1],["shoulder-front",0.4]] },
-    "Press banca declinado": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.25]] },
-    "Press con mancuernas plano": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.3]] },
-    "Press con mancuernas inclinado": { diagram:"front-upper", t:[["chest-upper",1],["shoulder-front",0.35]] },
-    "Press con mancuernas declinado": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.2]] },
-    "Aperturas con mancuernas": { diagram:"front-upper", t:[["chest-mid",1]] },
-    "Cruce de poleas (aperturas en polea)": { diagram:"front-upper", t:[["chest-mid",1]] },
-    "Pec deck (contractora)": { diagram:"front-upper", t:[["chest-mid",1]] },
-    "Fondos en paralelas": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.3]] },
-    "Flexiones de brazos": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.3]] },
-    "Press en máquina Smith": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.3]] },
-    "Pullover con mancuerna": { diagram:"front-upper", t:[["chest-upper",1],["chest-mid",0.3]] },
-    "Fondos en paralelas con peso": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.35]] },
-    "Flexiones inclinadas (manos elevadas)": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.3]] },
-    "Press en el piso con barra": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.25]] },
-    "Press banca agarre ancho": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.25]] },
-    "Press con disco (plate press)": { diagram:"front-upper", t:[["chest-mid",1]] },
-    "Around the world (mancuernas)": { diagram:"front-upper", t:[["chest-mid",1],["chest-upper",0.4]] },
-    "Flexiones con peso": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.35]] },
+    "Press de banca con barra": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.35]] },
+    "Flexiones de brazo": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.3]] },
+    "Press de banca inclinado con barra": { diagram:"front-upper", t:[["chest-upper",1],["shoulder-front",0.4]] },
+    "Press de banca inclinado con mancuernas": { diagram:"front-upper", t:[["chest-upper",1],["shoulder-front",0.35]] },
+    "Pec Fly": { diagram:"front-upper", t:[["chest-mid",1]] },
+    "Aperturas de pecho con mancuernas en banco plano": { diagram:"front-upper", t:[["chest-mid",1]] },
+    "Aperturas de pecho con mancuernas en banco inclinado": { diagram:"front-upper", t:[["chest-upper",1]] },
+    "Press de pecho en polea": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.25]] },
+    "Fondos inclinado": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.3]] },
+    "Press de banca declinado": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.25]] },
+    "Press de banca plano en Smith": { diagram:"front-upper", t:[["chest-mid",1],["shoulder-front",0.3]] },
+    "Press de banca inclinado en Smith": { diagram:"front-upper", t:[["chest-upper",1],["shoulder-front",0.35]] },
+    "Press de banca declinado en Smith": { diagram:"front-upper", t:[["chest-lower",1],["shoulder-front",0.25]] },
     // Espalda
     "Dominadas": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.4]] },
     "Dominadas supinas": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.3]] },
@@ -640,6 +670,7 @@
     "Peso muerto sumo": { diagram:"back-upper", t:[["lower-back",1],["lats",0.3]] },
     "Hiperextensiones": { diagram:"back-upper", t:[["lower-back",1]] },
     "Face pull": { diagram:"back-upper", t:[["shoulder-rear",1],["rhomboids",0.4],["traps",0.3]] },
+    "Pullover con mancuerna": { diagram:"back-upper", t:[["lats",1],["triceps-long",0.25]] },
     // Piernas
     "Sentadilla": { diagram:"front-leg", t:[["quads-front",1],["quads-outer",0.7],["quads-inner",0.6],["adductors",0.3]] },
     "Sentadilla frontal": { diagram:"front-leg", t:[["quads-front",1],["quads-inner",0.7],["quads-outer",0.5]] },
@@ -929,26 +960,16 @@
   // Consejos cortos de técnica por ejercicio — reemplaza el GIF (pospuesto por
   // costo) con algo igual de útil y sin infraestructura nueva.
   const EXERCISE_TIPS = {
-    "Press banca plano": ["Escápulas juntas y hacia abajo, pecho arriba.", "Bajá la barra a la altura del pecho medio, codos a ~45°.", "Empujá sin despegar los glúteos del banco."],
-    "Press banca inclinado": ["Banco a 30-45°, no más — si es muy vertical trabaja hombro.", "Bajá la barra hacia la parte alta del pecho.", "No rebotes la barra sobre el pecho."],
-    "Press banca declinado": ["Asegurá bien los pies en el soporte.", "Bajá la barra hacia la parte baja del pecho.", "Movimiento controlado, sin caída libre."],
-    "Press con mancuernas plano": ["Mancuernas alineadas con el pecho medio, no con la cara.", "Bajá hasta sentir estiramiento suave, sin forzar el hombro.", "Juntá las mancuernas arriba sin chocarlas de golpe."],
-    "Press con mancuernas inclinado": ["Banco 30-45°, codos ligeramente hacia adelante.", "Bajá controlado hasta la altura del pecho superior.", "Evitá arquear demasiado la espalda baja."],
-    "Press con mancuernas declinado": ["Sujetá bien el banco declinado, pies firmes.", "Recorrido corto y controlado hacia el pecho bajo.", "No uses demasiado peso al principio en esta variante."],
-    "Aperturas con mancuernas": ["Codos con una leve flexión fija durante todo el movimiento.", "Abrí como \"abrazando un árbol\", sin bajar de más.", "Contraé el pecho al juntar arriba, sin usar hombros."],
-    "Cruce de poleas (aperturas en polea)": ["Un pie adelantado, torso ligeramente inclinado.", "Cruzá las manos al frente contrayendo el pecho.", "Mantené los codos con flexión leve y constante."],
-    "Pec deck (contractora)": ["Espalda pegada al respaldo, no la despegues.", "Cerrá el movimiento apretando el pecho, no los brazos.", "Volvé despacio, sin dejar que las pesas tiren de golpe."],
-    "Fondos en paralelas": ["Inclinate hacia adelante para enfatizar pecho (más vertical = tríceps).", "Bajá hasta 90° en el codo, sin pasarte si te duele el hombro.", "Subí sin trabar los codos de golpe."],
-    "Flexiones de brazos": ["Cuerpo en línea recta, sin subir ni bajar la cadera.", "Manos un poco más anchas que los hombros.", "Bajá el pecho casi hasta tocar el piso."],
-    "Press en máquina Smith": ["Ubicá el banco para que la barra baje justo al pecho medio.", "Controlá la bajada, no dejes que la barra caiga sola.", "Codos a 45° respecto al torso, no totalmente abiertos."],
-    "Pullover con mancuerna": ["Apoyá solo la parte alta de la espalda en el banco.", "Bajá la mancuerna detrás de la cabeza con los brazos casi rectos.", "Sentí el estiramiento en el pecho/dorsal antes de volver."],
-    "Fondos en paralelas con peso": ["Colgá el disco o mancuerna del cinturón antes de subir a las paralelas.", "Empezá con poco peso agregado hasta dominar bien la técnica sin peso.", "Mismo recorrido que el fondo normal: 90° en el codo, sin pasarte si duele el hombro."],
-    "Flexiones inclinadas (manos elevadas)": ["Manos apoyadas en un banco o escalón, cuerpo en línea recta.", "Más fácil que la flexión en el piso — ideal para sumar volumen o entrar en calor.", "Bajá el pecho hasta casi tocar el borde del banco."],
-    "Press en el piso con barra": ["Acostate en el piso, rodillas flexionadas y pies apoyados.", "Bajá hasta que los tríceps toquen el piso, pausá un instante ahí.", "El recorrido es más corto que en banco — no fuerces bajar más de lo que el piso permite."],
-    "Press banca agarre ancho": ["Agarre bastante más ancho que el press normal, muñecas firmes.", "Bajá la barra al pecho con los codos más abiertos que en el agarre estándar.", "Si sentís molestia en el hombro, achicá un poco el agarre."],
-    "Press con disco (plate press)": ["Juntá dos discos livianos palma contra palma, a la altura del pecho.", "Apretá los discos entre sí durante todo el movimiento, no solo al final.", "Empujá hacia adelante sin separar las manos."],
-    "Around the world (mancuernas)": ["Mancuernas livianas, brazos casi extendidos durante todo el recorrido.", "Dibujá un arco amplio: de los costados hacia arriba y adelante, como abrazando una pelota grande.", "Movimiento lento y controlado — con mucho peso se pierde la técnica."],
-    "Flexiones con peso": ["Placa o disco apoyado en la espalda alta (o chaleco con peso).", "Misma técnica que la flexión normal: cuerpo recto, pecho casi al piso.", "Sumá peso de a poco, solo cuando la flexión normal ya te resulte fácil."],
+    "Press de banca con barra": ["Escápulas juntas y hacia abajo, pecho arriba.", "Bajá la barra a la altura del pecho medio, codos a ~45°.", "Empujá sin despegar los glúteos del banco."],
+    "Flexiones de brazo": ["Cuerpo en línea recta, sin subir ni bajar la cadera.", "Manos un poco más anchas que los hombros.", "Bajá el pecho casi hasta tocar el piso."],
+    "Press de banca inclinado con barra": ["Banco a 30-45°, no más — si es muy vertical trabaja hombro.", "Bajá la barra hacia la parte alta del pecho.", "No rebotes la barra sobre el pecho."],
+    "Press de banca inclinado con mancuernas": ["Banco 30-45°, codos ligeramente hacia adelante.", "Bajá controlado hasta la altura del pecho superior.", "Evitá arquear demasiado la espalda baja."],
+    "Pec Fly": ["Espalda pegada al respaldo, no la despegues.", "Cerrá el movimiento apretando el pecho, no los brazos.", "Volvé despacio, sin dejar que las pesas tiren de golpe."],
+    "Aperturas de pecho con mancuernas en banco plano": ["Codos con una leve flexión fija durante todo el movimiento.", "Abrí como \"abrazando un árbol\", sin bajar de más.", "Contraé el pecho al juntar arriba, sin usar hombros."],
+    "Fondos inclinado": ["Inclinate hacia adelante para enfatizar pecho (más vertical = tríceps).", "Bajá hasta 90° en el codo, sin pasarte si te duele el hombro.", "Subí sin trabar los codos de golpe."],
+    "Press de banca declinado": ["Asegurá bien los pies en el soporte.", "Bajá la barra hacia la parte baja del pecho.", "Movimiento controlado, sin caída libre."],
+    "Press de banca plano en Smith": ["Ubicá el banco para que la barra baje justo al pecho medio.", "Controlá la bajada, no dejes que la barra caiga sola.", "Codos a 45° respecto al torso, no totalmente abiertos."],
+    "Pullover con mancuerna": ["Apoyá solo la parte alta de la espalda en el banco.", "Bajá la mancuerna detrás de la cabeza con los brazos casi rectos.", "Sentí el estiramiento en el dorsal antes de volver."],
     "Dominadas": ["Arrancá desde brazos completamente extendidos (dead hang).", "Llevá el pecho hacia la barra, no solo la barbilla.", "Bajá controlado, no te dejes caer."],
     "Dominadas supinas": ["Agarre en supinación (palmas hacia vos), más angosto.", "Subí llevando el pecho a la barra.", "Bajá completo antes de la siguiente repetición."],
     "Jalón al pecho": ["Agarre un poco más ancho que los hombros.", "Llevá la barra hacia la parte alta del pecho, no la nuca.", "Sacá pecho y llevá los codos hacia abajo y atrás."],
@@ -1164,22 +1185,19 @@
   // la carpeta ejercicios/. Para sumar una nueva: guardar el archivo ahí y
   // agregar una línea acá con el nombre EXACTO del ejercicio (como en EXERCISES).
   const EXERCISE_IMAGES = {
-    "Press banca inclinado": "ejercicios/press-banca-inclinado.jpg",
+    "Press de banca inclinado con barra": "ejercicios/press-banca-inclinado.jpg",
     "Remo en máquina agarre ancho": "ejercicios/remo-agarre-ancho.jpg",
     "Elevación de talones en prensa": "ejercicios/elevacion-talones-prensa.jpg",
     "Curl con mancuernas banco inclinado": "ejercicios/curl-mancuernas-inclinado.jpg",
     "Extensión de tríceps en polea con barra": "ejercicios/extension-triceps-polea-barra.jpg",
-    "Press banca plano": "ejercicios/press-banca-plano.jpg",
-    "Press banca declinado": "ejercicios/press-banca-declinado.jpg",
-    "Press con mancuernas plano": "ejercicios/press-mancuernas-plano.jpg",
-    "Press con mancuernas declinado": "ejercicios/press-mancuernas-declinado.jpg",
-    "Press con mancuernas inclinado": "ejercicios/press-mancuernas-inclinado.jpg",
-    "Aperturas con mancuernas": "ejercicios/aperturas-mancuernas.jpg",
-    "Cruce de poleas (aperturas en polea)": "ejercicios/cruce-poleas.jpg",
-    "Pec deck (contractora)": "ejercicios/pec-deck.jpg",
-    "Fondos en paralelas": "ejercicios/fondos-paralelas.jpg",
-    "Flexiones de brazos": "ejercicios/flexiones-brazos.jpg",
-    "Press en máquina Smith": "ejercicios/press-maquina-smith.jpg",
+    "Press de banca con barra": "ejercicios/press-banca-plano.jpg",
+    "Press de banca declinado": "ejercicios/press-banca-declinado.jpg",
+    "Press de banca inclinado con mancuernas": "ejercicios/press-mancuernas-inclinado.jpg",
+    "Aperturas de pecho con mancuernas en banco plano": "ejercicios/aperturas-mancuernas.jpg",
+    "Pec Fly": "ejercicios/pec-deck.jpg",
+    "Fondos inclinado": "ejercicios/fondos-paralelas.jpg",
+    "Flexiones de brazo": "ejercicios/flexiones-brazos.jpg",
+    "Press de banca plano en Smith": "ejercicios/press-maquina-smith.jpg",
     "Pullover con mancuerna": "ejercicios/pullover-mancuerna.jpg",
     "Dominadas": "ejercicios/dominadas.jpg",
     "Dominadas supinas": "ejercicios/dominadas-supinas.jpg",
@@ -1256,13 +1274,12 @@
   // (rutina, sesión, biblioteca) siguen usando siempre la foto de
   // EXERCISE_IMAGES para no cargar muchos videos a la vez en una lista.
   const EXERCISE_VIDEOS = {
-    "Press banca plano": "ejercicios/press-banca-plano.mp4",
+    "Press de banca con barra": "ejercicios/press-banca-plano.mp4",
     "Remo con barra": "ejercicios/remo-con-barra.mp4",
     "Jalón al pecho": "ejercicios/jalon-al-pecho.mp4",
     "Peso muerto": "ejercicios/peso-muerto.mp4",
     "Sentadilla": "ejercicios/sentadilla.mp4",
-    "Press con mancuernas plano": "ejercicios/press-mancuernas-plano.mp4",
-    "Press con mancuernas inclinado": "ejercicios/press-mancuernas-inclinado.mp4",
+    "Press de banca inclinado con mancuernas": "ejercicios/press-mancuernas-inclinado.mp4",
     "Curl martillo": "ejercicios/curl-martillo.mp4",
     "Elevaciones laterales": "ejercicios/elevaciones-laterales.mp4",
     "Curl con barra": "ejercicios/curl-con-barra.mp4",
@@ -1273,7 +1290,6 @@
     "Extensión de cuádriceps": "ejercicios/extension-cuadriceps.mp4",
     "Curl femoral sentado": "ejercicios/curl-femoral-sentado.mp4",
     "Curl femoral acostado": "ejercicios/curl-femoral-acostado.mp4",
-    "Cruce de poleas (aperturas en polea)": "ejercicios/cruce-poleas.mp4",
     "Fondos de tríceps en banco": "ejercicios/fondos-triceps-banco.mp4",
     "Remo en polea baja": "ejercicios/remo-polea-baja.mp4",
     "Face pull": "ejercicios/face-pull.mp4",
@@ -1300,17 +1316,14 @@
   // inventan URLs. Los medios locales (EXERCISE_IMAGES/EXERCISE_VIDEOS) se
   // mantienen sin cambios en esta versión.
   const EXERCISE_HOWTO_LINKS = {
-    "Press banca plano": "https://musclewiki.com/exercise/barbell-bench-press",
-    "Press banca inclinado": "https://musclewiki.com/exercise/barbell-incline-bench-press",
-    "Press banca declinado": "https://musclewiki.com/exercise/barbell-decline-bench-press",
-    "Press con mancuernas plano": "https://musclewiki.com/exercise/dumbbell-bench-press",
-    "Press con mancuernas inclinado": "https://musclewiki.com/exercise/dumbbell-incline-bench-press",
-    "Press con mancuernas declinado": "https://musclewiki.com/exercise/dumbbell-decline-bench-press",
-    "Aperturas con mancuernas": "https://musclewiki.com/exercise/dumbbell-chest-fly",
-    "Cruce de poleas (aperturas en polea)": "https://musclewiki.com/exercise/cable-pec-fly",
-    "Pec deck (contractora)": "https://musclewiki.com/exercise/machine-pec-fly",
-    "Fondos en paralelas": "https://musclewiki.com/exercise/parralel-bar-dips",
-    "Flexiones de brazos": "https://musclewiki.com/exercise/push-up",
+    "Press de banca con barra": "https://musclewiki.com/exercise/barbell-bench-press",
+    "Press de banca inclinado con barra": "https://musclewiki.com/exercise/barbell-incline-bench-press",
+    "Press de banca declinado": "https://musclewiki.com/exercise/barbell-decline-bench-press",
+    "Press de banca inclinado con mancuernas": "https://musclewiki.com/exercise/dumbbell-incline-bench-press",
+    "Aperturas de pecho con mancuernas en banco plano": "https://musclewiki.com/exercise/dumbbell-chest-fly",
+    "Pec Fly": "https://musclewiki.com/exercise/machine-pec-fly",
+    "Fondos inclinado": "https://musclewiki.com/exercise/parralel-bar-dips",
+    "Flexiones de brazo": "https://musclewiki.com/exercise/push-up",
     "Pullover con mancuerna": "https://musclewiki.com/exercise/dumbbell-pullover",
     "Flexiones inclinadas (manos elevadas)": "https://musclewiki.com/exercise/incline-push-up",
     "Press en el piso con barra": "https://musclewiki.com/exercise/barbell-floor-press",
@@ -1391,26 +1404,20 @@
   // en un gimnasio comercial; están marcadas con "*" las que son más discutibles.
   const EXERCISE_EQUIPMENT = {
     // Pecho
-    "Press banca plano": "Barra",
-    "Press banca inclinado": "Barra",
-    "Press banca declinado": "Barra",
-    "Press con mancuernas plano": "Mancuernas",
-    "Press con mancuernas inclinado": "Mancuernas",
-    "Press con mancuernas declinado": "Mancuernas",
-    "Aperturas con mancuernas": "Mancuernas",
-    "Cruce de poleas (aperturas en polea)": "Polea",
-    "Pec deck (contractora)": "Máquina",
-    "Fondos en paralelas": "Peso corporal",
-    "Flexiones de brazos": "Peso corporal",
-    "Press en máquina Smith": "Máquina",
+    "Press de banca con barra": "Barra",
+    "Press de banca inclinado con barra": "Barra",
+    "Press de banca declinado": "Barra",
+    "Press de banca inclinado con mancuernas": "Mancuernas",
+    "Aperturas de pecho con mancuernas en banco plano": "Mancuernas",
+    "Aperturas de pecho con mancuernas en banco inclinado": "Mancuernas",
+    "Press de pecho en polea": "Polea",
+    "Pec Fly": "Máquina",
+    "Fondos inclinado": "Peso corporal",
+    "Flexiones de brazo": "Peso corporal",
+    "Press de banca plano en Smith": "Máquina",
+    "Press de banca inclinado en Smith": "Máquina",
+    "Press de banca declinado en Smith": "Máquina",
     "Pullover con mancuerna": "Mancuernas",
-    "Fondos en paralelas con peso": "Peso libre",
-    "Flexiones inclinadas (manos elevadas)": "Peso corporal",
-    "Press en el piso con barra": "Barra",
-    "Press banca agarre ancho": "Barra",
-    "Press con disco (plate press)": "Peso libre",
-    "Around the world (mancuernas)": "Mancuernas",
-    "Flexiones con peso": "Peso libre",
     // Espalda
     "Dominadas": "Peso corporal",
     "Dominadas supinas": "Peso corporal",
@@ -2101,7 +2108,7 @@
     }
 
     function rowToEntreno(r){
-      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual, isSpecial: !!r.is_special };
+      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual, isSpecial: !!r.is_special, routineOrigin: r.routine_origin||null };
     }
 
     // V28: `is_manual` distingue un entrenamiento cerrado desde "Finalizar"
@@ -2115,6 +2122,10 @@
       // true — así los entrenamientos normales y los marcados a mano siguen
       // funcionando igual aunque la migración v29 todavía no se haya corrido.
       if(data.isSpecial) row.is_special = true;
+      // V30: el origen se toma de la sesión que se inició, no de la rutina
+      // actualmente seleccionada. Los registros históricos y los marcados a
+      // mano no mandan este campo y quedan como NULL en la base.
+      if(data.routineOrigin) row.routine_origin = data.routineOrigin;
       const { error } = await client().from("entrenos").insert(row);
       // V29.2: devuelve también el error REAL de Supabase (antes solo un
       // booleano, y finalizeSession mostraba un mensaje genérico que
@@ -3286,11 +3297,10 @@
   // hip thrust), conviene sumarlo también acá.
   const EXERCISES_COMPOUND = new Set([
     // Pecho — presses y fondos (multiarticular hombro+codo)
-    "Press banca plano","Press banca inclinado","Press banca declinado",
-    "Press con mancuernas plano","Press con mancuernas inclinado","Press con mancuernas declinado",
-    "Fondos en paralelas","Fondos en paralelas con peso","Press en máquina Smith",
-    "Press en el piso con barra","Press banca agarre ancho",
-    "Flexiones de brazos","Flexiones con peso","Flexiones inclinadas (manos elevadas)",
+    "Press de banca con barra","Press de banca inclinado con barra","Press de banca declinado",
+    "Press de banca inclinado con mancuernas","Press de pecho en polea","Fondos inclinado",
+    "Press de banca plano en Smith","Press de banca inclinado en Smith","Press de banca declinado en Smith",
+    "Flexiones de brazo",
     // Espalda — dominadas/jalones/remos/peso muerto (multiarticular hombro+codo o cadera+rodilla)
     "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
     "Remo con barra","Remo con mancuerna","Remo en polea baja","Remo en máquina",
@@ -3983,6 +3993,34 @@
 
   const MONTH_NAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
+  // V30: el origen visual se deriva solo de datos persistidos en `entrenos`.
+  // Una fila normal histórica sin routine_origin queda explícitamente como
+  // desconocida; nunca se infiere desde day_id, day_nombre ni la rutina actual.
+  const CALENDAR_ORIGIN_LABELS = {
+    personalizada:"Mi rutina", automatica:"Rutina automática", especial:"Día Especial",
+    manual:"Marcado manual", unknown:"Origen desconocido",
+  };
+  function calendarOriginFor(entreno){
+    if(entreno.isManual) return "manual";
+    if(entreno.isSpecial || entreno.routineOrigin==="especial") return "especial";
+    if(entreno.routineOrigin==="personalizada") return "personalizada";
+    if(entreno.routineOrigin==="automatica") return "automatica";
+    return "unknown";
+  }
+  function calendarOriginsFor(entrenos){
+    return Array.from(new Set((entrenos||[]).map(calendarOriginFor)));
+  }
+  function calendarOriginLabelHtml(origin){
+    return `<span class="calendar-origin-label ${origin}">${CALENDAR_ORIGIN_LABELS[origin]||CALENDAR_ORIGIN_LABELS.unknown}</span>`;
+  }
+  function calendarOriginBarsHtml(origins){
+    return `<span class="cal-origin-bars" aria-hidden="true">${origins.map(origin=>`<span class="cal-origin-bar ${origin}"></span>`).join("")}</span>`;
+  }
+  function calendarLegendHtml(){
+    const origins = ["personalizada","automatica","especial","manual","unknown"];
+    return `<div class="cal-legend" aria-label="Leyenda de origen del entrenamiento">${origins.map(origin=>`<span class="cal-legend-item"><span class="cal-legend-dot ${origin}"></span>${CALENDAR_ORIGIN_LABELS[origin]}</span>`).join("")}</div>`;
+  }
+
   function screenCalendario(){
     const { y, m } = currentCalMonth();
     const doneByDate = {};
@@ -3997,13 +4035,15 @@
       const dateStr = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
       const done = doneByDate[dateStr];
       const isToday = dateStr===todayS;
+      const origins = done ? calendarOriginsFor(done) : [];
+      const originClass = origins.length===1 ? `cal-origin-${origins[0]}` : (origins.length>1 ? "cal-origin-mixed" : "");
       // V28: antes solo los días ya marcados eran clickeables. Ahora CUALQUIER
       // día de hoy hacia atrás es clickeable — si está vacío, tocarlo ofrece
       // "marcar como entrenado" (openMarkTrainedModal); si ya tiene registros,
       // muestra el detalle de siempre. Los días futuros quedan sin marcar
       // (no tiene sentido registrar un entrenamiento que todavía no pasó).
       const clickable = !!done || dateStr<=todayS;
-      cells.push(`<div class="cal-cell ${done?"done":""} ${isToday?"today":""}" ${clickable?`data-cal-day="${dateStr}"`:""}>${d}</div>`);
+      cells.push(`<div class="cal-cell ${done?"done":""} ${originClass} ${isToday?"today":""}" ${clickable?`data-cal-day="${dateStr}"`:""}>${d}${origins.length?calendarOriginBarsHtml(origins):""}</div>`);
     }
     const monthCount = Object.keys(doneByDate).filter(k=>k.startsWith(`${y}-${String(m+1).padStart(2,"0")}`)).length;
     return `
@@ -4018,6 +4058,7 @@
           ${["L","M","X","J","V","S","D"].map(w=>`<div class="cal-weekday">${w}</div>`).join("")}
           ${cells.join("")}
         </div>
+        ${calendarLegendHtml()}
         <p class="helptext">${monthCount} entrenamiento${monthCount===1?"":"s"} este mes. Tocá un día para ver el detalle o marcarlo como entrenado.</p>
       </div>
     `;
@@ -4050,8 +4091,7 @@
           <div class="logrow">
             <div>
               <div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div>
-              ${e.isManual ? `<div class="ldate">Marcado manualmente</div>` : ""}
-              ${e.isSpecial ? `<div class="ldate"><span class="special-badge">Día Especial</span> no suma al objetivo semanal</div>` : ""}
+              <div class="ldate">${calendarOriginLabelHtml(calendarOriginFor(e))}${calendarOriginFor(e)==="especial" ? " · no suma al objetivo semanal" : ""}</div>
             </div>
             <div class="row" style="gap:8px; align-items:center">
               ${e.isManual
@@ -4595,7 +4635,10 @@
     // V29: un Día Especial se registra como cualquier entrenamiento (mismo
     // Store.addEntreno, misma tabla), marcado con isSpecial → is_special.
     const isSpecial = !!(state.session && state.session.slot==="especial");
-    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now(), isSpecial };
+    // V30: slot se fija al iniciar/recuperar la sesión, por lo que conserva
+    // el origen real incluso si después cambia la rutina activa.
+    const routineOrigin = state.session && state.session.slot;
+    const data = { date: todayStr(), dayId: day.id, dayNombre: day.nombre, setsCompletados: p.done, setsTotales: p.total, createdAt: Date.now(), isSpecial, routineOrigin };
     const saved = await Store.addEntreno(state.profile.id, data);
     // Si la base rechaza el registro, NO se borra la sesión y se muestra el
     // error EXACTO que devolvió Supabase (V29.2). Causa conocida: si la
@@ -4607,10 +4650,12 @@
       const err = (saved && saved.error) || {};
       console.error("finalizeSession: Supabase rechazó el insert en entrenos", err, data);
       const missingSpecialCol = /is_special/.test(err.message||"") && (err.code==="PGRST204" || err.code==="42703");
+      const missingRoutineOriginCol = /routine_origin/.test(err.message||"") && (err.code==="PGRST204" || err.code==="42703");
       const m = openModal(`
         <h3>No se pudo registrar el entrenamiento</h3>
         <p class="helptext" style="font-size:14px; color:var(--text)">Tu sesión sigue guardada — no se perdió nada.</p>
         ${missingSpecialCol ? `<p class="helptext" style="font-size:14px; color:var(--text)">La base de datos todavía no tiene la columna <b>is_special</b> en la tabla <b>entrenos</b>: hay que correr <b>supabase-migration-v29.sql</b> en Supabase (SQL Editor). Después, volvé a tocar "Finalizar".</p>` : ""}
+        ${missingRoutineOriginCol ? `<p class="helptext" style="font-size:14px; color:var(--text)">La base de datos todavía no tiene la columna <b>routine_origin</b> en la tabla <b>entrenos</b>: hay que correr <b>supabase-migration-v30.sql</b> en Supabase (SQL Editor). Después, volvé a tocar "Finalizar".</p>` : ""}
         <p class="helptext">Error de Supabase${err.code?` (${esc(String(err.code))})`:""}: ${esc(err.message || "sin detalle")}</p>
         <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Entendido</button></div>
       `);
@@ -5544,8 +5589,35 @@
     }
 
     // register service worker for installability (best-effort)
+    // FIX actualización atascada: antes se registraba sin más y, aunque
+    // Vercel ya tuviera publicado un index.html nuevo, el navegador podía
+    // tardar en darse cuenta de que sw.js cambió (o de que hay una versión
+    // nueva del Service Worker activo) hasta la próxima vez que revisara por
+    // su cuenta. Ahora, además de registrar:
+    // 1. `updateViaCache:"none"` evita que la caché HTTP del navegador
+    //    interfiera con la revisión del propio sw.js.
+    // 2. `reg.update()` fuerza esa revisión apenas arranca la app (y de
+    //    nuevo si el usuario vuelve a la pestaña después de tenerla en
+    //    segundo plano), en vez de esperar a que el navegador lo haga solo.
+    // 3. Cuando un Service Worker nuevo toma el control, se recarga la
+    //    página UNA sola vez para mostrar la versión nueva sin que haya que
+    //    agregar "?v=30" a mano ni borrar datos — salvo que haya un
+    //    entrenamiento en curso (state.session), para no cortar un Timer o
+    //    una serie a mitad de registro: en ese caso la versión nueva ya
+    //    quedó instalada y se aplica sola en la próxima recarga natural.
     if("serviceWorker" in navigator){
-      navigator.serviceWorker.register("sw.js").catch(()=>{});
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg)=>{
+        reg.update().catch(()=>{});
+        document.addEventListener("visibilitychange", ()=>{
+          if(document.visibilityState === "visible") reg.update().catch(()=>{});
+        });
+        let refreshed = false;
+        navigator.serviceWorker.addEventListener("controllerchange", ()=>{
+          if(refreshed || state.session) return;
+          refreshed = true;
+          window.location.reload();
+        });
+      }).catch(()=>{});
     }
   }
 
@@ -5569,6 +5641,8 @@
     openExerciseDetail,
     // v28
     exerciseWeeklyMax, sessionProgress, sessionDay, reorderDayExercisesByGroup,
+    // v30
+    calendarOriginFor, calendarOriginsFor,
   };
 
 })();
