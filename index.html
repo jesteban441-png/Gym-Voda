@@ -5589,8 +5589,35 @@
     }
 
     // register service worker for installability (best-effort)
+    // FIX actualización atascada: antes se registraba sin más y, aunque
+    // Vercel ya tuviera publicado un index.html nuevo, el navegador podía
+    // tardar en darse cuenta de que sw.js cambió (o de que hay una versión
+    // nueva del Service Worker activo) hasta la próxima vez que revisara por
+    // su cuenta. Ahora, además de registrar:
+    // 1. `updateViaCache:"none"` evita que la caché HTTP del navegador
+    //    interfiera con la revisión del propio sw.js.
+    // 2. `reg.update()` fuerza esa revisión apenas arranca la app (y de
+    //    nuevo si el usuario vuelve a la pestaña después de tenerla en
+    //    segundo plano), en vez de esperar a que el navegador lo haga solo.
+    // 3. Cuando un Service Worker nuevo toma el control, se recarga la
+    //    página UNA sola vez para mostrar la versión nueva sin que haya que
+    //    agregar "?v=30" a mano ni borrar datos — salvo que haya un
+    //    entrenamiento en curso (state.session), para no cortar un Timer o
+    //    una serie a mitad de registro: en ese caso la versión nueva ya
+    //    quedó instalada y se aplica sola en la próxima recarga natural.
     if("serviceWorker" in navigator){
-      navigator.serviceWorker.register("sw.js").catch(()=>{});
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((reg)=>{
+        reg.update().catch(()=>{});
+        document.addEventListener("visibilitychange", ()=>{
+          if(document.visibilityState === "visible") reg.update().catch(()=>{});
+        });
+        let refreshed = false;
+        navigator.serviceWorker.addEventListener("controllerchange", ()=>{
+          if(refreshed || state.session) return;
+          refreshed = true;
+          window.location.reload();
+        });
+      }).catch(()=>{});
     }
   }
 
