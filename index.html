@@ -37,6 +37,8 @@
     --calendar-special-soft:#E8E0F7;
     --calendar-focused:#1F8A8A;
     --calendar-focused-soft:#D9F0EE;
+    --muscle-off:#A6A093;
+    --muscle-base:#9C9689;
     --calendar-manual:#827B72;
     --calendar-manual-soft:#E7E4E0;
     --calendar-unknown:#A49C91;
@@ -68,6 +70,8 @@
       --calendar-special-soft:#30284A;
       --calendar-focused:#6FD6D0;
       --calendar-focused-soft:#123A38;
+      --muscle-off:#6E6456;
+      --muscle-base:#786D5E;
       --calendar-manual:#A9A198;
       --calendar-manual-soft:#302C27;
       --calendar-unknown:#81796F;
@@ -96,6 +100,8 @@
     --calendar-special-soft:#30284A;
     --calendar-focused:#6FD6D0;
     --calendar-focused-soft:#123A38;
+    --muscle-off:#6E6456;
+    --muscle-base:#786D5E;
     --calendar-manual:#A9A198;
     --calendar-manual-soft:#302C27;
     --calendar-unknown:#81796F;
@@ -450,11 +456,40 @@
   .howto-link{ display:flex; align-items:center; justify-content:center; gap:6px; text-decoration:none; }
 
   .muscle-diagram{ display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 0 2px; }
-  .muscle-diagram-pic{ width:74px; height:92px; }
-  .muscle-diagram-pic svg [data-region], .howto-pic svg [data-region]{ stroke:var(--surface); stroke-width:1.2; stroke-linejoin:round; }
-  .howto-pic{ width:150px; height:188px; border-radius:var(--radius-s); overflow:hidden; background:var(--surface-2); }
+  /* V32: el alto crece porque la figura pasó de silueta parcial (ratio .80) a
+     cuerpo entero (ratio .417). Los tamaños están elegidos para que ninguna
+     región resaltada quede por debajo de 3px, que es el umbral donde deja de
+     percibirse. */
+  .muscle-diagram-pic{ width:74px; height:178px; }
+  /* Contenedor de 1 o 2 vistas. Con dos, cada SVG ocupa la mitad del ancho y
+     entra en la MISMA caja del detalle (220x276), sin overflow. */
+  .anat-fig{ display:flex; gap:4px; align-items:stretch; justify-content:center; width:100%; height:100%; }
+  .anat-fig svg{ flex:1 1 0; min-width:0; }
+  /* En miniaturas se apaga el sombreado y el contorno: a ese tamaño no se
+     perciben y multiplican los nodos en listas largas. */
+  .muscle-diagram-pic .anat-shade, .muscle-diagram-pic .anat-contour{ display:none; }
+  .howto-pic{ width:220px; height:276px; border-radius:var(--radius-s); overflow:hidden; background:var(--surface-2); }
   .howto-pic svg{ width:100%; height:100%; }
-  .howto-pic-labeled{ width:220px; height:276px; overflow:visible; margin:2px 0; }
+  /* V32: la caja sigue el ratio del arte (200/480 = 0,417). Antes la caja era
+     220x276 (ratio 0,80) y la figura, al ajustarse por alto, ocupaba solo 88px
+     de 220: el 60% era aire y por eso se veía chica. 115x276 para una vista;
+     con dos, el ancho se fija en línea a 230 (verificado: el contenedor de la
+     ficha mide 339px en móvil y 511px en desktop, así que no hay overflow). */
+  .howto-pic-labeled{ width:115px; height:276px; overflow:visible; margin:2px 0; }
+  /* Leyenda de músculos: reemplaza a las etiquetas que antes iban dentro del
+     SVG, que ya no entran con el cuerpo entero. */
+  /* Lámina anatómica cargada como archivo: se muestra tal cual, sin deformar
+     (height:auto conserva la proporción original de la imagen).
+     Sin loading="lazy" a propósito: con height:auto la imagen mide 0 de alto
+     mientras no se cargó, así que nunca entra en viewport y el lazy no se
+     dispara — quedaba en blanco para siempre. Es el contenido principal de la
+     ficha, no una miniatura de lista, así que carga directo. */
+  .anatomy-photo{ width:100%; max-width:320px; height:auto; display:block; margin:0 auto;
+    border-radius:var(--radius-s); }
+  .muscle-legend{ display:flex; flex-wrap:wrap; gap:4px 10px; justify-content:center;
+    font-size:12px; color:var(--text-muted); line-height:1.3; max-width:260px; }
+  .muscle-legend i{ width:9px; height:9px; border-radius:3px; display:inline-block;
+    vertical-align:-1px; margin-right:4px; }
   .muscle-section{ display:flex; flex-direction:column; gap:6px; }
   .howto-photo{ width:100%; max-width:320px; height:auto; display:block; margin:0 auto; border-radius:var(--radius-s); background:var(--surface-2); }
   .tips-box{ background:var(--surface-2); border-radius:var(--radius-s); padding:12px 14px; }
@@ -921,6 +956,22 @@
     "Pájaro (deltoide posterior)": "Vuelos pájaro",
     "Face pull": "Face Pull",
     "Press militar con mancuernas": "Press de hombros con mancuernas",
+    // V32: nombres propios que Juan había cargado a mano en "Mi rutina" antes
+    // de que existiera la biblioteca. Nunca tuvieron entrada en MUSCLE_MAP, así
+    // que su ficha salía vacía ("Todavía no hay datos de músculo cargados").
+    // Mapearlos acá les devuelve ficha, media y equipamiento sin tocar
+    // MUSCLE_MAP ni perder un solo registro del historial.
+    // "Gemelos" queda deliberadamente afuera: es ambiguo (en máquina, en
+    // prensa, sentado o parado con mancuerna) y hace falta decidir cuál es.
+    "Press banca plano": "Press de banca con barra",
+    "Press banca inclinado": "Press de banca inclinado con barra",
+    "Pec deck (contractora)": "Pec Fly",
+    "Pec deck inverso": "Pec Fly invertido",
+    "Extensión de tríceps en polea c/barra": "Extensión de tríceps en polea con barra",
+    "Extensión de tríceps en polea ag/Neutro": "Extensión de tríceps en polea",
+    "Extensión de tríceps en polea ag/Prono": "Extensión tríceps polea agarre prono",
+    "Curl con mancuernas inclinado": "Curl con mancuernas banco inclinado",
+    "Press militar maquina": "Press de hombros en máquina",
   };
   // Devuelve el nombre canónico de un ejercicio (el mismo nombre si ya lo es).
   // Se usa al LEER datos guardados (historial, registros, rutinas persistidas),
@@ -1331,53 +1382,6 @@
     "calves-gastro":"Gemelo", "calves-soleus":"Sóleo",
   };
 
-  // Posición de cada etiqueta sobre el diagrama grande: cx/cy = centro de la
-  // región (para la lineita que conecta), lx/ly = dónde va el texto, anchor =
-  // alineación del texto respecto a ese punto. Todo en las mismas unidades
-  // del viewBox "0 0 120 150" de BODY_DIAGRAMS, así que siempre cae dentro
-  // del dibujo (nada se corta).
-  const LABEL_GEOM = {
-    "front-upper": {
-      "shoulder-front": {cx:95,cy:42, lx:118,ly:32, anchor:"end"},
-      "shoulder-lateral": {cx:104,cy:38, lx:118,ly:20, anchor:"end"},
-      "biceps-long": {cx:105,cy:64, lx:118,ly:58, anchor:"end"},
-      "biceps-short": {cx:96,cy:70, lx:106,ly:84, anchor:"end"},
-      // La etiqueta va abajo a la derecha, por debajo del oblicuo (que termina
-      // en y=130): el antebrazo ocupa y 84-112, así que el texto no se
-      // superpone con el músculo resaltado, y a esa altura ya no hay ninguna
-      // forma del torso, por lo que queda margen holgado contra el borde
-      // derecho del viewBox. La lineíta de conexión baja por x>=101 y por eso
-      // tampoco cruza el oblicuo. Mismo estilo que el resto de las etiquetas.
-      "forearms": {cx:101,cy:98, lx:114,ly:136, anchor:"end"},
-      "chest-upper": {cx:60,cy:47, lx:60,ly:30, anchor:"middle"},
-      "chest-mid": {cx:60,cy:67, lx:26,ly:67, anchor:"start"},
-      "chest-lower": {cx:60,cy:85, lx:26,ly:92, anchor:"start"},
-      "abs": {cx:60,cy:113, lx:60,ly:142, anchor:"middle"},
-      "obliques": {cx:86,cy:112, lx:106,ly:112, anchor:"start"},
-    },
-    "back-upper": {
-      "traps": {cx:60,cy:43, lx:60,ly:26, anchor:"middle"},
-      "rhomboids": {cx:60,cy:59, lx:14,ly:48, anchor:"start"},
-      "shoulder-rear": {cx:96,cy:40, lx:118,ly:28, anchor:"end"},
-      "triceps-lateral": {cx:100,cy:55, lx:118,ly:48, anchor:"end"},
-      "triceps-long": {cx:100,cy:70, lx:118,ly:70, anchor:"end"},
-      "triceps-medial": {cx:100,cy:85, lx:118,ly:94, anchor:"end"},
-      "lats": {cx:92,cy:80, lx:112,ly:104, anchor:"end"},
-      "lower-back": {cx:60,cy:119, lx:60,ly:143, anchor:"middle"},
-    },
-    "front-leg": {
-      "adductors": {cx:60,cy:62, lx:60,ly:146, anchor:"middle"},
-      "quads-outer": {cx:86,cy:75, lx:108,ly:52, anchor:"start"},
-      "quads-front": {cx:73,cy:80, lx:108,ly:86, anchor:"start"},
-      "quads-inner": {cx:63,cy:95, lx:108,ly:120, anchor:"start"},
-    },
-    "back-leg": {
-      "glutes": {cx:60,cy:16, lx:60,ly:4, anchor:"middle"},
-      "hamstrings": {cx:80,cy:68, lx:100,ly:68, anchor:"start"},
-      "calves-gastro": {cx:76,cy:120, lx:98,ly:114, anchor:"start"},
-      "calves-soleus": {cx:76,cy:138, lx:98,ly:144, anchor:"start"},
-    },
-  };
 
   // Consejos cortos de técnica por ejercicio — reemplaza el GIF (pospuesto por
   // costo) con algo igual de útil y sin infraestructura nueva.
@@ -1474,134 +1478,439 @@
     "Patada de glúteo en máquina": ["Apoyate firme en el aparato, torso ligeramente inclinado.", "Empujá con el pie hacia atrás y arriba apretando el glúteo.", "Volvé controlado, sin usar impulso."],
   };
 
-  // Siluetas simplificadas en SVG. Cada <path>/<ellipse> tiene data-region;
-  // se pinta con un rojo más o menos intenso según la intensidad recibida
-  // para esa región (0 = gris, 1 = rojo pleno).
-  const BODY_DIAGRAMS = {
-    "front-upper": {
-      viewBox:"0 0 120 150",
-      shapes:`
-        <circle cx="60" cy="16" r="13" data-region="head"/>
-        <path d="M30 40 q30 -18 60 0 l6 34 q-36 16 -72 0 Z" data-region="base"/>
-        <ellipse cx="25" cy="42" rx="8" ry="15" data-region="shoulder-front"/>
-        <ellipse cx="95" cy="42" rx="8" ry="15" data-region="shoulder-front"/>
-        <ellipse cx="16" cy="40" rx="5" ry="11" data-region="shoulder-lateral"/>
-        <ellipse cx="104" cy="40" rx="5" ry="11" data-region="shoulder-lateral"/>
-        <ellipse cx="15" cy="66" rx="5" ry="16" data-region="biceps-long"/>
-        <ellipse cx="24" cy="66" rx="5" ry="16" data-region="biceps-short"/>
-        <ellipse cx="105" cy="66" rx="5" ry="16" data-region="biceps-long"/>
-        <ellipse cx="96" cy="66" rx="5" ry="16" data-region="biceps-short"/>
-        <ellipse cx="19" cy="98" rx="6" ry="14" data-region="forearms"/>
-        <ellipse cx="101" cy="98" rx="6" ry="14" data-region="forearms"/>
-        <path d="M38 38 q22 -8 44 0 l-3 20 q-19 8 -38 0 Z" data-region="chest-upper"/>
-        <path d="M36 58 q24 10 48 0 l-2 20 q-22 9 -44 0 Z" data-region="chest-mid"/>
-        <path d="M38 78 q20 8 44 0 l-2 16 q-20 7 -40 0 Z" data-region="chest-lower"/>
-        <rect x="46" y="94" width="12" height="11" rx="3" data-region="abs"/>
-        <rect x="62" y="94" width="12" height="11" rx="3" data-region="abs"/>
-        <rect x="46" y="107" width="12" height="11" rx="3" data-region="abs"/>
-        <rect x="62" y="107" width="12" height="11" rx="3" data-region="abs"/>
-        <rect x="46" y="120" width="12" height="11" rx="3" data-region="abs"/>
-        <rect x="62" y="120" width="12" height="11" rx="3" data-region="abs"/>
-        <path d="M34 94 q-6 18 2 36 l8 -4 q-6 -16 -1 -30 Z" data-region="obliques"/>
-        <path d="M86 94 q6 18 -2 36 l-8 -4 q6 -16 1 -30 Z" data-region="obliques"/>
-      `
-    },
-    "back-upper": {
-      viewBox:"0 0 120 150",
-      shapes:`
-        <circle cx="60" cy="16" r="13" data-region="head"/>
-        <path d="M30 40 q30 -18 60 0 l6 34 q-36 16 -72 0 Z" data-region="base"/>
-        <path d="M42 34 q18 -10 36 0 l-3 18 q-15 6 -30 0 Z" data-region="traps"/>
-        <path d="M48 52 q12 -6 24 0 l-2 14 q-10 5 -20 0 Z" data-region="rhomboids"/>
-        <ellipse cx="24" cy="44" rx="11" ry="14" data-region="shoulder-rear"/>
-        <ellipse cx="96" cy="44" rx="11" ry="14" data-region="shoulder-rear"/>
-        <ellipse cx="20" cy="55" rx="8" ry="7" data-region="triceps-lateral"/>
-        <ellipse cx="100" cy="55" rx="8" ry="7" data-region="triceps-lateral"/>
-        <ellipse cx="20" cy="70" rx="8" ry="8" data-region="triceps-long"/>
-        <ellipse cx="100" cy="70" rx="8" ry="8" data-region="triceps-long"/>
-        <ellipse cx="20" cy="85" rx="6" ry="6" data-region="triceps-medial"/>
-        <ellipse cx="100" cy="85" rx="6" ry="6" data-region="triceps-medial"/>
-        <path d="M34 50 q-8 30 6 56 l14 -6 q-10 -24 -4 -48 Z" data-region="lats"/>
-        <path d="M86 50 q8 30 -6 56 l-14 -6 q10 -24 4 -48 Z" data-region="lats"/>
-        <path d="M42 108 q18 10 36 0 l-2 22 q-16 8 -32 0 Z" data-region="lower-back"/>
-      `
-    },
-    "front-leg": {
-      viewBox:"0 0 120 150",
-      shapes:`
-        <path d="M40 6 q20 -10 40 0 l2 24 q-22 10 -44 0 Z" data-region="base"/>
-        <path d="M56 34 q-4 30 0 56 l10 0 q4 -26 0 -56 Z" data-region="adductors"/>
-        <path d="M64 34 q4 30 0 56 l-10 0 q-4 -26 0 -56 Z" data-region="adductors"/>
-        <path d="M34 30 Q30 80 34 128 L44 126 Q41 80 43 32 Z" data-region="quads-outer"/>
-        <path d="M86 30 Q90 80 86 128 L76 126 Q79 80 77 32 Z" data-region="quads-outer"/>
-        <path d="M43 32 Q41 80 44 126 L52 126 Q50 80 51 32 Z" data-region="quads-front"/>
-        <path d="M77 32 Q79 80 76 126 L68 126 Q70 80 69 32 Z" data-region="quads-front"/>
-        <path d="M51 32 Q50 80 52 122 Q55 130 60 132 L61 120 Q58 80 59 32 Z" data-region="quads-inner"/>
-        <path d="M69 32 Q70 80 68 122 Q65 130 60 132 L59 120 Q62 80 61 32 Z" data-region="quads-inner"/>
-      `
-    },
-    "back-leg": {
-      viewBox:"0 0 120 150",
-      shapes:`
-        <path d="M36 6 q24 -10 48 0 l2 22 q-26 10 -52 0 Z" data-region="glutes"/>
-        <path d="M38 30 q10 46 0 78 l16 4 q10 -42 4 -80 Z" data-region="hamstrings"/>
-        <path d="M82 30 q-10 46 0 78 l-16 4 q-10 -42 -4 -80 Z" data-region="hamstrings"/>
-        <path d="M40 112 Q36 122 39 132 L50 132 Q52 122 49 113 Z" data-region="calves-gastro"/>
-        <path d="M80 112 Q84 122 81 132 L70 132 Q68 122 71 113 Z" data-region="calves-gastro"/>
-        <path d="M39 130 Q37 138 41 146 L52 146 Q54 138 50 130 Z" data-region="calves-soleus"/>
-        <path d="M81 130 Q83 138 79 146 L68 146 Q66 138 70 130 Z" data-region="calves-soleus"/>
-      `
-    },
-  };
+  /* ================= V32: ANATOMÍA CUERPO COMPLETO =================
+     Dos vistas de cuerpo entero en lugar de 4 siluetas parciales. Motivo
+     funcional: con las siluetas parciales, 21 ejercicios tenían músculos
+     definidos en MUSCLE_MAP que no existían en su silueta y no se veían
+     nunca (p. ej. la zona lumbar del peso muerto). MUSCLE_MAP no cambia.
 
+     Lenguaje visual (según la referencia anatómica aprobada):
+     el cuerpo es UNA masa gris continua; la musculatura se percibe por los
+     surcos y el volumen de anat-shade / anat-contour, no por parches de
+     distinto gris. Solo el músculo trabajado se pinta de naranja.
+
+     Contrato: viewBox 0 0 200 480, las mismas 26 claves data-region,
+     cuatro capas (anat-base / anat-regions / anat-shade / anat-contour) y
+     ninguna región con fill propio — el fill lo inyecta bodyDiagramSvg.
+
+     Proporciones: ~7,7 cabezas. Deltoides x36-164, pecho x66-134,
+     cintura x78-122 (pecho/cintura ~1,55), cadera x68-132. Axila real:
+     el brazo se separa del torso desde y=138. ================= */
+  const BODY_ART = { viewBox:"0 0 200 480", front:"", back:"" };
+  (function arte(){
+
+    // Sombra y contorno: color fijo a proposito — NO son regiones dinamicas.
+    var S1 = 'fill="#000" opacity=".10"';   // volumen suave
+    var S2 = 'fill="#000" opacity=".17"';   // surco
+    var S3 = 'fill="#000" opacity=".26"';   // surco profundo / axila
+    var HI = 'fill="#fff" opacity=".13"';   // luz
+    // Grosores calibrados al viewBox de 480 (escala 0,575 en la ficha).
+    var L1 = 'fill="none" stroke="#000" stroke-opacity=".30" stroke-width="2.2" stroke-linecap="round"';
+    var L2 = 'fill="none" stroke="#000" stroke-opacity=".20" stroke-width="1.6" stroke-linecap="round"';
+    var FB = 'fill="none" stroke="#000" stroke-opacity=".12" stroke-width="1.1" stroke-linecap="round"';
+    var SHORT = 'fill="#5E564B"';
+
+    /* ═════════════════════ FRONTAL ═════════════════════ */
+    var F =
+    '<g class="anat-base">'+
+      '<path d="M100 14c-13 0-21 11-21 26 0 9 2 17 6 22 3 4 5 7 5 11l-1 5h22l-1-5c0-4 2-7 5-11 4-5 6-13 6-22 0-15-8-26-21-26z" data-region="head"/>'+
+      '<path d="M91 78c6 3 12 3 18 0l1 14c-3 5-8 8-10 12-2-4-7-7-10-12z" data-region="base"/>'+
+      // torso: hombros anchos, cintura angosta, cadera abierta
+      '<path d="M100 88c11 0 20 5 26 12 12 5 22 12 28 22 6 10 8 22 5 32-4 6-10 4-14-2-3 14-5 22-6 30-2 22-4 44-6 64-1 12 1 20 1 30-10 7-22 9-34 9s-24-2-34-9c0-10 2-18 1-30-2-20-4-42-6-64-1-8-3-16-6-30-4 6-10 8-14 2-3-10-1-22 5-32 6-10 16-17 28-22 6-7 15-12 26-12z" data-region="base"/>'+
+      // brazos separados del torso desde la axila
+      '<path d="M54 140c-5 12-9 26-12 42-3 17-6 36-8 54-1 11-2 20-1 28 4 6 11 6 15 1 2-11 3-22 5-34 3-19 6-38 9-56 2-13 2-25-1-35z" data-region="base"/>'+
+      '<path d="M146 140c5 12 9 26 12 42 3 17 6 36 8 54 1 11 2 20 1 28-4 6-11 6-15 1-2-11-3-22-5-34-3-19-6-38-9-56-2-13-2-25 1-35z" data-region="base"/>'+
+      '<path d="M33 266c-3 9-5 19-4 27 2 8 9 10 14 5 2-8 3-19 4-30z" data-region="base"/>'+
+      '<path d="M167 266c3 9 5 19 4 27-2 8-9 10-14 5-2-8-3-19-4-30z" data-region="base"/>'+
+      // piernas
+      '<path d="M66 258c-7 28-9 58-7 86 2 25 5 49 7 73 1 19 2 34 1 45 8 6 20 6 27 0 1-15 2-31 2-48 1-27 2-53 3-79 1-28 1-53 1-77z" data-region="base"/>'+
+      '<path d="M134 258c7 28 9 58 7 86-2 25-5 49-7 73-1 19-2 34-1 45-8 6-20 6-27 0-1-15-2-31-2-48-1-27-2-53-3-79-1-28-1-53-1-77z" data-region="base"/>'+
+      // pies descalzos
+      '<path d="M67 462c9 3 18 3 26 0 2 5 3 9 6 11 3 2 5 4 4 6-11 2-25 2-36 0-2-6-1-12 0-17z" data-region="base"/>'+
+      '<path d="M133 462c-9 3-18 3-26 0-2 5-3 9-6 11-3 2-5 4-4 6 11 2 25 2 36 0 2-6 1-12 0-17z" data-region="base"/>'+
+      // short corto con ruedo curvo
+      '<path d="M70 236c20 5 40 5 60 0 3 9 3 18 1 26-5 3-11 5-17 6-3-4-6-8-8-13-2 5-5 9-8 13-6-1-12-3-17-6-2-8-2-17-1-26z" '+SHORT+'/>'+
+    '</g>'+
+
+    '<g class="anat-regions">'+
+      // trapecio: pendiente cuello-hombro
+      '<path d="M100 92c11 0 21 4 28 11-6 5-12 8-18 10-7-3-13-4-20-4z" data-region="traps"/>'+
+      '<path d="M100 92c-11 0-21 4-28 11 6 5 12 8 18 10 7-3 13-4 20-4z" data-region="traps"/>'+
+      // deltoides: casquete que monta sobre pectoral y brazo
+      '<path d="M70 104c-11 4-19 12-23 23-3 9-2 17 2 22 7-1 12-8 14-18 2-11 4-20 7-27z" data-region="shoulder-front"/>'+
+      '<path d="M130 104c11 4 19 12 23 23 3 9 2 17-2 22-7-1-12-8-14-18-2-11-4-20-7-27z" data-region="shoulder-front"/>'+
+      '<path d="M47 127c-8 9-11 21-9 32 2 8 6 11 10 9 1-8 1-17 1-25 0-7 0-12-2-16z" data-region="shoulder-lateral"/>'+
+      '<path d="M153 127c8 9 11 21 9 32-2 8-6 11-10 9-1-8-1-17-1-25 0-7 0-12 2-16z" data-region="shoulder-lateral"/>'+
+      // pectoral: losa unica dividida en tres franjas de borde arqueado
+      '<path d="M98 100c-12 0-23 4-31 12-1 6 0 11 3 15 10-5 19-8 28-8z" data-region="chest-upper"/>'+
+      '<path d="M102 100c12 0 23 4 31 12 1 6 0 11-3 15-10-5-19-8-28-8z" data-region="chest-upper"/>'+
+      '<path d="M98 129c-11 0-22 3-31 9-1 9 1 18 6 25 8-6 17-9 25-9z" data-region="chest-mid"/>'+
+      '<path d="M102 129c11 0 22 3 31 9 1 9-1 18-6 25-8-6-17-9-25-9z" data-region="chest-mid"/>'+
+      '<path d="M98 157c-9 0-18 3-25 9 0 7 3 13 8 18 6-6 12-9 17-10z" data-region="chest-lower"/>'+
+      '<path d="M102 157c9 0 18 3 25 9 0 7-3 13-8 18-6-6-12-9-17-10z" data-region="chest-lower"/>'+
+      // biceps: dos vientres, el corto mas bajo
+      '<path d="M52 146c-5 11-8 25-10 40-1 9 1 15 5 15 4-4 6-12 8-22 2-14 1-26-3-33z" data-region="biceps-long"/>'+
+      '<path d="M148 146c5 11 8 25 10 40 1 9-1 15-5 15-4-4-6-12-8-22-2-14-1-26 3-33z" data-region="biceps-long"/>'+
+      '<path d="M63 150c-4 11-6 24-6 36 0 8 2 12 6 11 3-4 4-12 5-21 1-12 0-22-1-26z" data-region="biceps-short"/>'+
+      '<path d="M137 150c4 11 6 24 6 36 0 8-2 12-6 11-3-4-4-12-5-21-1-12 0-22 1-26z" data-region="biceps-short"/>'+
+      // antebrazo: bulto flexor junto al codo que afina a la muñeca
+      '<path d="M43 202c-3 8-6 19-8 31-3 16-5 30-6 40-1 8 1 13 4 12 3-3 5-11 7-22 3-18 5-38 6-52-1-4-2-7-3-9z" data-region="forearms"/>'+
+      '<path d="M157 202c3 8 6 19 8 31 3 16 5 30 6 40 1 8-1 13-4 12-3-3-5-11-7-22-3-18-5-38-6-52 1-4 2-7 3-9z" data-region="forearms"/>'+
+      // abdomen: masa a cada lado de la linea alba
+      '<path d="M98 178c-7 1-12 5-14 12-2 14-1 30 0 43 2 10 6 16 14 18z" data-region="abs"/>'+
+      '<path d="M102 178c7 1 12 5 14 12 2 14 1 30 0 43-2 10-6 16-14 18z" data-region="abs"/>'+
+      // oblicuos + serrato: flanco en diagonal
+      '<path d="M82 176c-5 15-7 32-6 49 1 10 4 16 8 17 1-16 1-32 0-47-1-8-1-15-2-19z" data-region="obliques"/>'+
+      '<path d="M118 176c5 15 7 32 6 49-1 10-4 16-8 17-1-16-1-32 0-47 1-8 1-15 2-19z" data-region="obliques"/>'+
+      // cuadriceps: vasto externo con barrido largo, interno en lagrima
+      '<path d="M66 262c-7 19-8 42-5 63 2 14 6 24 11 29 3-11 3-27 2-44-1-20-1-36 1-48z" data-region="quads-outer"/>'+
+      '<path d="M134 262c7 19 8 42 5 63-2 14-6 24-11 29-3-11-3-27-2-44 1-20 1-36-1-48z" data-region="quads-outer"/>'+
+      '<path d="M78 260c-4 25-5 50-3 72 2 14 6 22 11 23 3-13 3-31 2-49-1-23-1-37 1-46z" data-region="quads-front"/>'+
+      '<path d="M122 260c4 25 5 50 3 72-2 14-6 22-11 23-3-13-3-31-2-49 1-23 1-37-1-46z" data-region="quads-front"/>'+
+      '<path d="M90 302c-5 13-6 28-4 41 3 13 8 17 12 12 1-15 0-30-3-42-1-8-4-13-5-11z" data-region="quads-inner"/>'+
+      '<path d="M110 302c5 13 6 28 4 41-3 13-8 17-12 12-1-15 0-30 3-42 1-8 4-13 5-11z" data-region="quads-inner"/>'+
+      // aductores: cara interna, se mete bajo el recto femoral
+      '<path d="M91 256c-5 9-7 21-6 33 1 10 5 16 10 13 2-12 2-26 1-38-1-6-3-10-5-8z" data-region="adductors"/>'+
+      '<path d="M109 256c5 9 7 21 6 33-1 10-5 16-10 13-2-12-2-26-1-38 1-6 3-10 5-8z" data-region="adductors"/>'+
+      // gemelo medial visible de frente
+      '<path d="M81 370c-4 13-5 28-3 40 2 11 7 15 11 11 1-15 0-29-3-40-1-7-3-12-5-11z" data-region="calves-gastro"/>'+
+      '<path d="M119 370c4 13 5 28 3 40-2 11-7 15-11 11-1-15 0-29 3-40 1-7 3-12 5-11z" data-region="calves-gastro"/>'+
+    '</g>'+
+
+    '<g class="anat-shade">'+
+      '<path d="M99 100c1 0 1 0 2 0l0 140c-1 0-1 0-2 0z" '+S3+'/>'+
+      '<path d="M67 112c-4 10-4 20-1 28l5-2c-2-8-2-17 1-25z" '+S2+'/>'+
+      '<path d="M133 112c4 10 4 20 1 28l-5-2c2-8 2-17-1-25z" '+S2+'/>'+
+      '<path d="M69 152c9-5 19-8 29-8l0 6c-9 0-18 3-26 7z" '+S2+'/>'+
+      '<path d="M131 152c-9-5-19-8-29-8l0 6c9 0 18 3 26 7z" '+S2+'/>'+
+      '<path d="M73 178c8-5 16-8 25-8l0 5c-8 0-15 3-22 7z" '+S2+'/>'+
+      '<path d="M127 178c-8-5-16-8-25-8l0 5c8 0 15 3 22 7z" '+S2+'/>'+
+      '<path d="M66 138c-4 6-6 12-6 18l6 1c0-6 2-12 5-17z" '+S3+'/>'+
+      '<path d="M134 138c4 6 6 12 6 18l-6 1c0-6-2-12-5-17z" '+S3+'/>'+
+      '<path d="M53 130c-6 9-8 19-7 28l5-1c-1-9 1-18 6-26z" '+S1+'/>'+
+      '<path d="M147 130c6 9 8 19 7 28l-5-1c1-9-1-18-6-26z" '+S1+'/>'+
+      '<path d="M55 152c-4 12-6 25-6 37l5 0c0-12 2-24 5-35z" '+S1+'/>'+
+      '<path d="M145 152c4 12 6 25 6 37l-5 0c0-12-2-24-5-35z" '+S1+'/>'+
+      '<path d="M45 206c-3 14-6 32-7 47l5 1c2-16 4-33 7-46z" '+S1+'/>'+
+      '<path d="M155 206c3 14 6 32 7 47l-5 1c-2-16-4-33-7-46z" '+S1+'/>'+
+      '<path d="M85 192c5-2 11-2 15 0l0 4c-5-1-10-1-15 0z" '+S2+'/>'+
+      '<path d="M115 192c-5-2-11-2-15 0l0 4c5-1 10-1 15 0z" '+S2+'/>'+
+      '<path d="M85 210c5-2 11-2 15 0l0 4c-5-1-10-1-15 0z" '+S2+'/>'+
+      '<path d="M115 210c-5-2-11-2-15 0l0 4c5-1 10-1 15 0z" '+S2+'/>'+
+      '<path d="M86 228c5-2 10-2 14 0l0 4c-5-1-9-1-14 0z" '+S2+'/>'+
+      '<path d="M114 228c-5-2-10-2-14 0l0 4c5-1 9-1 14 0z" '+S2+'/>'+
+      '<path d="M83 180c-4 15-5 32-4 47l5 0c-1-15 0-31 3-45z" '+S1+'/>'+
+      '<path d="M117 180c4 15 5 32 4 47l-5 0c1-15 0-31-3-45z" '+S1+'/>'+
+      '<path d="M70 240c20 5 40 5 60 0l1 5c-20 5-42 5-62 0z" '+S2+'/>'+
+      '<path d="M74 252c-2 8-2 16-1 23l5-1c-1-7-1-14 1-21z" '+S1+'/>'+
+      '<path d="M126 252c2 8 2 16 1 23l-5-1c1-7 1-14-1-21z" '+S1+'/>'+
+      '<path d="M68 266c-6 20-7 42-5 61l5-1c-2-19-1-40 5-59z" '+S1+'/>'+
+      '<path d="M132 266c6 20 7 42 5 61l-5-1c2-19 1-40-5-59z" '+S1+'/>'+
+      '<path d="M88 300c-4 13-5 28-3 40l5-1c-2-12-1-26 3-38z" '+S1+'/>'+
+      '<path d="M112 300c4 13 5 28 3 40l-5-1c2-12 1-26-3-38z" '+S1+'/>'+
+      '<path d="M72 356c-2 8-2 15-1 21l5 0c-1-6-1-13 1-20z" '+S2+'/>'+
+      '<path d="M128 356c2 8 2 15 1 21l-5 0c1-6 1-13-1-20z" '+S2+'/>'+
+      '<path d="M79 374c-3 13-4 27-2 38l5-1c-2-11-1-24 2-36z" '+S1+'/>'+
+      '<path d="M121 374c3 13 4 27 2 38l-5-1c2-11 1-24-2-36z" '+S1+'/>'+
+      '<path d="M88 96c8-3 16-3 24 0l-2 5c-7-2-13-2-20 0z" '+HI+'/>'+
+      '<path d="M92 82c5 2 11 2 16 0l1 6c-6 2-12 2-18 0z" '+S1+'/>'+
+    '</g>'+
+
+    '<g class="anat-contour">'+
+      '<path d="M100 100c2 28 2 92 0 140" '+L1+'/>'+
+      '<path d="M86 194c5 4 23 4 28 0" '+L1+'/>'+
+      '<path d="M85 212c6 4 24 4 30 0" '+L1+'/>'+
+      '<path d="M87 230c5 3 21 3 26 0" '+L1+'/>'+
+      '<path d="M69 141c9-6 19-9 29-9" '+L1+'/>'+
+      '<path d="M131 141c-9-6-19-9-29-9" '+L1+'/>'+
+      '<path d="M74 175c8-6 16-9 24-9" '+L1+'/>'+
+      '<path d="M126 175c-8-6-16-9-24-9" '+L1+'/>'+
+      '<path d="M72 112c8-6 17-9 26-9" '+L2+'/>'+
+      '<path d="M128 112c-8-6-17-9-26-9" '+L2+'/>'+
+      '<path d="M70 104c-4 10-6 22-5 34" '+L1+'/>'+
+      '<path d="M130 104c4 10 6 22 5 34" '+L1+'/>'+
+      '<path d="M57 130c-3 11-4 22-3 32" '+L2+'/>'+
+      '<path d="M143 130c3 11 4 22 3 32" '+L2+'/>'+
+      '<path d="M61 148c-2 13-2 25 0 35" '+L2+'/>'+
+      '<path d="M139 148c2 13 2 25 0 35" '+L2+'/>'+
+      '<path d="M48 196c-3 16-5 34-6 50" '+L2+'/>'+
+      '<path d="M152 196c3 16 5 34 6 50" '+L2+'/>'+
+      '<path d="M66 140c4 7 6 14 6 21" '+L1+'/>'+
+      '<path d="M134 140c-4 7-6 14-6 21" '+L1+'/>'+
+      '<path d="M82 178c-4 16-5 34-4 50" '+L2+'/>'+
+      '<path d="M118 178c4 16 5 34 4 50" '+L2+'/>'+
+      '<path d="M76 264c-4 26-5 54-2 78" '+L1+'/>'+
+      '<path d="M124 264c4 26 5 54 2 78" '+L1+'/>'+
+      '<path d="M90 300c-3 16-3 33-1 46" '+L1+'/>'+
+      '<path d="M110 300c3 16 3 33 1 46" '+L1+'/>'+
+      '<path d="M68 264c-6 20-7 42-5 62" '+L2+'/>'+
+      '<path d="M132 264c6 20 7 42 5 62" '+L2+'/>'+
+      '<path d="M71 352c2 8 6 14 11 17" '+L2+'/>'+
+      '<path d="M129 352c-2 8-6 14-11 17" '+L2+'/>'+
+      '<path d="M80 372c-3 14-4 28-2 40" '+L2+'/>'+
+      '<path d="M120 372c3 14 4 28 2 40" '+L2+'/>'+
+      '<path d="M93 80c-2 6-4 10-7 13" '+L2+'/>'+
+      '<path d="M107 80c2 6 4 10 7 13" '+L2+'/>'+
+      '<path d="M78 106c7-4 14-6 22-6M76 116c8-4 15-6 22-6" '+FB+'/>'+
+      '<path d="M122 106c-7-4-14-6-22-6M124 116c-8-4-15-6-22-6" '+FB+'/>'+
+      '<path d="M76 136c8-4 15-6 22-6M77 146c7-4 14-6 21-6" '+FB+'/>'+
+      '<path d="M124 136c-8-4-15-6-22-6M123 146c-7-4-14-6-21-6" '+FB+'/>'+
+      '<path d="M70 272c-4 22-5 44-3 62M82 270c-3 22-3 44-1 60" '+FB+'/>'+
+      '<path d="M130 272c4 22 5 44 3 62M118 270c3 22 3 44 1 60" '+FB+'/>'+
+    '</g>';
+
+    /* ═════════════════════ POSTERIOR ═════════════════════ */
+    var B =
+    '<g class="anat-base">'+
+      '<path d="M100 14c-13 0-21 11-21 26 0 9 2 17 6 22 3 4 5 7 5 11l-1 5h22l-1-5c0-4 2-7 5-11 4-5 6-13 6-22 0-15-8-26-21-26z" data-region="head"/>'+
+      '<path d="M91 78c6 3 12 3 18 0l1 14c-3 5-8 8-10 12-2-4-7-7-10-12z" data-region="base"/>'+
+      '<path d="M100 88c11 0 20 5 26 12 12 5 22 12 28 22 6 10 8 22 5 32-4 6-10 4-14-2-3 14-5 22-6 30-2 22-4 44-6 64-1 12 1 20 1 30-10 7-22 9-34 9s-24-2-34-9c0-10 2-18 1-30-2-20-4-42-6-64-1-8-3-16-6-30-4 6-10 8-14 2-3-10-1-22 5-32 6-10 16-17 28-22 6-7 15-12 26-12z" data-region="base"/>'+
+      '<path d="M54 140c-5 12-9 26-12 42-3 17-6 36-8 54-1 11-2 20-1 28 4 6 11 6 15 1 2-11 3-22 5-34 3-19 6-38 9-56 2-13 2-25-1-35z" data-region="base"/>'+
+      '<path d="M146 140c5 12 9 26 12 42 3 17 6 36 8 54 1 11 2 20 1 28-4 6-11 6-15 1-2-11-3-22-5-34-3-19-6-38-9-56-2-13-2-25 1-35z" data-region="base"/>'+
+      '<path d="M33 266c-3 9-5 19-4 27 2 8 9 10 14 5 2-8 3-19 4-30z" data-region="base"/>'+
+      '<path d="M167 266c3 9 5 19 4 27-2 8-9 10-14 5-2-8-3-19-4-30z" data-region="base"/>'+
+      '<path d="M66 258c-7 28-9 58-7 86 2 25 5 49 7 73 1 19 2 34 1 45 8 6 20 6 27 0 1-15 2-31 2-48 1-27 2-53 3-79 1-28 1-53 1-77z" data-region="base"/>'+
+      '<path d="M134 258c7 28 9 58 7 86-2 25-5 49-7 73-1 19-2 34-1 45-8 6-20 6-27 0-1-15-2-31-2-48-1-27-2-53-3-79-1-28-1-53-1-77z" data-region="base"/>'+
+      '<path d="M67 462c9 3 18 3 26 0 2 5 3 9 6 11 3 2 5 4 4 6-11 2-25 2-36 0-2-6-1-12 0-17z" data-region="base"/>'+
+      '<path d="M133 462c-9 3-18 3-26 0-2 5-3 9-6 11-3 2-5 4-4 6 11 2 25 2 36 0 2-6 1-12 0-17z" data-region="base"/>'+
+      // short mas alto atras: deja el gluteo a la vista
+      '<path d="M70 282c20 5 40 5 60 0 3 8 3 16 1 23-5 3-11 5-17 6-3-4-6-8-8-12-2 4-5 8-8 12-6-1-12-3-17-6-2-7-2-15-1-23z" '+SHORT+'/>'+
+    '</g>'+
+
+    '<g class="anat-regions">'+
+      // trapecio: rombo completo
+      '<path d="M100 88c12 0 23 5 31 13-8 7-16 12-24 15-9-3-16-4-16-4z" data-region="traps"/>'+
+      '<path d="M100 88c-12 0-23 5-31 13 8 7 16 12 24 15 9-3 16-4 16-4z" data-region="traps"/>'+
+      '<path d="M100 118c9 0 18 2 25 6-4 19-9 36-15 46-5-4-8-9-10-13z" data-region="traps"/>'+
+      '<path d="M100 118c-9 0-18 2-25 6 4 19 9 36 15 46 5-4 8-9 10-13z" data-region="traps"/>'+
+      // romboides
+      '<path d="M98 124c-8 1-15 3-20 6 2 13 5 24 9 32 4-4 8-7 11-11z" data-region="rhomboids"/>'+
+      '<path d="M102 124c8 1 15 3 20 6-2 13-5 24-9 32-4-4-8-7-11-11z" data-region="rhomboids"/>'+
+      // deltoides posterior + lateral
+      '<path d="M70 104c-11 4-19 12-23 23-3 9-2 17 2 22 7-1 12-8 14-18 2-11 4-20 7-27z" data-region="shoulder-rear"/>'+
+      '<path d="M130 104c11 4 19 12 23 23 3 9 2 17-2 22-7-1-12-8-14-18-2-11-4-20-7-27z" data-region="shoulder-rear"/>'+
+      '<path d="M47 127c-8 9-11 21-9 32 2 8 6 11 10 9 1-8 1-17 1-25 0-7 0-12-2-16z" data-region="shoulder-lateral"/>'+
+      '<path d="M153 127c8 9 11 21 9 32-2 8-6 11-10 9-1-8-1-17-1-25 0-7 0-12 2-16z" data-region="shoulder-lateral"/>'+
+      // dorsales: alas en V que nacen en la axila
+      '<path d="M72 126c-7 32-6 66 5 94 9-5 17-11 23-18-7-22-10-45-10-66-6-4-12-7-18-10z" data-region="lats"/>'+
+      '<path d="M128 126c7 32 6 66-5 94-9-5-17-11-23-18 7-22 10-45 10-66 6-4 12-7 18-10z" data-region="lats"/>'+
+      // erectores
+      '<path d="M90 208c-6 14-8 32-6 48 2 12 7 18 13 15 2-16 2-34 1-48-1-9-4-16-8-15z" data-region="lower-back"/>'+
+      '<path d="M110 208c6 14 8 32 6 48-2 12-7 18-13 15-2-16-2-34-1-48 1-9 4-16 8-15z" data-region="lower-back"/>'+
+      // triceps: tres cabezas
+      '<path d="M60 144c-5 12-8 27-10 43-1 9 1 15 5 15 4-4 7-13 8-23 2-15 1-28-3-35z" data-region="triceps-long"/>'+
+      '<path d="M140 144c5 12 8 27 10 43 1 9-1 15-5 15-4-4-7-13-8-23-2-15-1-28 3-35z" data-region="triceps-long"/>'+
+      '<path d="M49 138c-5 10-8 21-9 33-1 8 1 13 5 13 3-3 5-11 6-19 1-12 1-22-2-27z" data-region="triceps-lateral"/>'+
+      '<path d="M151 138c5 10 8 21 9 33 1 8-1 13-5 13-3-3-5-11-6-19-1-12-1-22 2-27z" data-region="triceps-lateral"/>'+
+      '<path d="M51 186c-3 9-5 18-5 26 0 7 2 11 5 10 3-3 5-10 5-17 0-8-2-16-5-19z" data-region="triceps-medial"/>'+
+      '<path d="M149 186c3 9 5 18 5 26 0 7-2 11-5 10-3-3-5-10-5-17 0-8 2-16 5-19z" data-region="triceps-medial"/>'+
+      '<path d="M43 202c-3 8-6 19-8 31-3 16-5 30-6 40-1 8 1 13 4 12 3-3 5-11 7-22 3-18 5-38 6-52-1-4-2-7-3-9z" data-region="forearms"/>'+
+      '<path d="M157 202c3 8 6 19 8 31 3 16 5 30 6 40 1 8-1 13-4 12-3-3-5-11-7-22-3-18-5-38-6-52 1-4 2-7 3-9z" data-region="forearms"/>'+
+      '<path d="M80 194c-4 14-6 30-5 46 1 10 4 16 8 16 1-16 1-32 0-46-1-8-2-14-3-16z" data-region="obliques"/>'+
+      '<path d="M120 194c4 14 6 30 5 46-1 10-4 16-8 16-1-16-1-32 0-46 1-8 2-14 3-16z" data-region="obliques"/>'+
+      // gluteos
+      '<path d="M98 250c-14-1-25 5-31 17-5 10-4 22 4 29 8 7 19 8 27 4z" data-region="glutes"/>'+
+      '<path d="M102 250c14-1 25 5 31 17 5 10 4 22-4 29-8 7-19 8-27 4z" data-region="glutes"/>'+
+      // isquios: dos vientres por pierna
+      '<path d="M71 306c-5 22-6 46-3 66 2 14 7 22 12 21 2-16 1-36-1-54-2-16-4-28-8-33z" data-region="hamstrings"/>'+
+      '<path d="M87 304c3 22 4 46 2 66-2 14-6 22-11 21-2-16-1-36 1-54 2-16 5-28 8-33z" data-region="hamstrings"/>'+
+      '<path d="M129 306c5 22 6 46 3 66-2 14-7 22-12 21-2-16-1-36 1-54 2-16 4-28 8-33z" data-region="hamstrings"/>'+
+      '<path d="M113 304c-3 22-4 46-2 66 2 14 6 22 11 21 2-16 1-36-1-54-2-16-5-28-8-33z" data-region="hamstrings"/>'+
+      // gemelos: rombo con dos cabezas
+      '<path d="M73 372c-5 14-6 30-3 42 2 11 7 15 11 11 1-16-1-31-4-42-1-7-3-12-4-11z" data-region="calves-gastro"/>'+
+      '<path d="M89 372c4 14 5 30 2 42-2 11-7 15-11 11-1-16 1-31 4-42 1-7 3-12 5-11z" data-region="calves-gastro"/>'+
+      '<path d="M127 372c5 14 6 30 3 42-2 11-7 15-11 11-1-16 1-31 4-42 1-7 3-12 4-11z" data-region="calves-gastro"/>'+
+      '<path d="M111 372c-4 14-5 30-2 42 2 11 7 15 11 11 1-16-1-31-4-42-1-7-3-12-5-11z" data-region="calves-gastro"/>'+
+      '<path d="M74 414c-4 12-5 25-3 33 2 8 7 10 10 6 1-12 0-25-3-33-1-5-3-8-4-6z" data-region="calves-soleus"/>'+
+      '<path d="M126 414c4 12 5 25 3 33-2 8-7 10-10 6-1-12 0-25 3-33 1-5 3-8 4-6z" data-region="calves-soleus"/>'+
+    '</g>'+
+
+    '<g class="anat-shade">'+
+      '<path d="M99 88c1 0 1 0 2 0l0 172c-1 0-1 0-2 0z" '+S3+'/>'+
+      '<path d="M72 128c-6 30-5 62 4 90l5-2c-8-27-9-58-4-86z" '+S2+'/>'+
+      '<path d="M128 128c6 30 5 62-4 90l-5-2c8-27 9-58 4-86z" '+S2+'/>'+
+      '<path d="M69 101c8-7 19-12 31-12l0 5c-10 0-20 4-27 10z" '+S2+'/>'+
+      '<path d="M131 101c-8-7-19-12-31-12l0 5c10 0 20 4 27 10z" '+S2+'/>'+
+      '<path d="M75 124c8-4 16-6 25-6l0 5c-8 0-15 2-22 5z" '+S2+'/>'+
+      '<path d="M125 124c-8-4-16-6-25-6l0 5c8 0 15 2 22 5z" '+S2+'/>'+
+      '<path d="M66 138c-4 6-6 12-6 18l6 1c0-6 2-12 5-17z" '+S3+'/>'+
+      '<path d="M134 138c4 6 6 12 6 18l-6 1c0-6-2-12-5-17z" '+S3+'/>'+
+      '<path d="M53 130c-6 9-8 19-7 28l5-1c-1-9 1-18 6-26z" '+S1+'/>'+
+      '<path d="M147 130c6 9 8 19 7 28l-5-1c1-9-1-18-6-26z" '+S1+'/>'+
+      '<path d="M58 152c-4 12-6 25-6 37l5 0c0-12 2-24 5-35z" '+S1+'/>'+
+      '<path d="M142 152c4 12 6 25 6 37l-5 0c0-12-2-24-5-35z" '+S1+'/>'+
+      '<path d="M45 206c-3 14-6 32-7 47l5 1c2-16 4-33 7-46z" '+S1+'/>'+
+      '<path d="M155 206c3 14 6 32 7 47l-5 1c-2-16-4-33-7-46z" '+S1+'/>'+
+      '<path d="M91 210c-5 14-6 31-4 46l5-1c-2-15-1-31 3-44z" '+S1+'/>'+
+      '<path d="M109 210c5 14 6 31 4 46l-5-1c2-15 1-31-3-44z" '+S1+'/>'+
+      '<path d="M70 286c20 5 40 5 60 0l1 5c-20 5-42 5-62 0z" '+S2+'/>'+
+      '<path d="M99 250c1 0 1 0 2 0l0 50c-1 0-1 0-2 0z" '+S3+'/>'+
+      '<path d="M69 262c-6 11-5 23 3 30l4-3c-6-6-7-16-2-25z" '+S1+'/>'+
+      '<path d="M131 262c6 11 5 23-3 30l-4-3c6-6 7-16 2-25z" '+S1+'/>'+
+      '<path d="M85 306c3 22 4 44 2 62l5-1c2-19 1-41-2-62z" '+S2+'/>'+
+      '<path d="M115 306c-3 22-4 44-2 62l-5-1c-2-19-1-41 2-62z" '+S2+'/>'+
+      '<path d="M73 312c-4 22-5 44-3 62l5-1c-2-20-1-41 3-60z" '+S1+'/>'+
+      '<path d="M127 312c4 22 5 44 3 62l-5-1c2-20 1-41-3-60z" '+S1+'/>'+
+      '<path d="M81 376c3 14 4 28 2 38l-5-1c2-10 1-24-2-36z" '+S2+'/>'+
+      '<path d="M119 376c-3 14-4 28-2 38l5-1c-2-10-1-24 2-36z" '+S2+'/>'+
+      '<path d="M75 418c-3 11-4 22-2 30l5-1c-2-8-1-18 2-28z" '+S1+'/>'+
+      '<path d="M125 418c3 11 4 22 2 30l-5-1c2-8 1-18-2-28z" '+S1+'/>'+
+      '<path d="M88 92c8-3 16-3 24 0l-2 5c-7-2-13-2-20 0z" '+HI+'/>'+
+      '<path d="M92 82c5 2 11 2 16 0l1 6c-6 2-12 2-18 0z" '+S1+'/>'+
+      '<path d="M66 352c2 8 6 14 11 17l-2 4c-6-4-10-11-13-20z" '+S1+'/>'+
+      '<path d="M134 352c-2 8-6 14-11 17l2 4c6-4 10-11 13-20z" '+S1+'/>'+
+      '<path d="M78 448c6 2 13 2 19 0l1 5c-7 2-14 2-21 0z" '+S1+'/>'+
+      '<path d="M122 448c-6 2-13 2-19 0l-1 5c7 2 14 2 21 0z" '+S1+'/>'+
+    '</g>'+
+
+    '<g class="anat-contour">'+
+      '<path d="M100 88c2 40 2 130 0 172" '+L1+'/>'+
+      '<path d="M69 101c9-8 20-13 31-13c11 0 22 5 31 13" '+L1+'/>'+
+      '<path d="M75 124c8-4 16-6 25-6c9 0 17 2 25 6" '+L1+'/>'+
+      '<path d="M78 130c-2 13 0 24 5 33" '+L2+'/>'+
+      '<path d="M122 130c2 13 0 24-5 33" '+L2+'/>'+
+      '<path d="M72 126c-7 32-6 66 5 94" '+L1+'/>'+
+      '<path d="M128 126c7 32 6 66-5 94" '+L1+'/>'+
+      '<path d="M91 210c-5 14-6 32-4 48" '+L1+'/>'+
+      '<path d="M109 210c5 14 6 32 4 48" '+L1+'/>'+
+      '<path d="M70 104c-4 10-6 22-5 34" '+L1+'/>'+
+      '<path d="M130 104c4 10 6 22 5 34" '+L1+'/>'+
+      '<path d="M57 134c-3 11-4 22-3 32" '+L2+'/>'+
+      '<path d="M143 134c3 11 4 22 3 32" '+L2+'/>'+
+      '<path d="M58 150c-2 13-3 26-1 36" '+L2+'/>'+
+      '<path d="M142 150c2 13 3 26 1 36" '+L2+'/>'+
+      '<path d="M48 196c-3 16-5 34-6 50" '+L2+'/>'+
+      '<path d="M152 196c3 16 5 34 6 50" '+L2+'/>'+
+      '<path d="M66 140c4 7 6 14 6 21" '+L1+'/>'+
+      '<path d="M134 140c-4 7-6 14-6 21" '+L1+'/>'+
+      '<path d="M80 196c-4 15-5 32-4 48" '+L2+'/>'+
+      '<path d="M120 196c4 15 5 32 4 48" '+L2+'/>'+
+      '<path d="M69 264c-6 11-5 23 3 30" '+L1+'/>'+
+      '<path d="M131 264c6 11 5 23-3 30" '+L1+'/>'+
+      '<path d="M85 306c3 22 4 44 2 62" '+L1+'/>'+
+      '<path d="M115 306c-3 22-4 44-2 62" '+L1+'/>'+
+      '<path d="M73 312c-4 22-5 44-3 62" '+L2+'/>'+
+      '<path d="M127 312c4 22 5 44 3 62" '+L2+'/>'+
+      '<path d="M81 376c3 14 4 28 2 38" '+L1+'/>'+
+      '<path d="M119 376c-3 14-4 28-2 38" '+L1+'/>'+
+      '<path d="M75 414c-3 12-4 25-2 33" '+L2+'/>'+
+      '<path d="M125 414c3 12 4 25 2 33" '+L2+'/>'+
+      '<path d="M93 80c-2 6-4 10-7 13" '+L2+'/>'+
+      '<path d="M107 80c2 6 4 10 7 13" '+L2+'/>'+
+      '<path d="M78 98c7-5 14-8 22-8M74 108c8-5 16-8 26-8" '+FB+'/>'+
+      '<path d="M122 98c-7-5-14-8-22-8M126 108c-8-5-16-8-26-8" '+FB+'/>'+
+      '<path d="M76 140c7 28 14 48 24 60M80 134c6 30 12 50 20 62" '+FB+'/>'+
+      '<path d="M124 140c-7 28-14 48-24 60M120 134c-6 30-12 50-20 62" '+FB+'/>'+
+      '<path d="M75 260c-5 9-4 19 2 25M85 256c-4 11-3 22 2 29" '+FB+'/>'+
+      '<path d="M125 260c5 9 4 19-2 25M115 256c4 11 3 22-2 29" '+FB+'/>'+
+      '<path d="M75 314c-3 20-3 40-1 56M83 312c-2 20-2 40 0 56" '+FB+'/>'+
+      '<path d="M125 314c3 20 3 40 1 56M117 312c2 20 2 40 0 56" '+FB+'/>'+
+    '</g>';
+
+    BODY_ART.front = F; BODY_ART.back = B;
+  })();
+  // V32: el resaltado pasa de --danger (rojo) a --accent (naranja). La escala
+  // sigue siendo continua: la intensidad de MUSCLE_MAP (0..1) se mezcla con el
+  // gris de fondo, así principal / secundario / participación baja se leen sin
+  // necesidad de escalones discretos.
+  // V32 · el músculo APAGADO usa su propia variable en vez de var(--border).
+  // Estrategia tonal (revisada contra la referencia anatómica): el cuerpo se
+  // lee como UNA masa continua, así que --muscle-off queda a solo ~10 puntos
+  // de luminancia de --muscle-base. La musculatura no se percibe por parches
+  // de distinto gris — eso daba aspecto de mapa técnico — sino por los surcos
+  // y el volumen de anat-shade / anat-contour. --muscle-base sí se mantiene
+  // bien separado del fondo de la fila (~80) para que la silueta se vea.
+  // Lo que destaca en naranja es únicamente el músculo TRABAJADO.
+  // La rama ACTIVA no se toca: sigue mezclando contra var(--border), así que
+  // los colores e intensidades de los músculos trabajados son idénticos.
   function regionFillCss(intensity){
     return intensity>0
-      ? `color-mix(in srgb, var(--danger) ${Math.round(Math.min(1,intensity)*100)}%, var(--border))`
-      : "var(--border)";
+      ? `color-mix(in srgb, var(--accent) ${Math.round(Math.min(1,intensity)*100)}%, var(--border))`
+      : "var(--muscle-off)";
   }
 
-  function bodyDiagramSvg(diagramKey, targets){
-    const d = BODY_DIAGRAMS[diagramKey];
-    if(!d) return "";
+  // ---- V32: qué vista dibuja cada región ----
+  // Tabla DERIVADA: no reclasifica nada ni toca MUSCLE_MAP. Solo dice en qué
+  // vista vive cada una de las 26 claves de siempre, para poder elegir una
+  // sola vista en las miniaturas.
+  const REGION_VIEW = {
+    "chest-upper":"front", "chest-mid":"front", "chest-lower":"front",
+    "shoulder-front":"front", "biceps-long":"front", "biceps-short":"front",
+    "abs":"front", "quads-front":"front", "quads-outer":"front",
+    "quads-inner":"front", "adductors":"front",
+    "shoulder-lateral":"front", "forearms":"front", "obliques":"front",
+    "traps":"back", "rhomboids":"back", "lats":"back", "lower-back":"back",
+    "shoulder-rear":"back", "triceps-long":"back", "triceps-lateral":"back",
+    "triceps-medial":"back", "glutes":"back", "hamstrings":"back",
+    "calves-soleus":"back", "calves-gastro":"back",
+  };
+  // Regiones dibujadas en AMBAS vistas (el deltoide lateral y el antebrazo se
+  // ven de los dos lados). Como el reemplazo de fill es global por clave, se
+  // pintan solas y coherentes en las dos figuras.
+  const SHARED_REGIONS = ["shoulder-lateral","traps","forearms","obliques","calves-gastro"];
+  // Una vista entra en la ficha grande si acumula al menos esta intensidad.
+  // Evita que un estabilizador suelto abra una figura entera.
+  const VIEW_RELEVANCE_MIN = 0.25;
+  const ANAT_VIEWS = ["front","back"];
+
+  function viewWeights(list){
+    const w = { front:0, back:0 };
+    (list||[]).forEach(x=>{ const v = REGION_VIEW[x.region]; if(v) w[v] += x.intensity; });
+    return w;
+  }
+  // Miniaturas: una sola vista, la de mayor carga. Empate → frontal.
+  function dominantView(list){
+    const w = viewWeights(list);
+    return w.back > w.front ? "back" : "front";
+  }
+  // Ficha grande: las vistas con trabajo relevante. Siempre incluye la
+  // dominante, así nunca queda vacía.
+  function viewsForRegions(list){
+    const w = viewWeights(list), dom = dominantView(list);
+    const out = ANAT_VIEWS.filter(v=> w[v] >= VIEW_RELEVANCE_MIN);
+    if(out.indexOf(dom)===-1) out.unshift(dom);
+    return out.length ? out : [dom];
+  }
+
+  // Pinta UNA vista. Misma mecánica de reemplazo global de siempre.
+  function anatViewSvg(viewKey, targets){
+    const shapes = BODY_ART[viewKey];
+    if(!shapes) return "";
     const map = new Map((targets||[]).map(x=> Array.isArray(x) ? x : [x.region, x.intensity]));
-    const colored = d.shapes.replace(/data-region="([\w-]+)"/g, (m, region)=>{
+    const colored = shapes.replace(/data-region="([\w-]+)"/g, (m, region)=>{
+      // V32: el cuerpo base usa su propio token. Antes era var(--surface-2),
+      // que es EXACTAMENTE el fondo de .exrow y también el de .howto-pic: la
+      // diferencia de luminancia era 0 y la silueta (cabeza, torso, brazos,
+      // piernas) desaparecía contra el fondo en los dos contextos, dejando los
+      // músculos flotando sueltos. --muscle-base la separa del fondo sin tocar
+      // ni el color de los músculos activos ni el del músculo apagado.
       const isBase = region==="base" || region==="head";
-      if(isBase) return `data-region="${region}" fill="var(--surface-2)"`;
+      if(isBase) return `data-region="${region}" fill="var(--muscle-base)"`;
       const intensity = map.has(region) ? map.get(region) : 0;
       return `data-region="${region}" fill="${regionFillCss(intensity)}"`;
     });
-    return `<svg viewBox="${d.viewBox}" style="width:100%; height:100%">${colored}</svg>`;
+    return `<svg viewBox="${BODY_ART.viewBox}" data-view="${viewKey}" style="width:100%; height:100%; display:block">${colored}</svg>`;
+  }
+  // 1 o 2 vistas, una al lado de la otra.
+  function bodyDiagramSvg(views, targets){
+    const vs = Array.isArray(views) ? views : [views];
+    return `<div class="anat-fig">${vs.map(v=>anatViewSvg(v, targets)).join("")}</div>`;
   }
 
-  // Versión grande para el modal "Cómo hacerlo": el mismo diagrama, pero con
-  // una lineita + etiqueta de texto sobre cada parte que trabaja en ESTE
-  // ejercicio (solo las regiones con intensidad > 0, para no saturar).
-  function bodyDiagramSvgLabeled(diagramKey, targets){
-    const d = BODY_DIAGRAMS[diagramKey];
-    if(!d) return "";
-    const list = (targets||[]).map(x=> Array.isArray(x) ? {region:x[0], intensity:x[1]} : x);
-    const map = new Map(list.map(x=>[x.region, x.intensity]));
-    const colored = d.shapes.replace(/data-region="([\w-]+)"/g, (m, region)=>{
-      const isBase = region==="base" || region==="head";
-      if(isBase) return `data-region="${region}" fill="var(--surface-2)"`;
-      const intensity = map.has(region) ? map.get(region) : 0;
-      return `data-region="${region}" fill="${regionFillCss(intensity)}"`;
-    });
-    const geom = LABEL_GEOM[diagramKey] || {};
-    const labels = list
-      .filter(x=>x.intensity>0 && geom[x.region])
-      .map(x=>{
-        const g = geom[x.region];
-        const text = MUSCLE_LABELS_SHORT[x.region] || MUSCLE_LABELS[x.region] || x.region;
-        const fill = regionFillCss(x.intensity);
-        return `
-          <line x1="${g.cx}" y1="${g.cy}" x2="${g.lx}" y2="${g.ly}" style="stroke:var(--text-muted); stroke-width:.6; opacity:.6"/>
-          <circle cx="${g.cx}" cy="${g.cy}" r="2.1" fill="${fill}" style="stroke:var(--surface); stroke-width:.6"/>
-          <text x="${g.lx}" y="${g.ly}" text-anchor="${g.anchor}" dominant-baseline="middle"
-                style="font:700 5.4px 'Nunito',sans-serif; fill:var(--text); paint-order:stroke; stroke:var(--surface); stroke-width:2.4px; stroke-linejoin:round">${esc(text)}</text>
-        `;
-      }).join("");
-    return `<svg viewBox="${d.viewBox}" style="width:100%; height:100%; overflow:visible">${colored}${labels}</svg>`;
+  // V32: las etiquetas de texto salen del SVG.
+  // Con el cuerpo entero la figura ocupa todo el ancho del viewBox (el margen
+  // libre junto a brazos y torso es de 24 unidades, y la etiqueta más larga
+  // necesita 78 a un tamaño legible), así que ya no hay lugar para ponerlas
+  // adentro — y con dos vistas se pisarían entre sí. Se reemplazan por una
+  // leyenda HTML debajo del dibujo: se lee a cualquier tamaño, respeta el tema
+  // y deja el SVG sin <text>, que es lo que pedía el contrato del arte.
+  function muscleLegendHtml(list){
+    const act = (list||[]).filter(x=>x.intensity>0).slice().sort((a,b)=>b.intensity-a.intensity);
+    if(!act.length) return "";
+    return `<div class="muscle-legend">${act.map(x=>{
+      const text = MUSCLE_LABELS_SHORT[x.region] || MUSCLE_LABELS[x.region] || x.region;
+      return `<span><i style="background:${regionFillCss(x.intensity)}"></i>${esc(text)}</span>`;
+    }).join("")}</div>`;
   }
 
   // Fotos "oficiales" cargadas por Juan para toda la app (no dependen de que
@@ -1692,6 +2001,43 @@
     return EXERCISE_IMAGES[canonicalExerciseName(exerciseName)] || null;
   }
 
+  // ---- Láminas anatómicas cargadas como archivo ----
+  // Imagen FIJA por ejercicio, no generada: cuando un ejercicio tiene lámina
+  // propia, la ficha la muestra tal cual en lugar del diagrama SVG. Es una
+  // tabla de archivos reales; no toca MUSCLE_MAP, ni las intensidades, ni el
+  // diagrama del resto de los ejercicios, que siguen usando bodyDiagramSvg.
+  // Indexada por nombre CANÓNICO, así los alias la encuentran solos (p. ej.
+  // "Press banca plano" resuelve a "Press de banca con barra").
+  // Varias variantes comparten la misma lámina (el gesto anatómico es el
+  // mismo): el archivo existe una sola vez y los ejercicios apuntan a él.
+  const ANATOMY_PLANO      = "ejercicios/anatomia/press-de-banca-plano-anatomia.png";
+  const ANATOMY_INCLINADO  = "ejercicios/anatomia/press-de-banca-inclinado-anatomia.png";
+  const ANATOMY_DECLINADO  = "ejercicios/anatomia/press-de-banca-declinado-anatomia.png";
+  const ANATOMY_APER_PLANO = "ejercicios/anatomia/aperturas-pecho-mancuernas-banco-plano-anatomia.png";
+  const ANATOMY_APER_INCL  = "ejercicios/anatomia/aperturas-pecho-mancuernas-banco-inclinado-anatomia.png";
+  const ANATOMY_FLEXIONES  = "ejercicios/anatomia/flexiones-de-brazo-anatomia.png";
+  const EXERCISE_ANATOMY_IMAGES = {
+    // Pecho — las 13 fichas del grupo.
+    "Press de banca con barra":                            ANATOMY_PLANO,
+    "Press de banca plano en Smith":                       ANATOMY_PLANO,
+    "Press de pecho en polea":                             ANATOMY_PLANO,
+    "Press de banca inclinado con barra":                  ANATOMY_INCLINADO,
+    "Press de banca inclinado con mancuernas":             ANATOMY_INCLINADO,
+    "Press de banca inclinado en Smith":                   ANATOMY_INCLINADO,
+    "Press de banca declinado":                            ANATOMY_DECLINADO,
+    "Press de banca declinado en Smith":                   ANATOMY_DECLINADO,
+    "Aperturas de pecho con mancuernas en banco plano":    ANATOMY_APER_PLANO,
+    "Pec Fly":                                             ANATOMY_APER_PLANO,
+    "Aperturas de pecho con mancuernas en banco inclinado": ANATOMY_APER_INCL,
+    "Flexiones de brazo":                                  ANATOMY_FLEXIONES,
+    // Fondos inclinado apunta al pecho inferior (no a flexiones) para que la
+    // lámina coincida con la leyenda que sale de MUSCLE_MAP.
+    "Fondos inclinado":                                    ANATOMY_DECLINADO,
+  };
+  function exerciseAnatomyImageFor(exerciseName){
+    return EXERCISE_ANATOMY_IMAGES[canonicalExerciseName(exerciseName)] || null;
+  }
+
   // Videos cortos (mp4, en loop) de la ejecución real del ejercicio, mandados
   // por Juan. Se muestran SOLO en la ficha grande del ejercicio (pantalla de
   // detalle) en vez de la foto oficial, cuando existen — las miniaturas chicas
@@ -1741,10 +2087,19 @@
   // mantienen sin cambios en esta versión.
   const EXERCISE_HOWTO_LINKS = {
     "Press de banca con barra": "https://musclewiki.com/exercise/barbell-bench-press",
+    "Press de banca plano en Smith": "https://musclewiki.com/exercise/smith-machine-bench-press",
     "Press de banca inclinado con barra": "https://musclewiki.com/exercise/barbell-incline-bench-press",
     "Press de banca declinado": "https://musclewiki.com/exercise/barbell-decline-bench-press",
+    // MuscleWiki NO tiene press declinado en Smith: su categoría Smith/Chest
+    // son 4 ejercicios (bench press, guillotine, incline, pushup) y
+    // /exercise/smith-machine-decline-bench-press devuelve 404. Queda sin
+    // enlace a propósito: no se apunta al declinado con barra ni al Smith
+    // plano, que son ejercicios distintos.
     "Press de banca inclinado con mancuernas": "https://musclewiki.com/exercise/dumbbell-incline-bench-press",
+    "Press de banca inclinado en Smith": "https://musclewiki.com/exercise/smith-machine-incline-bench-press",
     "Aperturas de pecho con mancuernas en banco plano": "https://musclewiki.com/exercise/dumbbell-chest-fly",
+    "Aperturas de pecho con mancuernas en banco inclinado": "https://musclewiki.com/exercise/dumbbell-incline-chest-fly",
+    "Press de pecho en polea": "https://musclewiki.com/exercise/cable-chest-press",
     "Pec Fly": "https://musclewiki.com/exercise/machine-pec-fly",
     "Fondos inclinado": "https://musclewiki.com/exercise/parralel-bar-dips",
     "Flexiones de brazo": "https://musclewiki.com/exercise/push-up",
@@ -1966,7 +2321,11 @@
   function muscleTargets(exerciseName){
     const info = MUSCLE_MAP[canonicalExerciseName(exerciseName)];
     if(!info) return null;
-    return { diagram: info.diagram, list: info.t.map(([region,intensity])=>({region,intensity})).sort((a,b)=>b.intensity-a.intensity) };
+    // V32: `views` (1 o 2) y `dominant` (para miniaturas) reemplazan a la
+    // silueta única. `diagram` se conserva tal cual viene de MUSCLE_MAP —
+    // queda como dato histórico, ya no decide qué se dibuja.
+    const list = info.t.map(([region,intensity])=>({region,intensity})).sort((a,b)=>b.intensity-a.intensity);
+    return { diagram: info.diagram, list, views: viewsForRegions(list), dominant: dominantView(list) };
   }
 
   function muscleDiagramFor(exerciseName){
@@ -1976,7 +2335,7 @@
     const secondary = m.list.filter(x=>x.intensity<0.75).map(x=>MUSCLE_LABELS[x.region]||x.region);
     return `
       <div class="muscle-diagram">
-        <div class="muscle-diagram-pic">${bodyDiagramSvg(m.diagram, m.list)}</div>
+        <div class="muscle-diagram-pic">${bodyDiagramSvg([m.dominant], m.list)}</div>
         <div class="helptext" style="text-align:center">
           Principal: <b style="color:var(--text)">${esc(primary.join(" y "))}</b>${secondary.length?` · También: ${esc(secondary.join(", "))}`:""}
         </div>
@@ -1987,14 +2346,34 @@
   // Miniatura para listas (rutina/sesión): prioridad = imagen propia del
   // usuario (link pegado) > foto oficial cargada por Juan para ese ejercicio
   // > diagrama muscular automático.
-  function exerciseThumbHtml(ex, sizeStyle){
+  // V32: la foto y el diagrama ya no comparten caja. El diagrama de cuerpo
+  // entero es alto y angosto; una foto de ejercicio es apaisada. Si se mete la
+  // foto en la caja del diagrama queda diminuta y con dos franjas grises.
+  // `photoSizeStyle` le da a la foto una caja propia (más ancha y más baja);
+  // como el alto de la fila lo marca el diagrama, no cambia nada del layout.
+  // Si no se pasa, se usa la misma caja de siempre (comportamiento anterior).
+  function exerciseThumbHtml(ex, sizeStyle, photoSizeStyle){
     const url = (ex && ex.imagenUrl) || exerciseImageFor(ex ? ex.nombre : "");
     if(url){
-      return `<img src="${esc(url)}" style="${sizeStyle}; object-fit:contain; border-radius:8px; background:var(--surface-2)" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`;
+      return `<img src="${esc(url)}" style="${photoSizeStyle || sizeStyle}; object-fit:contain; border-radius:8px; background:var(--surface-2)" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`;
     }
-    const m = muscleTargets(ex ? ex.nombre : "");
+    // V32: si el ejercicio tiene lámina propia, la miniatura usa ESE mismo
+    // archivo en vez del diagrama SVG. Se resuelve con la MISMA función que la
+    // ficha (exerciseAnatomyImageFor → canónico + aliases), así que no hay un
+    // segundo mapa que mantener sincronizado.
+    // Va en la caja de la foto, no en la del diagrama: la lámina es casi
+    // cuadrada (1,07) y la caja del diagrama es alta y angosta (0,42), así que
+    // ahí quedaría diminuta. Son cajas que ya existen, no cambia el layout.
+    // object-fit:contain la encaja sin deformarla. `loading="lazy"` sí sirve
+    // acá (a diferencia de la ficha) porque la caja tiene alto explícito.
+    const nombre = ex ? ex.nombre : "";
+    const anatomyImg = exerciseAnatomyImageFor(nombre);
+    if(anatomyImg){
+      return `<img src="${esc(anatomyImg)}" style="${photoSizeStyle || sizeStyle}; object-fit:contain" alt="" loading="lazy">`;
+    }
+    const m = muscleTargets(nombre);
     if(!m) return "";
-    return `<div class="muscle-diagram-pic" style="${sizeStyle}">${bodyDiagramSvg(m.diagram, m.list)}</div>`;
+    return `<div class="muscle-diagram-pic" style="${sizeStyle}">${bodyDiagramSvg([m.dominant], m.list)}</div>`;
   }
 
   // V28: el gráfico de progreso pasa de graficar cada registro individual a
@@ -2141,11 +2520,21 @@
         <img src="${esc(photoUrl)}" class="howto-photo" alt="${esc(nombre)}" onerror="this.style.display='none'">
       </div>
     ` : "");
-    const diagramBlock = m ? `
-      <div style="display:flex; justify-content:center">
-        <div class="howto-pic howto-pic-labeled">${bodyDiagramSvgLabeled(m.diagram, m.list)}</div>
+    // Si el ejercicio tiene lámina anatómica propia se muestra esa imagen tal
+    // cual, con sus proporciones originales, en vez del diagrama SVG. El resto
+    // de los ejercicios no cambia.
+    const anatomyImg = exerciseAnatomyImageFor(nombre);
+    const diagramBlock = anatomyImg ? `
+      <div style="display:flex; flex-direction:column; align-items:center; gap:8px">
+        <img src="${esc(anatomyImg)}" class="anatomy-photo" alt="">
+        ${m ? muscleLegendHtml(m.list) : ""}
       </div>
-    ` : (mediaUrl ? "" : `<p class="helptext" style="text-align:center">Todavía no hay datos de músculo cargados para este ejercicio.</p>`);
+    ` : (m ? `
+      <div style="display:flex; flex-direction:column; align-items:center; gap:8px">
+        <div class="howto-pic howto-pic-labeled" style="width:${m.views.length>1 ? 230 : 115}px">${bodyDiagramSvg(m.views, m.list)}</div>
+        ${muscleLegendHtml(m.list)}
+      </div>
+    ` : (mediaUrl ? "" : `<p class="helptext" style="text-align:center">Todavía no hay datos de músculo cargados para este ejercicio.</p>`));
     const tabContent = d.tab==="stats" ? exStatsTabHtml(history) : d.tab==="history" ? exHistoryTabHtml(history) : exTipsTabHtml(nombre);
 
     const catalog = exerciseLibraryCatalog();
@@ -2211,7 +2600,7 @@
           <div class="exlib-list">
             ${filtered.length ? filtered.map(x=>`
               <div class="exlib-row ${x.nombre===nombre?"active":""}" data-exlib="${esc(x.nombre)}">
-                ${exerciseThumbHtml({nombre:x.nombre}, "width:30px;height:36px;flex:none")}
+                ${exerciseThumbHtml({nombre:x.nombre}, "width:24px;height:58px;flex:none", "width:42px;height:54px;flex:none")}
                 <div style="min-width:0">
                   <div class="exlib-name">${esc(x.nombre)}</div>
                   <div class="exlib-cap">${esc(x.group)}</div>
@@ -3462,7 +3851,7 @@
     const updateMusclePreview = ()=>{
       const url = imagenInput.value.trim() || exerciseImageFor(nameInput.value.trim());
       musclePreview.innerHTML = url
-        ? `<div class="muscle-diagram"><img src="${esc(url)}" class="muscle-diagram-pic" style="object-fit:contain; border-radius:8px" onerror="this.style.visibility='hidden'"></div>`
+        ? `<div class="muscle-diagram"><img src="${esc(url)}" style="width:74px; height:92px; object-fit:contain; border-radius:8px" onerror="this.style.visibility='hidden'"></div>`
         : muscleDiagramFor(nameInput.value.trim());
     };
     attachAutocomplete(nameInput, m.querySelector("#ex-name-ac"), allExerciseNames, updateMusclePreview);
@@ -5048,7 +5437,7 @@
         ${names.map(n=>`
           <div class="exrow" data-ex-explore="${esc(n)}" style="cursor:pointer">
             <div class="row" style="gap:10px; min-width:0">
-              ${exerciseThumbHtml({nombre:n}, "width:40px;height:50px;flex:none")}
+              ${exerciseThumbHtml({nombre:n}, "width:32px;height:77px;flex:none", "width:56px;height:72px;flex:none")}
               <div class="exname">${esc(n)}</div>
             </div>
             <span class="iconbtn" style="pointer-events:none">${icon("info")}</span>
@@ -5286,7 +5675,7 @@
       <div class="card stack" data-exercise-card="${ex.id}">
         <div class="row between">
           <div style="display:flex; align-items:center; gap:10px; min-width:0">
-            ${exerciseThumbHtml(ex, "width:40px; height:50px; flex:none")}
+            ${exerciseThumbHtml(ex, "width:32px; height:77px; flex:none", "width:56px; height:72px; flex:none")}
             <div style="min-width:0">
               <div class="exname" style="font-size:16px">${esc(ex.nombre)}</div>
               <div class="exmeta">${esc(ex.series)} series × ${esc(ex.reps)} reps${ex.notas? " · "+esc(ex.notas):""}</div>
@@ -6484,6 +6873,11 @@
     isArmsOnlySelection, generateFocusedDay, openFocusedRoutineModal,
     canFocusStandAlone, focusPoolSize, currentRiskyExclude,
     RUTINA_SLOTS, RUTINA_SLOT_LABELS, legFocusPools, REGION_SUBGROUP,
+    // v32 — anatomía cuerpo completo
+    BODY_ART, REGION_VIEW, SHARED_REGIONS, VIEW_RELEVANCE_MIN,
+    EXERCISE_ANATOMY_IMAGES, exerciseAnatomyImageFor,
+    viewWeights, dominantView, viewsForRegions, anatViewSvg, bodyDiagramSvg,
+    regionFillCss, muscleTargets, muscleLegendHtml, exerciseThumbHtml,
     // v31 — sub-filtros del Explorador (misma función que usa la pantalla)
     EXPLORER_SUBFILTERS, EXPLORER_LEG_SUBGROUPS, EXPLORER_ARM_SUBGROUPS, explorerNamesFor, explorerSubFor,
     screenExplorerList,
