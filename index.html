@@ -1913,168 +1913,133 @@
     }).join("")}</div>`;
   }
 
-  // Fotos "oficiales" cargadas por Juan para toda la app (no dependen de que
-  // cada usuario pegue un link) — viven como archivos junto a index.html, en
-  // la carpeta ejercicios/. Para sumar una nueva: guardar el archivo ahí y
-  // agregar una línea acá con el nombre EXACTO del ejercicio (como en EXERCISES).
-  const EXERCISE_IMAGES = {
-    "Press de banca inclinado con barra": "ejercicios/press-banca-inclinado.jpg",
-    "Remo en máquina agarre ancho": "ejercicios/remo-agarre-ancho.jpg",
-    "Gemelos en prensa": "ejercicios/elevacion-talones-prensa.jpg",
-    "Curl con mancuernas banco inclinado": "ejercicios/curl-mancuernas-inclinado.jpg",
-    "Extensión de tríceps en polea con barra": "ejercicios/extension-triceps-polea-barra.jpg",
-    "Press de banca con barra": "ejercicios/press-banca-plano.jpg",
-    "Press de banca declinado": "ejercicios/press-banca-declinado.jpg",
-    "Press de banca inclinado con mancuernas": "ejercicios/press-mancuernas-inclinado.jpg",
-    "Aperturas de pecho con mancuernas en banco plano": "ejercicios/aperturas-mancuernas.jpg",
-    "Pec Fly": "ejercicios/pec-deck.jpg",
-    "Fondos inclinado": "ejercicios/fondos-paralelas.jpg",
-    "Flexiones de brazo": "ejercicios/flexiones-brazos.jpg",
-    "Press de banca plano en Smith": "ejercicios/press-maquina-smith.jpg",
-    "Pullover": "ejercicios/pullover-mancuerna.jpg",
-    "Dominadas": "ejercicios/dominadas.jpg",
-    "Dominadas supinas": "ejercicios/dominadas-supinas.jpg",
-    "Jalón al pecho": "ejercicios/jalon-al-pecho.jpg",
-    "Jalón tras nuca": "ejercicios/jalon-tras-nuca.jpg",
-    "Remo con barra": "ejercicios/remo-con-barra.jpg",
-    "Remo con mancuerna unilateral": "ejercicios/remo-con-mancuerna.jpg",
-    "Remo en polea baja": "ejercicios/remo-polea-baja.jpg",
-    "Remo en máquina": "ejercicios/remo-maquina.jpg",
-    "Peso muerto con barra": "ejercicios/peso-muerto.jpg",
-    "Peso muerto rumano con barra": "ejercicios/peso-muerto-rumano.jpg",
-    "Peso muerto sumo con barra": "ejercicios/peso-muerto-sumo.jpg",
-    "Hiperextensiones": "ejercicios/hiperextensiones.jpg",
-    "Face Pull": "ejercicios/face-pull.jpg",
-    "Sentadilla con barra": "ejercicios/sentadilla.jpg",
-    "Sentadilla frontal": "ejercicios/sentadilla-frontal.jpg",
-    "Sentadilla búlgara": "ejercicios/sentadilla-bulgara.jpg",
-    "Sentadilla Sumo": "ejercicios/sentadilla-sumo.jpg",
-    "Sentadilla Hack": "ejercicios/sentadilla-hack.jpg",
-    "Prensa inclinada": "ejercicios/prensa-piernas.jpg",
-    "Extensión de piernas": "ejercicios/extension-cuadriceps.jpg",
-    "Isquio acostado": "ejercicios/curl-femoral-acostado.jpg",
-    "Zancadas": "ejercicios/zancadas.jpg",
-    "Estocadas con mancuerna": "ejercicios/zancadas-mancuernas.jpg",
-    "Hip thrust": "ejercicios/hip-thrust.jpg",
-    "Puente de glúteos": "ejercicios/puente-gluteo.jpg",
-    "Gemelos sentado en máquina": "ejercicios/elevacion-talones-sentado.jpg",
-    "Gemelos en máquina": "ejercicios/elevacion-talones-pie.jpg",
-    "Abductores en máquina": "ejercicios/abductores-maquina.jpg",
-    "Step Up": "ejercicios/step-up.jpg",
-    "Aductores en máquina": "ejercicios/aductores-maquina.jpg",
-    "Peso muerto piernas rígidas": "ejercicios/peso-muerto-piernas-rigidas.jpg",
-    "Press militar con barra": "ejercicios/press-militar-barra.jpg",
-    "Press de hombros con mancuernas": "ejercicios/press-militar-mancuernas.jpg",
-    "Arnold press": "ejercicios/press-arnold.jpg",
-    "Press tras nuca con barra": "ejercicios/press-tras-nuca.jpg",
-    "Curl con barra": "ejercicios/curl-barra.jpg",
-    "Curl con mancuernas alternado": "ejercicios/curl-mancuernas-alternado.jpg",
-    "Curl martillo": "ejercicios/curl-martillo.jpg",
-    "Curl concentrado": "ejercicios/curl-concentrado.jpg",
-    "Curl en polea": "ejercicios/curl-en-polea.jpg",
-    "Curl Scott (predicador)": "ejercicios/curl-scott.jpg",
-    "Press francés": "ejercicios/press-frances.jpg",
-    "Extensión de tríceps en polea": "ejercicios/extension-triceps-polea.jpg",
-    "Fondos de tríceps en banco": "ejercicios/fondos-triceps-banco.jpg",
-    "Patada de tríceps": "ejercicios/patada-triceps.jpg",
-    "Extensión de tríceps con mancuerna": "ejercicios/extension-triceps-mancuerna.jpg",
-    "Press cerrado": "ejercicios/press-cerrado.jpg",
-    "Abdominales crunch": "ejercicios/abdominales-crunch.jpg",
-    "Elevación de piernas colgado": "ejercicios/elevacion-piernas-colgado.jpg",
-    "Plancha": "ejercicios/plancha.jpg",
-    "Plancha lateral": "ejercicios/plancha-lateral.jpg",
-    "Rueda abdominal": "ejercicios/rueda-abdominal.jpg",
-    "Crunch en polea": "ejercicios/crunch-en-polea.jpg",
-    "Giro ruso (russian twist)": "ejercicios/giro-ruso.jpg",
-    "Mountain climbers": "ejercicios/mountain-climbers.jpg",
-    "Vuelos laterales con mancuerna": "ejercicios/elevaciones-laterales.jpg",
-    "Vuelos frontales": "ejercicios/elevaciones-frontales.jpg",
-    "Vuelos pájaro": "ejercicios/pajaro.jpg",
-    "Remo al mentón": "ejercicios/remo-al-menton.jpg",
-    "Encogimientos de hombros": "ejercicios/encogimientos-hombros.jpg",
-    "Remo en T": "ejercicios/remo-en-t.jpg",
-    "Isquio sentado": "ejercicios/curl-femoral-sentado.jpg",
-    "Patada de glúteo en polea": "ejercicios/patada-gluteo-polea.jpg",
-  };
-
-  function exerciseImageFor(exerciseName){
-    return EXERCISE_IMAGES[canonicalExerciseName(exerciseName)] || null;
-  }
-
   // ---- Láminas anatómicas cargadas como archivo ----
   // Imagen FIJA por ejercicio, no generada: cuando un ejercicio tiene lámina
-  // propia, la ficha la muestra tal cual en lugar del diagrama SVG. Es una
-  // tabla de archivos reales; no toca MUSCLE_MAP, ni las intensidades, ni el
-  // diagrama del resto de los ejercicios, que siguen usando bodyDiagramSvg.
-  // Indexada por nombre CANÓNICO, así los alias la encuentran solos (p. ej.
-  // "Press banca plano" resuelve a "Press de banca con barra").
-  // Varias variantes comparten la misma lámina (el gesto anatómico es el
-  // mismo): el archivo existe una sola vez y los ejercicios apuntan a él.
-  const ANATOMY_PLANO      = "ejercicios/anatomia/press-de-banca-plano-anatomia.png";
-  const ANATOMY_INCLINADO  = "ejercicios/anatomia/press-de-banca-inclinado-anatomia.png";
-  const ANATOMY_DECLINADO  = "ejercicios/anatomia/press-de-banca-declinado-anatomia.png";
-  const ANATOMY_APER_PLANO = "ejercicios/anatomia/aperturas-pecho-mancuernas-banco-plano-anatomia.png";
-  const ANATOMY_APER_INCL  = "ejercicios/anatomia/aperturas-pecho-mancuernas-banco-inclinado-anatomia.png";
-  const ANATOMY_FLEXIONES  = "ejercicios/anatomia/flexiones-de-brazo-anatomia.png";
-  const EXERCISE_ANATOMY_IMAGES = {
-    // Pecho — las 13 fichas del grupo.
-    "Press de banca con barra":                            ANATOMY_PLANO,
-    "Press de banca plano en Smith":                       ANATOMY_PLANO,
-    "Press de pecho en polea":                             ANATOMY_PLANO,
-    "Press de banca inclinado con barra":                  ANATOMY_INCLINADO,
-    "Press de banca inclinado con mancuernas":             ANATOMY_INCLINADO,
-    "Press de banca inclinado en Smith":                   ANATOMY_INCLINADO,
-    "Press de banca declinado":                            ANATOMY_DECLINADO,
-    "Press de banca declinado en Smith":                   ANATOMY_DECLINADO,
-    "Aperturas de pecho con mancuernas en banco plano":    ANATOMY_APER_PLANO,
-    "Pec Fly":                                             ANATOMY_APER_PLANO,
-    "Aperturas de pecho con mancuernas en banco inclinado": ANATOMY_APER_INCL,
-    "Flexiones de brazo":                                  ANATOMY_FLEXIONES,
-    // Fondos inclinado apunta al pecho inferior (no a flexiones) para que la
-    // lámina coincida con la leyenda que sale de MUSCLE_MAP.
-    "Fondos inclinado":                                    ANATOMY_DECLINADO,
+  // propia, la ficha y la miniatura la muestran tal cual en lugar del diagrama
+  // SVG. Es una tabla de archivos reales; no toca MUSCLE_MAP, ni las
+  // intensidades, ni el diagrama del resto de los ejercicios, que siguen
+  // usando bodyDiagramSvg.
+  //
+  // Se declara por ARCHIVO -> ejercicios que lo usan, porque muchas variantes
+  // comparten la misma anatomía y así se ve de un vistazo cuáles. De ahí sale
+  // EXERCISE_ANATOMY_IMAGES (ejercicio -> ruta), que es el único mapa que
+  // consulta la app: una sola resolución, por nombre CANÓNICO, así los alias
+  // la encuentran solos (p. ej. "Press banca plano" -> "Press de banca con
+  // barra"). El archivo existe una sola vez; no se duplican PNG.
+  const ANATOMY_DIR = "ejercicios/anatomia/";
+  const ANATOMY_BY_FILE = {
+    // ---------- PECHO ----------
+    "press-de-banca-plano-anatomia.jpg": [
+      "Press de banca con barra", "Press de banca plano en Smith", "Press de pecho en polea",
+    ],
+    "press-de-banca-inclinado-anatomia.jpg": [
+      "Press de banca inclinado con barra", "Press de banca inclinado con mancuernas",
+      "Press de banca inclinado en Smith",
+    ],
+    // Fondos inclinado va al pecho inferior (no a flexiones) para que la lámina
+    // coincida con la leyenda que sale de MUSCLE_MAP.
+    "press-de-banca-declinado-anatomia.jpg": [
+      "Press de banca declinado", "Press de banca declinado en Smith", "Fondos inclinado",
+    ],
+    "aperturas-pecho-mancuernas-banco-plano-anatomia.jpg": [
+      "Aperturas de pecho con mancuernas en banco plano", "Pec Fly",
+    ],
+    "aperturas-pecho-mancuernas-banco-inclinado-anatomia.jpg": [
+      "Aperturas de pecho con mancuernas en banco inclinado",
+    ],
+    "flexiones-de-brazo-anatomia.jpg": ["Flexiones de brazo"],
+
+    // ---------- ESPALDA ----------
+    "dominadas-anatomia.jpg": ["Dominadas"],
+    "dominadas-supinas-anatomia.jpg": ["Dominadas supinas", "Jalón agarre supino"],
+    "jalon-espalda-anatomia.jpg": ["Jalón agarre ancho", "Jalón agarre neutro", "Jalón al pecho"],
+    "pullover-anatomia.jpg": ["Pullover"],
+    "remo-espalda-anatomia.jpg": [
+      "Remo con barra", "Remo con mancuerna unilateral", "Remo en Hammer", "Remo en máquina",
+      "Remo en máquina unilateral", "Remo en polea baja", "Remo en T", "Remo en TRX",
+    ],
+    "remo-agarre-ancho-anatomia.jpg": ["Remo en máquina agarre ancho"],
+
+    // ---------- PIERNAS ----------
+    "cuadriceps-maquina-anatomia.jpg": [
+      "Extensión de piernas", "Sentadilla Hack", "Prensa inclinada", "Sentadilla Smith",
+    ],
+    "sentadilla-anatomia.jpg": ["Sentadilla con barra", "Sentadilla frontal"],
+    "zancadas-unilateral-anatomia.jpg": ["Estocadas con mancuerna", "Sentadilla búlgara", "Step Up"],
+    "sentadilla-sumo-anatomia.jpg": ["Sentadilla Sumo"],
+    "peso-muerto-sumo-anatomia.jpg": ["Peso muerto sumo con barra", "Peso muerto sumo con mancuernas"],
+    "isquio-anatomia.jpg": ["Isquio acostado", "Isquio sentado"],
+    "gluteos-extension-cadera-anatomia.jpg": [
+      "Hip thrust en máquina", "Puente de glúteos", "Patada de glúteo en máquina",
+      "Patada de glúteo en polea",
+    ],
+    "peso-muerto-anatomia.jpg": ["Peso muerto con barra", "Peso muerto con mancuernas"],
+    "peso-muerto-rumano-anatomia.jpg": [
+      "Peso muerto rumano con barra", "Peso muerto rumano con mancuernas",
+    ],
+    "abductores-anatomia.jpg": ["Abductores en máquina"],
+    "aductores-anatomia.jpg": ["Aductores en máquina"],
+    "gemelos-anatomia.jpg": ["Gemelos en máquina", "Gemelos parado con mancuerna", "Gemelos en prensa"],
+    "gemelos-sentado-anatomia.jpg": ["Gemelos sentado en máquina"],
+
+    // ---------- BÍCEPS ----------
+    "curl-biceps-anatomia.jpg": [
+      "Curl con barra", "Curl con mancuernas", "Curl con mancuernas alternado",
+      "Curl en polea", "Curl en polea unilateral",
+    ],
+    "curl-inclinado-anatomia.jpg": ["Curl con mancuernas banco inclinado"],
+    "curl-scott-anatomia.jpg": ["Curl Scott (predicador)"],
+    "curl-concentrado-anatomia.jpg": ["Curl concentrado"],
+    "curl-martillo-anatomia.jpg": ["Curl martillo"],
+
+    // ---------- TRÍCEPS ----------
+    "triceps-extension-sobre-cabeza-anatomia.jpg": [
+      "Extensión de tríceps con mancuerna", "Press francés",
+    ],
+    "triceps-polea-anatomia.jpg": [
+      "Extensión de tríceps en polea", "Extensión de tríceps en polea con barra",
+    ],
+    "patada-triceps-anatomia.jpg": ["Patada de tríceps"],
+    "triceps-compuestos-anatomia.jpg": ["Press cerrado", "Fondos de tríceps en banco"],
+
+    // ---------- ANTEBRAZO ----------
+    "curl-muneca-anatomia.jpg": ["Curl de muñeca"],
+    "curl-muneca-inverso-anatomia.jpg": ["Curl de muñeca inverso"],
+
+    // ---------- HOMBROS ----------
+    "press-hombros-anatomia.jpg": [
+      "Press de hombros con mancuernas", "Press de hombros en máquina", "Press militar con barra",
+      "Press militar con mancuernas sentado", "Press tras nuca con barra", "Arnold press",
+    ],
+    "elevaciones-laterales-anatomia.jpg": [
+      "Elevación lateral en máquina", "Elevación lateral en polea", "Vuelos laterales con mancuerna",
+    ],
+    "elevaciones-frontales-anatomia.jpg": ["Vuelos frontales"],
+    "deltoide-posterior-anatomia.jpg": ["Pec Fly invertido", "Vuelos pájaro"],
+    "remo-al-menton-anatomia.jpg": ["Remo al mentón"],
+    "encogimientos-hombros-anatomia.jpg": [
+      "Encogimientos con barra", "Encogimientos con mancuernas", "Encogimientos en máquina",
+    ],
+    "face-pull-anatomia.jpg": ["Face Pull"],
+
+    // ---------- CORE ----------
+    "crunch-abdominal-anatomia.jpg": [
+      "Abdominales crunch", "Crunch en polea", "Plancha", "Rueda abdominal", "Mountain climbers",
+    ],
+    "elevacion-piernas-anatomia.jpg": ["Elevación de piernas colgado"],
+    "giro-ruso-anatomia.jpg": ["Giro ruso (russian twist)"],
+    "plancha-lateral-anatomia.jpg": ["Plancha lateral"],
+    "hiperextensiones-anatomia.jpg": ["Hiperextensiones"],
   };
+  const EXERCISE_ANATOMY_IMAGES = (()=>{
+    const out = {};
+    Object.keys(ANATOMY_BY_FILE).forEach(file=>{
+      ANATOMY_BY_FILE[file].forEach(nombre=>{ out[nombre] = ANATOMY_DIR + file; });
+    });
+    return out;
+  })();
   function exerciseAnatomyImageFor(exerciseName){
     return EXERCISE_ANATOMY_IMAGES[canonicalExerciseName(exerciseName)] || null;
-  }
-
-  // Videos cortos (mp4, en loop) de la ejecución real del ejercicio, mandados
-  // por Juan. Se muestran SOLO en la ficha grande del ejercicio (pantalla de
-  // detalle) en vez de la foto oficial, cuando existen — las miniaturas chicas
-  // (rutina, sesión, biblioteca) siguen usando siempre la foto de
-  // EXERCISE_IMAGES para no cargar muchos videos a la vez en una lista.
-  const EXERCISE_VIDEOS = {
-    "Press de banca con barra": "ejercicios/press-banca-plano.mp4",
-    "Remo con barra": "ejercicios/remo-con-barra.mp4",
-    "Jalón al pecho": "ejercicios/jalon-al-pecho.mp4",
-    "Peso muerto con barra": "ejercicios/peso-muerto.mp4",
-    "Sentadilla con barra": "ejercicios/sentadilla.mp4",
-    "Press de banca inclinado con mancuernas": "ejercicios/press-mancuernas-inclinado.mp4",
-    "Curl martillo": "ejercicios/curl-martillo.mp4",
-    "Vuelos laterales con mancuerna": "ejercicios/elevaciones-laterales.mp4",
-    "Curl con barra": "ejercicios/curl-con-barra.mp4",
-    "Peso muerto sumo con barra": "ejercicios/peso-muerto-sumo.mp4",
-    "Arnold press": "ejercicios/press-arnold.mp4",
-    "Curl con mancuernas": "ejercicios/curl-mancuernas.mp4",
-    "Press militar con mancuernas sentado": "ejercicios/press-militar-mancuernas-sentado.mp4",
-    "Extensión de piernas": "ejercicios/extension-cuadriceps.mp4",
-    "Isquio sentado": "ejercicios/curl-femoral-sentado.mp4",
-    "Isquio acostado": "ejercicios/curl-femoral-acostado.mp4",
-    "Fondos de tríceps en banco": "ejercicios/fondos-triceps-banco.mp4",
-    "Remo en polea baja": "ejercicios/remo-polea-baja.mp4",
-    "Face Pull": "ejercicios/face-pull.mp4",
-    "Patada de glúteo en polea": "ejercicios/patada-gluteo-polea.mp4",
-    "Prensa inclinada": "ejercicios/prensa-piernas.mp4",
-    "Extensión de tríceps en polea": "ejercicios/extension-triceps-polea.mp4",
-    "Puente de glúteo con barra": "ejercicios/puente-gluteo-barra.mp4",
-    "Peso muerto con mancuernas": "ejercicios/peso-muerto-mancuerna.mp4",
-    "Curl en polea unilateral": "ejercicios/curl-polea-unilateral.mp4",
-    "Patada de glúteo en máquina": "ejercicios/patada-gluteo-maquina.mp4",
-    "Hip thrust en máquina": "ejercicios/hip-thrust-maquina.mp4",
-  };
-
-  function exerciseVideoFor(exerciseName){
-    return EXERCISE_VIDEOS[canonicalExerciseName(exerciseName)] || null;
   }
 
   // V29: "Cómo hacerlo ↗" — enlace a una fuente externa (MuscleWiki) que
@@ -2083,8 +2048,8 @@
   // (la página carga y su título corresponde al mismo ejercicio y equipo).
   // Los ejercicios que NO están acá quedaron pendientes a propósito (nombre
   // ambiguo, varias variantes posibles o sin página equivalente) — no se
-  // inventan URLs. Los medios locales (EXERCISE_IMAGES/EXERCISE_VIDEOS) se
-  // mantienen sin cambios en esta versión.
+  // inventan URLs. V33: las fotos y videos de demostración se eliminaron de la
+  // app; la ejecución se consulta en estos enlaces.
   const EXERCISE_HOWTO_LINKS = {
     "Press de banca con barra": "https://musclewiki.com/exercise/barbell-bench-press",
     "Press de banca plano en Smith": "https://musclewiki.com/exercise/smith-machine-bench-press",
@@ -2169,6 +2134,82 @@
     "Kettlebell swing": "https://musclewiki.com/exercise/kettlebell-swing",
     "Patada de glúteo en polea": "https://musclewiki.com/exercise/cable-standing-glute-kickback",
     "Patada de glúteo en máquina": "https://musclewiki.com/exercise/machine-glute-kickback",
+
+    // V33: enlaces verificados uno por uno contra el sitemap real de MuscleWiki
+    // (1967 páginas). Cada URL se abrió: devuelve 200 y su título es el mismo
+    // movimiento y el mismo equipo que usa VodaFit. Los ejercicios que no
+    // aparecen acá quedaron SIN enlace a propósito porque MuscleWiki no tiene una
+    // página que corresponda sin ambigüedad — ver la lista al final del bloque.
+    // ---- Espalda ----
+    // "Jalón agarre ancho" comparte página con "Jalón al pecho": el jalón al
+    // pecho de MuscleWiki (machine-pulldown) ES el de agarre ancho, no hay una
+    // página separada para cada agarre ancho.
+    "Jalón agarre ancho": "https://musclewiki.com/exercise/machine-pulldown",
+    "Jalón agarre neutro": "https://musclewiki.com/exercise/neutral-pulldown",
+    "Jalón agarre supino": "https://musclewiki.com/exercise/underhand-pulldown",
+    "Remo en T": "https://musclewiki.com/exercise/machine-plate-loaded-t-bar-row",
+    "Remo en máquina": "https://musclewiki.com/exercise/machine-neutral-row",
+    // Hammer Strength es plate-loaded; es la página que corresponde al aparato.
+    "Remo en Hammer": "https://musclewiki.com/exercise/machine-plate-loaded-row",
+    // ---- Piernas ----
+    "Sentadilla Smith": "https://musclewiki.com/exercise/smith-machine-squat",
+    "Sentadilla Sumo": "https://musclewiki.com/exercise/dumbbell-sumo-squat",
+    "Sentadilla búlgara": "https://musclewiki.com/exercise/dumbbell-bulgarian-split-squat",
+    "Peso muerto rumano con mancuernas": "https://musclewiki.com/exercise/dumbbell-romanian-deadlift",
+    "Gemelos parado con mancuerna": "https://musclewiki.com/exercise/dumbbell-calf-raise",
+    "Gemelos en prensa": "https://musclewiki.com/exercise/machine-horizontal-leg-press-calf-raise",
+    "Elevación lateral de pierna": "https://musclewiki.com/exercise/bodyweight-hip-abduction",
+    // ---- Bíceps ----
+    "Curl con mancuernas": "https://musclewiki.com/exercise/dumbbell-curl",
+    "Curl en polea": "https://musclewiki.com/exercise/cable-bar-curl",
+    // El curl Scott se hace con barra Z; ez-bar-preacher-curl es exactamente eso.
+    "Curl Scott (predicador)": "https://musclewiki.com/exercise/ez-bar-preacher-curl",
+    // ---- Tríceps ----
+    "Extensión de tríceps con mancuerna": "https://musclewiki.com/exercise/dumbbell-overhead-tricep-extension",
+    "Extensión de tríceps en polea": "https://musclewiki.com/exercise/cable-rope-pushdown",
+    // ---- Antebrazo ----
+    // El curl de muñeca inverso es, en la nomenclatura de MuscleWiki, la
+    // extensión de muñeca: mismo movimiento, no una variante parecida.
+    "Curl de muñeca": "https://musclewiki.com/exercise/dumbbell-wrist-curl",
+    "Curl de muñeca inverso": "https://musclewiki.com/exercise/dumbbell-wrist-extension",
+    // ---- Hombros ----
+    "Elevación lateral en máquina": "https://musclewiki.com/exercise/machine-standing-lateral-raise",
+    "Elevación lateral en polea": "https://musclewiki.com/exercise/cable-low-bilateral-lateral-raise",
+    "Pec Fly invertido": "https://musclewiki.com/exercise/machine-reverse-fly",
+    "Encogimientos con barra": "https://musclewiki.com/exercise/barbell-shrug",
+    "Encogimientos con mancuernas": "https://musclewiki.com/exercise/dumbbell-shrug",
+    // "Encogimientos de hombros" es el nombre genérico y su equipo es mancuernas,
+    // así que apunta a la misma página que la variante con mancuernas. El slug
+    // suelto "shrug" NO sirve: es el "Vitruvian Shrug", otro aparato.
+    "Encogimientos de hombros": "https://musclewiki.com/exercise/dumbbell-shrug",
+    "Encogimientos en máquina": "https://musclewiki.com/exercise/machine-standing-shrug",
+    // ---- Core ----
+    "Crunch en polea": "https://musclewiki.com/exercise/cable-rope-kneeling-crunch",
+    "Elevación de piernas colgado": "https://musclewiki.com/exercise/hanging-knee-raises",
+    // El banco de hiperextensiones es, para MuscleWiki, "machine"; el movimiento
+    // es exactamente el mismo (extensión de espalda a 45°).
+    "Hiperextensiones": "https://musclewiki.com/exercise/machine-45-degree-back-extension",
+
+    // SIN ENLACE a propósito — MuscleWiki no tiene una página inequívoca:
+    //   Press de banca declinado en Smith  (su categoría Smith/Chest son 4
+    //     ejercicios y no incluye declinado; la URL devuelve 404)
+    //   Peso muerto con mancuernas         (no existe el convencional con
+    //     mancuernas: solo rumano, unilateral y staggered)
+    //   Peso muerto sumo con mancuernas    (sumo solo con barra, landmine o kb)
+    //   Step Up                            (todas las páginas son con carga o
+    //     "reverse"; VodaFit lo tiene como peso corporal)
+    //   Rueda abdominal                    (no hay página de ab wheel; los
+    //     rollouts que existen son en TRX)
+    //   Remo en TRX                        (solo "rotating" y "single arm", que
+    //     son variantes distintas del remo en TRX)
+    //   Remo en máquina unilateral         (no hay remo en máquina a un brazo)
+    //   Remo en máquina agarre ancho       (no hay remo en máquina agarre ancho;
+    //     machine-overhand-row es otro agarre, no "ancho")
+    //   Jalón tras nuca                    (no hay jalón tras nuca, solo press)
+    //   Patada lateral a cuatro patas      (solo con banda o polea; VodaFit la
+    //     tiene como peso corporal)
+    //   Curl en polea unilateral           (las de un brazo son bayesian,
+    //     rolling o hammer: movimientos distintos)
   };
   function exerciseHowtoLinkFor(exerciseName){
     return EXERCISE_HOWTO_LINKS[canonicalExerciseName(exerciseName)] || null;
@@ -2333,9 +2374,18 @@
     if(!m) return "";
     const primary = m.list.filter(x=>x.intensity>=0.75).map(x=>MUSCLE_LABELS[x.region]||x.region);
     const secondary = m.list.filter(x=>x.intensity<0.75).map(x=>MUSCLE_LABELS[x.region]||x.region);
+    // V33: igual que la ficha y las miniaturas, si el ejercicio tiene lámina
+    // propia se muestra esa en vez del diagrama SVG. Misma resolución
+    // (exerciseAnatomyImageFor), sin un segundo mapa. La caja se mantiene en el
+    // ancho de siempre (74px) para no mover el layout del formulario; con
+    // height:auto la lámina conserva su proporción.
+    const anatomyImg = exerciseAnatomyImageFor(exerciseName);
+    const pic = anatomyImg
+      ? `<img src="${esc(anatomyImg)}" style="width:74px; height:auto; display:block; border-radius:8px" alt="">`
+      : `<div class="muscle-diagram-pic">${bodyDiagramSvg([m.dominant], m.list)}</div>`;
     return `
       <div class="muscle-diagram">
-        <div class="muscle-diagram-pic">${bodyDiagramSvg([m.dominant], m.list)}</div>
+        ${pic}
         <div class="helptext" style="text-align:center">
           Principal: <b style="color:var(--text)">${esc(primary.join(" y "))}</b>${secondary.length?` · También: ${esc(secondary.join(", "))}`:""}
         </div>
@@ -2344,16 +2394,21 @@
   }
 
   // Miniatura para listas (rutina/sesión): prioridad = imagen propia del
-  // usuario (link pegado) > foto oficial cargada por Juan para ese ejercicio
+  // usuario (link pegado) > lámina anatómica del ejercicio > diagrama SVG
   // > diagrama muscular automático.
   // V32: la foto y el diagrama ya no comparten caja. El diagrama de cuerpo
-  // entero es alto y angosto; una foto de ejercicio es apaisada. Si se mete la
-  // foto en la caja del diagrama queda diminuta y con dos franjas grises.
-  // `photoSizeStyle` le da a la foto una caja propia (más ancha y más baja);
-  // como el alto de la fila lo marca el diagrama, no cambia nada del layout.
+  // entero es alto y angosto; una lámina/foto es casi cuadrada o apaisada. Si
+  // se mete en la caja del diagrama queda diminuta y con dos franjas grises.
+  // `photoSizeStyle` le da una caja propia (más ancha y más baja); como el alto
+  // de la fila lo marca el diagrama, no cambia nada del layout.
   // Si no se pasa, se usa la misma caja de siempre (comportamiento anterior).
+  //
+  // V33: las fotos y videos de demostración se sacaron de la app (la ejecución
+  // se consulta en MuscleWiki con "Cómo hacerlo ↗"), así que acá ya no hay foto
+  // oficial. Queda `imagenUrl`, que es el link que el propio usuario pega en un
+  // ejercicio de su rutina — dato suyo, no un asset de la app.
   function exerciseThumbHtml(ex, sizeStyle, photoSizeStyle){
-    const url = (ex && ex.imagenUrl) || exerciseImageFor(ex ? ex.nombre : "");
+    const url = ex && ex.imagenUrl;
     if(url){
       return `<img src="${esc(url)}" style="${photoSizeStyle || sizeStyle}; object-fit:contain; border-radius:8px; background:var(--surface-2)" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`;
     }
@@ -2447,9 +2502,18 @@
     // Rutina, Explorador...) para poder restaurarlo al volver con "back" — ver
     // el handler de #btn-exdetail-back en renderExerciseDetail. Antes volver de
     // la ficha de un ejercicio siempre mandaba la pantalla de origen al tope.
+    //
+    // V33: además del scroll se guarda un ANCLA — el nombre del ejercicio que se
+    // abrió y a qué altura de la pantalla estaba su fila. Al volver no alcanza
+    // con un scrollY fijo: la lista puede medir distinto (las láminas cargan con
+    // lazy, el subfiltro puede haber cambiado de alto), y el usuario terminaba en
+    // otra parte. Con el ancla se recalcula la posición real de esa fila y se la
+    // deja donde estaba. Si la fila ya no existe, se cae al scrollY de siempre.
+    const nombreAbierto = isObj ? exOrName.nombre : exOrName;
     state.navScrollY = window.scrollY;
+    state.navScrollAnchor = anchorSnapshotFor(nombreAbierto);
     state.exDetail = {
-      nombre: isObj ? exOrName.nombre : exOrName,
+      nombre: nombreAbierto,
       imagenUrl: isObj ? (exOrName.imagenUrl||"") : "", // link personalizado pegado en ESTE día/sesión (si lo hay)
       tab:"stats",
       mobileView:"detail",
@@ -2458,9 +2522,71 @@
       filterQuery:"",
       returnTab: opts.returnTab || state.tab,
       returnExplorerGroup: state.explorerGroup,
+      returnExplorerSub: state.explorerSub,
     };
     state.tab = "exdetail";
     render();
+  }
+
+  // Ancla de scroll: guarda a qué altura de la ventana está la fila del
+  // ejercicio que se abre. `top` es la distancia desde el borde de arriba de la
+  // pantalla, que es lo que el usuario percibe como "donde estaba".
+  function anchorSnapshotFor(nombre){
+    if(!nombre) return null;
+    const row = document.querySelector(`[data-ex-explore="${cssAttrEscape(nombre)}"]`);
+    if(!row) return null;
+    return { nombre, top: row.getBoundingClientRect().top };
+  }
+  function cssAttrEscape(v){
+    return String(v).replace(/["\\]/g, "\\$&");
+  }
+  // Descarta una restauración pendiente. Se llama cuando el usuario cambia de
+  // grupo o de subfiltro a propósito: en ese caso la lista es otra y volver a
+  // una posición vieja sería molesto, no útil.
+  function clearNavScroll(){
+    state.navScrollY = null;
+    state.navScrollAnchor = null;
+  }
+
+  // Restaura la posición de la pantalla a la que se vuelve. No es un scrollTo
+  // fijo: reintenta durante unos frames porque la lista se pinta y después
+  // crece (imágenes con lazy, fuentes, subfiltros), y un solo scrollTo se queda
+  // corto cuando el documento todavía era más chico que la posición pedida.
+  // Termina cuando la posición pedida se pudo aplicar de verdad (o al agotar
+  // los intentos), así que no pelea con el usuario si ya empezó a scrollear.
+  function restoreNavScroll(){
+    const y = state.navScrollY;
+    const anchor = state.navScrollAnchor;
+    state.navScrollY = null;
+    state.navScrollAnchor = null;
+    if(y == null && !anchor) return;
+    let tries = 0;
+    const step = ()=>{
+      tries++;
+      let target = y || 0;
+      if(anchor){
+        const row = document.querySelector(`[data-ex-explore="${cssAttrEscape(anchor.nombre)}"]`);
+        // La fila vuelve a quedar a la misma altura de pantalla que tenía.
+        if(row) target = window.scrollY + row.getBoundingClientRect().top - anchor.top;
+      }
+      const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const clamped = Math.min(Math.max(0, target), max);
+      if(Math.abs(window.scrollY - clamped) > 1) window.scrollTo(0, clamped);
+      // Se sigue reintentando solo mientras el documento todavía no da la altura
+      // necesaria; si ya llegamos, se corta.
+      const llego = Math.abs(clamped - target) <= 1;
+      if(!llego && tries < 12) nextFrame(step);
+    };
+    nextFrame(()=> nextFrame(step));
+  }
+  // requestAnimationFrame no dispara cuando la pestaña está oculta (pasar la app
+  // a segundo plano justo al volver atrás dejaba la restauración colgada). Se
+  // agenda por las dos vías y gana la primera que llegue.
+  function nextFrame(fn){
+    let hecho = false;
+    const once = ()=>{ if(hecho) return; hecho = true; fn(); };
+    requestAnimationFrame(once);
+    setTimeout(once, 32);
   }
 
   function exerciseHistoryFor(nombre){
@@ -2506,20 +2632,17 @@
     const m = muscleTargets(nombre);
     const groups = exercisePrincipalSecondaryGroups(nombre);
     const equip = exerciseEquipment(nombre);
-    // El link que el usuario pegó a mano (imagenUrl) es siempre una foto/link propio,
-    // así que el video oficial solo se muestra cuando NO hay un link personalizado.
-    const videoUrl = !d.imagenUrl ? exerciseVideoFor(nombre) : null;
-    const photoUrl = d.imagenUrl || exerciseImageFor(nombre);
-    const mediaUrl = videoUrl || photoUrl;
-    const photoBlock = videoUrl ? `
-      <div style="display:flex; justify-content:center">
-        <video class="howto-photo" autoplay muted loop playsinline src="${esc(videoUrl)}"></video>
-      </div>
-    ` : (photoUrl ? `
+    // V33: ya no hay fotos ni videos de demostración cargados en la app — la
+    // ejecución se consulta en MuscleWiki con "Cómo hacerlo ↗". Lo único que
+    // queda es el link que el propio usuario pegó a mano en ESTE ejercicio de su
+    // rutina (imagenUrl), que es dato suyo y se sigue respetando.
+    const photoUrl = d.imagenUrl || null;
+    const mediaUrl = photoUrl;
+    const photoBlock = photoUrl ? `
       <div style="display:flex; justify-content:center">
         <img src="${esc(photoUrl)}" class="howto-photo" alt="${esc(nombre)}" onerror="this.style.display='none'">
       </div>
-    ` : "");
+    ` : "";
     // Si el ejercicio tiene lámina anatómica propia se muestra esa imagen tal
     // cual, con sus proporciones originales, en vez del diagrama SVG. El resto
     // de los ejercicios no cambia.
@@ -2635,16 +2758,15 @@
       const d = state.exDetail;
       state.tab = (d && d.returnTab) || "rutina";
       state.explorerGroup = d ? d.returnExplorerGroup : null;
+      // V33: el subfiltro del explorador (Cuádriceps, Bíceps, ...) también se
+      // restaura; antes solo volvía el grupo y el subfiltro quedaba a la deriva.
+      state.explorerSub = d ? (d.returnExplorerSub || null) : null;
       state.exDetail = null;
       render();
-      // V28: restaura el scroll guardado al entrar (mismo día/ejercicio/posición
-      // en Entrenamiento, Rutina o el resto de pantallas) — con rAF para que la
-      // restauración ocurra después de que el nuevo contenido ya esté pintado.
-      const y = state.navScrollY;
-      state.navScrollY = null;
-      if(y){
-        requestAnimationFrame(()=> requestAnimationFrame(()=> window.scrollTo(0, y)));
-      }
+      // V28/V33: restaura la posición de la pantalla de origen (Entrenamiento,
+      // Rutina, Explorador...). Ver restoreNavScroll: usa el ancla del ejercicio
+      // cuando existe y reintenta hasta que el documento da la altura necesaria.
+      restoreNavScroll();
     };
     document.getElementById("screen").innerHTML = screenExerciseDetail();
     mountExerciseDetail();
@@ -3016,6 +3138,7 @@
     explorerSub:null,    // V31: sub-filtro dentro del grupo (Piernas y Brazos); null = "Todos"
     exDetail:null,       // { nombre, tab, mobileView, filtros..., returnTab } — ficha de ejercicio a pantalla completa
     navScrollY:null,      // v28: scroll (window.scrollY) guardado al entrar a exdetail/registro desde otra pantalla, para restaurarlo al volver
+    navScrollAnchor:null, // V33: {nombre, top} del ejercicio abierto, para dejarlo a la misma altura al volver (ver restoreNavScroll)
   };
 
   const app = document.getElementById("app");
@@ -3831,7 +3954,7 @@
       <div class="field">
         <label>Link de imagen (opcional)</label>
         <input type="url" id="ex-imagen" placeholder="Pegá acá el link de tu foto/imagen" maxlength="500" value="${existing?esc(existing.imagenUrl||""):""}">
-        <p class="helptext">Si la dejás vacía, se muestra la foto de técnica de este ejercicio (si ya tiene una cargada) o si no el diagrama muscular automático. Podés generar tu propia imagen con alguna IA gratis y pegar el link acá para reemplazarla.</p>
+        <p class="helptext">Si la dejás vacía, se muestra la lámina anatómica de este ejercicio (si ya tiene una cargada) o si no el diagrama muscular automático. Podés generar tu propia imagen con alguna IA gratis y pegar el link acá para reemplazarla.</p>
       </div>
       ${existing ? `
         <div class="row" style="gap:8px">
@@ -3849,7 +3972,7 @@
     const imagenInput = m.querySelector("#ex-imagen");
     const musclePreview = m.querySelector("#ex-muscle-preview");
     const updateMusclePreview = ()=>{
-      const url = imagenInput.value.trim() || exerciseImageFor(nameInput.value.trim());
+      const url = imagenInput.value.trim();
       musclePreview.innerHTML = url
         ? `<div class="muscle-diagram"><img src="${esc(url)}" style="width:74px; height:92px; object-fit:contain; border-radius:8px" onerror="this.style.visibility='hidden'"></div>`
         : muscleDiagramFor(nameInput.value.trim());
@@ -5353,7 +5476,7 @@
       <main><div class="screen" id="screen"></div></main>
     `;
     document.getElementById("btn-explorer-back").onclick = ()=>{
-      if(state.explorerGroup){ state.explorerGroup = null; state.explorerSub = null; renderExplorer(); }
+      if(state.explorerGroup){ state.explorerGroup = null; state.explorerSub = null; clearNavScroll(); renderExplorer(); }
       else { state.tab = "rutina"; render(); }
     };
     document.getElementById("screen").innerHTML = state.explorerGroup ? screenExplorerList(state.explorerGroup) : screenExplorerGroups();
@@ -5450,10 +5573,12 @@
   function mountExplorer(){
     const el = document.getElementById("screen");
     el.querySelectorAll("[data-group]").forEach(b=>{
-      b.onclick = ()=>{ state.explorerGroup = b.dataset.group; state.explorerSub = null; renderExplorer(); };
+      // V33: cambiar de grupo es intencional, así que se descarta cualquier
+      // posición pendiente de restaurar (si no, volvería a un scroll de otra lista).
+      b.onclick = ()=>{ state.explorerGroup = b.dataset.group; state.explorerSub = null; clearNavScroll(); renderExplorer(); };
     });
     el.querySelectorAll("[data-sub]").forEach(b=>{
-      b.onclick = ()=>{ state.explorerSub = b.dataset.sub || null; renderExplorer(); };
+      b.onclick = ()=>{ state.explorerSub = b.dataset.sub || null; clearNavScroll(); renderExplorer(); };
     });
     el.querySelectorAll("[data-ex-explore]").forEach(row=>{
       row.onclick = ()=> openExerciseDetail(row.dataset.exExplore, { returnTab:"explorar" });
@@ -6852,7 +6977,7 @@
     exerciseMuscleGroup, muscleGroupPools, subgroupPools, MUSCLE_GROUPS,
     exerciseLegFocus, seriesForAge, restRangeForAge, sessionCountRange,
     EXERCISES_RISKY_50PLUS, dayModality, get state(){ return state; },
-    EXERCISES, EXERCISE_VIDEOS, EXERCISE_IMAGES, exerciseVideoFor, exerciseImageFor,
+    EXERCISES,
     screenExerciseDetail, EXERCISES_COMPOUND, seriesForExercise,
     FOCUS_OPTIONS, FOCUS_LABELS, FOCUS_MAX_GROUPS, buildRoutinePdfData, exportRoutinePDF,
     sessionCountRange, exercisePrimarySubgroup, MUSCLE_MAP, EXERCISE_TIPS, EXERCISE_EQUIPMENT,
@@ -6878,6 +7003,7 @@
     EXERCISE_ANATOMY_IMAGES, exerciseAnatomyImageFor,
     viewWeights, dominantView, viewsForRegions, anatViewSvg, bodyDiagramSvg,
     regionFillCss, muscleTargets, muscleLegendHtml, exerciseThumbHtml,
+    ANATOMY_BY_FILE, anchorSnapshotFor, restoreNavScroll, clearNavScroll,
     // v31 — sub-filtros del Explorador (misma función que usa la pantalla)
     EXPLORER_SUBFILTERS, EXPLORER_LEG_SUBGROUPS, EXPLORER_ARM_SUBGROUPS, explorerNamesFor, explorerSubFor,
     screenExplorerList,

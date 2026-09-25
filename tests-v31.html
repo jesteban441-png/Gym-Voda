@@ -136,9 +136,12 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(A.canonicalExerciseName("Sentadilla con barra")==="Sentadilla con barra", "idempotencia");
     });
 
-    test("el histórico viejo sigue encontrando ficha/media/equipamiento", function(){
-      assert(A.exerciseImageFor("Sentadilla")!==null, "imagen por alias");
-      assert(A.exerciseVideoFor("Prensa de piernas")!==null, "video por alias");
+    test("el histórico viejo sigue encontrando ficha/lámina/equipamiento", function(){
+      // V33: las fotos y videos de demostración se sacaron de la app, así que
+      // la resolución por alias se verifica contra la lámina anatómica, que usa
+      // exactamente el mismo canonicalExerciseName.
+      assert(A.exerciseAnatomyImageFor("Sentadilla")!==null, "lámina por alias");
+      assert(A.exerciseAnatomyImageFor("Prensa de piernas")!==null, "lámina por alias (prensa)");
       assert(A.exerciseEquipment("Curl femoral sentado")!=="No especificado", "equipamiento por alias");
       assert(A.exercisePrimarySubgroup("Peso muerto")!=null, "subgrupo por alias");
     });
@@ -1211,6 +1214,192 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     test("el PDF sigue construyéndose con la rutina activa", function(){
       assert(typeof A.buildRoutinePdfData === "function", "no existe buildRoutinePdfData");
+    });
+
+    /* ============ V33: LÁMINAS ANATÓMICAS ============ */
+
+    test("las láminas se declaran una sola vez por archivo", function(){
+      var files = Object.keys(A.ANATOMY_BY_FILE);
+      assert(files.length === 48, "se esperaban 48 archivos, hay " + files.length);
+      // Ningún ejercicio puede aparecer en dos archivos distintos.
+      var visto = {}, dup = [];
+      files.forEach(function(f){
+        A.ANATOMY_BY_FILE[f].forEach(function(n){
+          if(visto[n]) dup.push(n + " (" + visto[n] + " y " + f + ")");
+          visto[n] = f;
+        });
+      });
+      assert(dup.length === 0, "ejercicios en más de un archivo: " + dup.join(", "));
+      assert(Object.keys(A.EXERCISE_ANATOMY_IMAGES).length === Object.keys(visto).length,
+        "el mapa derivado no coincide con la declaración");
+    });
+
+    test("cada nombre con lámina existe en la biblioteca", function(){
+      var malos = Object.keys(A.EXERCISE_ANATOMY_IMAGES).filter(function(n){
+        return !A.MUSCLE_MAP[n];
+      });
+      assert(malos.length === 0, "nombres inexistentes: " + malos.join(", "));
+    });
+
+    test("todas las rutas de lámina apuntan a ejercicios/anatomia/", function(){
+      var rutas = Object.keys(A.EXERCISE_ANATOMY_IMAGES).map(function(n){
+        return A.EXERCISE_ANATOMY_IMAGES[n];
+      });
+      var malas = rutas.filter(function(p){
+        return p.indexOf("ejercicios/anatomia/") !== 0 || !/-anatomia[.]jpg$/.test(p);
+      });
+      assert(malas.length === 0, "rutas fuera de convención: " + malas.slice(0,3).join(", "));
+    });
+
+    test("las variantes que comparten anatomía apuntan al MISMO archivo", function(){
+      var f = A.exerciseAnatomyImageFor;
+      assert(f("Press de banca con barra") === f("Press de banca plano en Smith"), "plano/Smith");
+      assert(f("Press de banca inclinado con barra") === f("Press de banca inclinado en Smith"), "inclinado/Smith");
+      assert(f("Press de banca declinado") === f("Fondos inclinado"), "declinado/fondos");
+      assert(f("Remo con barra") === f("Remo en TRX"), "remos comparten lámina");
+      assert(f("Curl con barra") === f("Curl en polea"), "curls comparten lámina");
+      assert(f("Vuelos pájaro") === f("Pec Fly invertido"), "deltoide posterior");
+      // Y las que NO comparten siguen separadas.
+      assert(f("Flexiones de brazo") !== f("Fondos inclinado"), "flexiones vs fondos");
+      assert(f("Gemelos en máquina") !== f("Gemelos sentado en máquina"), "gemelos de pie vs sentado");
+    });
+
+    test("Pecho conserva exactamente el mapeo ya validado", function(){
+      var f = A.exerciseAnatomyImageFor, D = "ejercicios/anatomia/";
+      var esperado = {
+        "Press de banca con barra": "press-de-banca-plano",
+        "Press de banca plano en Smith": "press-de-banca-plano",
+        "Press de pecho en polea": "press-de-banca-plano",
+        "Press de banca inclinado con barra": "press-de-banca-inclinado",
+        "Press de banca inclinado con mancuernas": "press-de-banca-inclinado",
+        "Press de banca inclinado en Smith": "press-de-banca-inclinado",
+        "Press de banca declinado": "press-de-banca-declinado",
+        "Press de banca declinado en Smith": "press-de-banca-declinado",
+        "Fondos inclinado": "press-de-banca-declinado",
+        "Aperturas de pecho con mancuernas en banco plano": "aperturas-pecho-mancuernas-banco-plano",
+        "Pec Fly": "aperturas-pecho-mancuernas-banco-plano",
+        "Aperturas de pecho con mancuernas en banco inclinado": "aperturas-pecho-mancuernas-banco-inclinado",
+        "Flexiones de brazo": "flexiones-de-brazo"
+      };
+      Object.keys(esperado).forEach(function(n){
+        assert(f(n) === D + esperado[n] + "-anatomia.jpg", n + " cambió de lámina");
+      });
+    });
+
+    test("la lámina se resuelve por alias igual que la ficha", function(){
+      var f = A.exerciseAnatomyImageFor;
+      assert(f("Press banca plano") === f("Press de banca con barra"), "alias de press plano");
+      assert(f("Sentadilla") === f("Sentadilla con barra"), "alias de sentadilla");
+      assert(f("Peso muerto") === f("Peso muerto con barra"), "alias de peso muerto");
+      assert(f("Pec deck (contractora)") === f("Pec Fly"), "alias de pec fly");
+    });
+
+    test("la miniatura usa la lámina y el resto sigue con SVG", function(){
+      var conLamina = A.exerciseThumbHtml({nombre:"Sentadilla con barra"}, "width:32px;height:77px", "width:56px;height:72px");
+      assert(/<img/.test(conLamina) && /sentadilla-anatomia[.]jpg/.test(conLamina), "no usa la lámina");
+      assert(/object-fit:contain/.test(conLamina), "sin object-fit:contain (deformaría)");
+      // Un ejercicio sin lámina (cardio no tiene ni datos musculares) no revienta.
+      var sinNada = A.exerciseThumbHtml({nombre:"Bicicleta fija"}, "width:32px;height:77px", "width:56px;height:72px");
+      assert(sinNada === "", "cardio debería devolver vacío");
+      // El link pegado por el usuario sigue teniendo prioridad.
+      var propio = A.exerciseThumbHtml({nombre:"Sentadilla con barra", imagenUrl:"https://x.test/f.jpg"}, "w", "w");
+      assert(/x\.test/.test(propio), "el link del usuario dejó de tener prioridad");
+    });
+
+    test("las fotos y videos de demostración ya no existen en la app", function(){
+      assert(!("EXERCISE_IMAGES" in A), "EXERCISE_IMAGES sigue exportado");
+      assert(!("EXERCISE_VIDEOS" in A), "EXERCISE_VIDEOS sigue exportado");
+      assert(typeof A.exerciseImageFor === "undefined", "exerciseImageFor sigue existiendo");
+      assert(typeof A.exerciseVideoFor === "undefined", "exerciseVideoFor sigue existiendo");
+    });
+
+    /* ============ V33: ENLACES DE MUSCLEWIKI ============ */
+
+    test("los enlaces nuevos de MuscleWiki están cargados", function(){
+      var f = A.exerciseHowtoLinkFor;
+      var esperado = {
+        "Jalón agarre neutro": "neutral-pulldown",
+        "Jalón agarre supino": "underhand-pulldown",
+        "Sentadilla Smith": "smith-machine-squat",
+        "Sentadilla búlgara": "dumbbell-bulgarian-split-squat",
+        "Curl Scott (predicador)": "ez-bar-preacher-curl",
+        "Curl de muñeca inverso": "dumbbell-wrist-extension",
+        "Gemelos en prensa": "machine-horizontal-leg-press-calf-raise",
+        "Pec Fly invertido": "machine-reverse-fly",
+        "Hiperextensiones": "machine-45-degree-back-extension",
+        "Crunch en polea": "cable-rope-kneeling-crunch"
+      };
+      Object.keys(esperado).forEach(function(n){
+        var u = f(n);
+        assert(u === "https://musclewiki.com/exercise/" + esperado[n], n + " -> " + u);
+      });
+    });
+
+    test("todo enlace de MuscleWiki tiene forma válida", function(){
+      var malas = [];
+      Object.keys(A.EXERCISE_HOWTO_LINKS).forEach(function(k){
+        var u = A.EXERCISE_HOWTO_LINKS[k];
+        if(!/^https:\/\/musclewiki\.com\/exercise\/[a-z0-9-]+\/?$/.test(u)) malas.push(k + " -> " + u);
+      });
+      assert(malas.length === 0, "URLs mal formadas: " + malas.join(", "));
+    });
+
+    test("los ejercicios sin página inequívoca siguen sin enlace", function(){
+      // Documentado en index.html: MuscleWiki no tiene página para estos.
+      // Si alguien les inventa una URL, este test lo frena.
+      var sinEnlace = ["Press de banca declinado en Smith", "Peso muerto con mancuernas",
+        "Peso muerto sumo con mancuernas", "Step Up", "Rueda abdominal", "Remo en TRX",
+        "Remo en máquina unilateral", "Remo en máquina agarre ancho", "Jalón tras nuca",
+        "Patada lateral a cuatro patas", "Curl en polea unilateral"];
+      var conEnlace = sinEnlace.filter(function(n){ return A.exerciseHowtoLinkFor(n); });
+      assert(conEnlace.length === 0, "aparecieron enlaces no verificados: " + conEnlace.join(", "));
+    });
+
+    /* ============ V33: VOLVER AL EXPLORADOR SIN PERDER LA POSICIÓN ============ */
+
+    // anchorSnapshotFor corre DENTRO de la app, así que las filas de prueba van
+    // en el documento del iframe, no en el de este harness.
+    function withAppRows(html, fn){
+      var doc = frame.contentDocument;
+      var host = doc.createElement("div");
+      host.innerHTML = html;
+      doc.body.appendChild(host);
+      try{ fn(); } finally { host.remove(); }
+    }
+
+    test("el ancla de scroll encuentra la fila del ejercicio", function(){
+      withAppRows('<div data-ex-explore="Sentadilla con barra" style="height:40px"></div>', function(){
+        var snap = A.anchorSnapshotFor("Sentadilla con barra");
+        assert(snap && snap.nombre === "Sentadilla con barra", "no encontró la fila");
+        assert(snap && typeof snap.top === "number", "no guardó la altura");
+        assert(A.anchorSnapshotFor("Ejercicio que no está en la lista") === null, "debería ser null");
+        assert(A.anchorSnapshotFor("") === null, "nombre vacío debería ser null");
+      });
+    });
+
+    test("el ancla tolera nombres con comillas y paréntesis", function(){
+      withAppRows('<div data-ex-explore="Giro ruso (russian twist)" style="height:40px"></div>', function(){
+        assert(A.anchorSnapshotFor("Giro ruso (russian twist)") !== null, "paréntesis rompen el selector");
+      });
+      // Un nombre con comilla doble no debe tirar una excepción de selector.
+      var ok = true;
+      try{ A.anchorSnapshotFor('Ejercicio "raro"'); }catch(e){ ok = false; }
+      assert(ok, "el selector no escapa las comillas");
+    });
+
+    test("volver del detalle guarda grupo, subfiltro y posición", function(){
+      // openExerciseDetail deja el estado listo para restaurar; el back lo aplica.
+      A.state.explorerGroup = "Piernas";
+      A.state.explorerSub = "cuadriceps";
+      A.state.navScrollY = 1234;
+      A.state.navScrollAnchor = { nombre:"Sentadilla con barra", top:300 };
+      // Cambiar de grupo/subfiltro a propósito descarta la posición vieja.
+      A.clearNavScroll();
+      assert(A.state.navScrollY === null, "no limpió navScrollY");
+      assert(A.state.navScrollAnchor === null, "no limpió navScrollAnchor");
+      // El subfiltro NO se toca al limpiar el scroll: son cosas distintas.
+      assert(A.state.explorerSub === "cuadriceps", "clearNavScroll no debe tocar el subfiltro");
+      A.state.explorerGroup = null; A.state.explorerSub = null;
     });
 
     finish();
