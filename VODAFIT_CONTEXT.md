@@ -295,8 +295,15 @@ enfocada origin is never hidden behind `automatica`.
 Counts after the V31 reclassification (active exercises only; retired
 ones keep their detail page but are no longer offered):
 
-Pecho (13) - Espalda (16) - Piernas (28) - Hombros (17) - Brazos (18) -
+Pecho (13) - Espalda (15) - Piernas (28) - Hombros (17) - Brazos (18) -
 Core (9).
+
+Espalda dropped from 16 to 15 in V35.3: `Jalón agarre ancho` was unified
+with `Jalón al pecho` (same identity — same equipment, same pattern, same
+MuscleWiki link) and retired, so there is only ONE active identity for
+that movement. It keeps its `MUSCLE_MAP` entry and detail page, and its
+history is grouped under the canonical name. `Jalón tras nuca` is
+unrelated and stays an independent retired identity.
 
 Brazos contains three subgroups: bíceps, tríceps and antebrazo. The
 antebrazo subgroup has its own exercises (Curl de muñeca, Curl de

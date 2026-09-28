@@ -975,9 +975,41 @@
     "Pec deck inverso": "Pec Fly invertido",
     "Extensión de tríceps en polea c/barra": "Extensión de tríceps en polea con barra",
     "Extensión de tríceps en polea ag/Neutro": "Extensión de tríceps en polea",
-    "Extensión de tríceps en polea ag/Prono": "Extensión tríceps polea agarre prono",
+    // V35.1: este alias apuntaba a "Extensión tríceps polea agarre prono", que
+    // está RETIRADO — la cadena resolvía pero terminaba en un ejercicio que el
+    // generador ya no ofrece. Ahora apunta directo al activo, igual que la
+    // consolidación de abajo.
+    "Extensión de tríceps en polea ag/Prono": "Extensión de tríceps en polea con barra",
     "Curl con mancuernas inclinado": "Curl con mancuernas banco inclinado",
     "Press militar maquina": "Press de hombros en máquina",
+
+    // ---- V35.3: "Jalón agarre ancho" y "Jalón al pecho" son la misma identidad.
+    // Mismo equipamiento (Polea), mismo patrón (traccion-vertical) y el MISMO
+    // link de MuscleWiki (machine-pulldown): la diferencia era de nomenclatura
+    // ("al pecho" describe el recorrido, "agarre ancho" el agarre), no dos
+    // progresiones distintas. A diferencia de los otros aliases, el nombre viejo
+    // era un ejercicio ACTIVO, así que además se agrega a EXERCISES_RETIRED —
+    // sin eso quedaban dos entradas activas canonicalizando al mismo ejercicio,
+    // con dos filas en la Biblioteca abriendo la misma ficha.
+    //
+    // "Jalón tras nuca" NO entra acá: es un recorrido distinto, se retiró por
+    // riesgo de hombro y sigue siendo una identidad histórica independiente.
+    "Jalón agarre ancho": "Jalón al pecho",
+
+    // ---- V35.1: retirados de V31 que SÍ tienen un equivalente activo.
+    // Salen de la auditoría de identidad de los 11 retirados. De esos 11, solo
+    // estos dos tenían equivalencia respaldada por evidencia convergente; los
+    // otros nueve quedan deliberadamente SIN alias (ver EXERCISES_RETIRED).
+    //
+    // Mismo equipamiento (Mancuernas), mismo link de MuscleWiki
+    // (dumbbell-shrug), mismo músculo principal (traps). V31 lo retiró porque
+    // ya existían las tres variantes específicas; esta es la que le corresponde.
+    "Encogimientos de hombros": "Encogimientos con mancuernas",
+    // Mismo equipamiento (Polea), mismo link de MuscleWiki (cable-bar-pushdown),
+    // misma posición y ejecución. La diferencia de énfasis en MUSCLE_MAP
+    // (cabeza larga vs lateral) no alcanza por sí sola para justificar una
+    // identidad histórica separada — decisión explícita de producto.
+    "Extensión tríceps polea agarre prono": "Extensión de tríceps en polea con barra",
   };
   // Devuelve el nombre canónico de un ejercicio (el mismo nombre si ya lo es).
   // Se usa al LEER datos guardados (historial, registros, rutinas persistidas),
@@ -1045,7 +1077,18 @@
       if(prev !== target) idx.set(key, null); // conflicto real -> ambigua
     };
     // Los canónicos primero: son el destino legítimo de cualquier variante.
-    EXERCISES.forEach(n=> add(n, n));
+    //
+    // V35.1: se excluyen los que TIENEN alias explícito. Un nombre que está en
+    // EXERCISE_ALIASES no es su propio canónico — su identidad es el target. La
+    // exclusión hace falta desde que un nombre puede estar en EXERCISES y ser
+    // clave de alias a la vez: los retirados de V31 siguen en EXERCISES (para
+    // que el historial conserve su ficha) y dos de ellos ahora tienen alias
+    // hacia un activo. Sin esta exclusión, ese nombre se agregaba dos veces con
+    // destinos distintos, la clave quedaba marcada AMBIGUA y la capa
+    // normalizadora dejaba de resolver sus variantes de escritura
+    // ("encogimientos de hombros" en minúsculas ya no llegaba a ningún lado).
+    // La capa explícita seguía funcionando, pero la normalizadora se perdía.
+    EXERCISES.forEach(n=>{ if(!EXERCISE_ALIASES[n]) add(n, n); });
     // Las claves de los alias apuntan al MISMO target que el alias explícito,
     // así una variante de escritura de un nombre viejo ("face pull" con otra
     // capitalización) también llega al canónico. Cuando la clave de un alias
@@ -1144,13 +1187,32 @@
     "Zancadas",                        // queda "Estocadas con mancuerna"
     // V31 §11 — Espalda
     "Jalón tras nuca",
+    // V35.3 — "Jalón agarre ancho" se unifica con "Jalón al pecho" (ver el
+    // alias). Sale del pool activo y de la Biblioteca para que haya UNA sola
+    // identidad activa, pero sigue en MUSCLE_MAP y en EXERCISES: el historial
+    // viejo conserva su ficha y se agrupa bajo el canónico. Esto baja el conteo
+    // del Explorador para Espalda de 16 a 15.
+    "Jalón agarre ancho",
     // V31 §12 — Hombros: ya existen las tres variantes específicas
     "Encogimientos de hombros",
     // V31 §13 — Brazos: consolidación de pushdowns ya decidida
     "Extensión tríceps polea agarre prono",
   ]);
+  // V35.1: se chequea el nombre CRUDO además del canónico, y el orden importa.
+  //
+  // Los cuatro llamadores (armSubfocusPool, legFocusPools, subgroupPools,
+  // muscleGroupPools) recorren las claves de MUSCLE_MAP, que incluyen a los
+  // retirados. Desde que un retirado tiene alias hacia un ejercicio ACTIVO
+  // ("Encogimientos de hombros" y "Extensión tríceps polea agarre prono"), su
+  // nombre canónico ya NO está en EXERCISES_RETIRED — así que mirar solo el
+  // canónico lo devolvía al pool activo y a la biblioteca. Verificado: sin esta
+  // línea, Hombros pasaba de 17 a 18 y Brazos de 18 a 19.
+  //
+  // Chequear el crudo primero mantiene el comportamiento de siempre para los
+  // otros nueve retirados (que no tienen alias) y para cualquier alias viejo
+  // cuyo TARGET siga retirado.
   function isRetiredExercise(name){
-    return EXERCISES_RETIRED.has(canonicalExerciseName(name));
+    return EXERCISES_RETIRED.has(name) || EXERCISES_RETIRED.has(canonicalExerciseName(name));
   }
 
   // ---- Patrón de movimiento (V31 §3 y §10).
@@ -2433,7 +2495,12 @@
     "Patada lateral a cuatro patas": "Peso corporal",
     "Elevación lateral de pierna": "Peso corporal",
     "Gemelos en máquina": "Máquina", // *
-    "Gemelos parado con mancuerna": "Mancuerna",
+    // V35.2: era "Mancuerna" (singular), el único de los 29 ejercicios con
+    // mancuernas que lo escribía así. El filtro de equipamiento de la Biblioteca
+    // sale de Array.from(new Set(catalog.map(x=>x.equip))), así que mostraba DOS
+    // opciones para la misma categoría y filtrar por "Mancuernas" escondía este
+    // ejercicio. No es un alias de ejercicio: el NOMBRE del ejercicio no cambia.
+    "Gemelos parado con mancuerna": "Mancuernas",
     "Gemelos sentado en máquina": "Máquina",
     "Gemelos en prensa": "Máquina",
     "Abductores en máquina": "Máquina",
