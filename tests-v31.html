@@ -1402,6 +1402,535 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       A.state.explorerGroup = null; A.state.explorerSub = null;
     });
 
+    /* ================= V34 — identidad de ejercicios ================= */
+    group("V34 · capa normalizadora de identidad");
+
+    test("la capa explícita (EXERCISE_ALIASES) sigue ganando", function(){
+      var C = A.canonicalExerciseName;
+      assert(C("Sentadilla") === "Sentadilla con barra", "alias explícito roto");
+      assert(C("Press banca plano") === "Press de banca con barra", "alias V32 roto");
+      var malos = Object.keys(A.EXERCISE_ALIASES).filter(function(k){
+        return C(k) !== A.EXERCISE_ALIASES[k];
+      });
+      assert(malos.length === 0, "aliases que no llegan a su target: " + malos.join(", "));
+    });
+
+    test("cada nombre canónico se resuelve a sí mismo (idempotencia)", function(){
+      var malos = A.EXERCISES.filter(function(n){ return A.canonicalExerciseName(n) !== n; });
+      assert(malos.length === 0, "canónicos que se desvían: " + malos.join(", "));
+    });
+
+    test("normaliza mayúsculas, acentos, puntuación y espacios", function(){
+      var C = A.canonicalExerciseName;
+      // El caso reportado: el nombre cargado a mano difería del alias por una palabra.
+      assert(C("Press de banca plano") === "Press de banca con barra", "press de banca plano");
+      assert(C("press de banca plano") === "Press de banca con barra", "minúsculas");
+      assert(C("PRESS BANCA PLANO") === "Press de banca con barra", "mayúsculas");
+      assert(C("Extension de piernas") === "Extensión de piernas", "sin acento");
+      assert(C("Dominadas.") === "Dominadas", "puntuación");
+      assert(C("  Remo   con  barra ") === "Remo con barra", "espacios de más");
+      assert(C("Curl mancuernas") === "Curl con mancuernas", "preposición faltante");
+      assert(C("face pull") === "Face Pull", "alias + capitalización");
+    });
+
+    test("NO inventa equivalencias entre ejercicios distintos", function(){
+      var C = A.canonicalExerciseName;
+      assert(C("Ejercicio inventado XYZ") === "Ejercicio inventado XYZ", "tocó un nombre desconocido");
+      // Variantes reales que NUNCA deben colapsar entre sí.
+      var pares = [
+        ["Press de banca con barra", "Press de banca inclinado con barra"],
+        ["Press de banca con barra", "Press de banca declinado"],
+        ["Remo en máquina", "Remo en máquina unilateral"],
+        ["Curl de muñeca", "Curl de muñeca inverso"],
+        ["Pec Fly", "Pec Fly invertido"],
+        ["Peso muerto con barra", "Peso muerto rumano con barra"],
+        ["Gemelos en máquina", "Gemelos en prensa"],
+        ["Sentadilla con barra", "Sentadilla frontal"]
+      ];
+      pares.forEach(function(p){
+        assert(C(p[0]) !== C(p[1]), "colapsó " + p[0] + " con " + p[1]);
+      });
+      assert(C("") === "", "vacío");
+      assert(C(null) === null, "null");
+    });
+
+    test("las stopwords son un set cerrado sin palabras semánticas", function(){
+      var peligrosas = ["sin","unilateral","inverso","invertido","alternado","plano","inclinado",
+        "declinado","frontal","lateral","supino","prono","neutro","barra","mancuernas","maquina",
+        "polea","smith","cerrado","ancho","corto"];
+      var leak = peligrosas.filter(function(w){ return A.EXERCISE_NAME_STOPWORDS.has(w); });
+      assert(leak.length === 0, "stopwords con valor semántico: " + leak.join(", "));
+    });
+
+    test("ninguna clave normalizada es ambigua entre los canónicos", function(){
+      // Si dos canónicos distintos compartieran clave, el índice la marca null
+      // y deja de resolver (no adivina). Hoy no debe haber ninguna: agregar un
+      // ejercicio que colisione tiene que hacer fallar ESTE test, no unificar
+      // historiales en silencio.
+      var amb = [];
+      A.EXERCISE_NORMALIZED_INDEX.forEach(function(v, k){ if(v === null) amb.push(k); });
+      assert(amb.length === 0, "claves ambiguas: " + amb.join(" | "));
+    });
+
+    test("la normalización colapsa escritura pero no resuelve lo inexistente", function(){
+      var k1 = A.normalizeExerciseName("Press de Banca, Plano");
+      var k2 = A.normalizeExerciseName("press banca plano");
+      assert(k1 === k2, "la normalización no colapsó variantes de escritura");
+      assert(A.resolveExerciseNameNormalized("no existe este ejercicio") === null, "resolvió un nombre inexistente");
+      assert(A.isAmbiguousExerciseName("Dominadas") === false, "marcó ambiguo un nombre normal");
+    });
+
+    test("exerciseNameResolves distingue conocido de desconocido", function(){
+      assert(A.exerciseNameResolves("Dominadas") === true, "canónico");
+      assert(A.exerciseNameResolves("Sentadilla") === true, "alias explícito");
+      assert(A.exerciseNameResolves("press banca plano") === true, "variante de escritura");
+      assert(A.exerciseNameResolves("Ejercicio inventado XYZ") === false, "desconocido");
+      assert(A.exerciseNameResolves("") === false, "vacío");
+    });
+
+    group("V34 · diagnóstico de identidad (solo lectura)");
+
+    test("clasifica sin resolver / normalizados / ya identificados", function(){
+      var d = A.exerciseIdentityDiagnostics(
+        ["Press de banca con barra","Press de banca con barra","Press de banca plano",
+         "Sentadilla","Ejercicio Raro 1","Ejercicio Raro 1","Ejercicio Raro 2",""],
+        ["Dominadas","press banca plano","Otro Raro"]
+      );
+      assert(d.registros.total === 5, "nombres distintos en historial: " + d.registros.total);
+      assert(d.registros.unresolved.length === 2, "sin resolver en historial: " + d.registros.unresolved.length);
+      assert(d.registros.unresolved[0].count === 2, "no contó las apariciones");
+      // Los canónicos y los alias explícitos NO son un problema: no se listan.
+      assert(!d.registros.unresolved.some(function(x){ return x.nombre === "Sentadilla"; }), "listó un alias como sin resolver");
+      assert(d.registros.normalized.length === 1 &&
+             d.registros.normalized[0].canonico === "Press de banca con barra", "no separó los normalizados");
+      assert(d.rutinas.unresolved.length === 1 && d.rutinas.unresolved[0].nombre === "Otro Raro", "rutinas mal clasificadas");
+      assert(d.rutinas.normalized.length === 1, "rutinas: normalizado no detectado");
+      assert(d.ambiguas.length === 0, "ambiguas inesperadas");
+      assert(d.sinResolver === 3, "contador global: " + d.sinResolver);
+    });
+
+    test("el diagnóstico no muta ninguna estructura de identidad", function(){
+      var nAlias = Object.keys(A.EXERCISE_ALIASES).length;
+      var nEx = A.EXERCISES.length;
+      var nIdx = A.EXERCISE_NORMALIZED_INDEX.size;
+      A.exerciseIdentityDiagnostics(["Nombre Suelto Nuevo"], ["Otro Nombre Suelto"]);
+      assert(Object.keys(A.EXERCISE_ALIASES).length === nAlias, "agregó aliases automáticamente");
+      assert(A.EXERCISES.length === nEx, "agregó ejercicios al catálogo");
+      assert(A.EXERCISE_NORMALIZED_INDEX.size === nIdx, "mutó el índice normalizado");
+    });
+
+    test("el diagnóstico tolera entradas vacías o nulas", function(){
+      assert(A.exerciseIdentityDiagnostics([], []).sinResolver === 0, "listas vacías");
+      assert(A.exerciseIdentityDiagnostics(null, null).sinResolver === 0, "null");
+      assert(A.exerciseIdentityDiagnostics([null, "", "  "], []).registros.total === 0, "no ignoró vacíos");
+    });
+
+    test("el volcado en texto incluye las secciones del reporte", function(){
+      var txt = A.exerciseDiagnosticsText(A.exerciseIdentityDiagnostics(["Raro A"], ["Raro B"]));
+      assert(typeof txt === "string", "no devolvió texto");
+      ["HISTORIAL SIN RESOLVER","RUTINAS SIN RESOLVER","AMBIGUAS"].forEach(function(s){
+        assert(txt.indexOf(s) !== -1, "falta la sección " + s);
+      });
+      assert(txt.indexOf("Raro A") !== -1 && txt.indexOf("Raro B") !== -1, "no listó los nombres");
+    });
+
+    test("rutinaExerciseNamesRaw lee los tres slots sin canonicalizar", function(){
+      var prevSlots = A.state.rutinaSlots, prevSession = A.state.session;
+      A.state.rutinaSlots = {
+        personalizada: { days: [{ id:"d1", nombre:"D1", exercises:[{ id:"e1", nombre:"press banca plano" }] }] },
+        automatica:    { days: [{ id:"d2", nombre:"D2", exercises:[{ id:"e2", nombre:"Dominadas" }] }] },
+        enfocada:      { days: [{ id:"d3", nombre:"D3", exercises:[{ id:"e3", nombre:"Raro Enfocada" }] }] }
+      };
+      A.state.session = null;
+      var raw = A.rutinaExerciseNamesRaw();
+      assert(raw.indexOf("press banca plano") !== -1, "no devolvió el nombre CRUDO de personalizada");
+      assert(raw.indexOf("Dominadas") !== -1, "no leyó automatica");
+      assert(raw.indexOf("Raro Enfocada") !== -1, "no leyó enfocada");
+      assert(raw.length === 3, "cantidad inesperada: " + raw.length);
+      // El día embebido de un Día Especial en curso también se mira.
+      A.state.session = { specialDay: { id:"sp", nombre:"Especial", exercises:[{ id:"e4", nombre:"Raro Especial" }] } };
+      assert(A.rutinaExerciseNamesRaw().indexOf("Raro Especial") !== -1, "ignoró el día especial embebido");
+      A.state.rutinaSlots = prevSlots; A.state.session = prevSession;
+    });
+
+    group("V34 · alias confirmado a mano: Gemelos");
+
+    test("Gemelos resuelve a Gemelos parado con mancuerna", function(){
+      // Confirmado por Juan contra el diagnóstico (5 registros + 2 apariciones
+      // en rutinas). NO se dedujo: es una equivalencia explícita.
+      assert(A.EXERCISE_ALIASES["Gemelos"] === "Gemelos parado con mancuerna", "no está en EXERCISE_ALIASES");
+      assert(A.canonicalExerciseName("Gemelos") === "Gemelos parado con mancuerna", "no resuelve");
+      // Y no arrastra a las otras variantes de gemelos, que son ejercicios distintos.
+      ["Gemelos en máquina","Gemelos en prensa","Gemelos sentado en máquina"].forEach(function(n){
+        assert(A.canonicalExerciseName(n) === n, n + " fue absorbido por el alias");
+      });
+    });
+
+    test("el alias le da ficha, lámina y equipamiento a Gemelos", function(){
+      assert(A.exerciseMuscleGroup("Gemelos") === A.exerciseMuscleGroup("Gemelos parado con mancuerna"), "grupo muscular");
+      assert(A.exerciseEquipment("Gemelos") === A.exerciseEquipment("Gemelos parado con mancuerna"), "equipamiento");
+      assert(A.exerciseAnatomyImageFor("Gemelos") === A.exerciseAnatomyImageFor("Gemelos parado con mancuerna"), "lámina");
+    });
+
+    test("no se agregaron más equivalencias que Gemelos", function(){
+      // La única alias nueva de esta etapa. Si aparece otra sin decidirse a
+      // mano, este test tiene que fallar.
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38,
+        "cantidad de aliases inesperada: " + Object.keys(A.EXERCISE_ALIASES).length);
+    });
+
+    group("V34 · historial unificado (viejo + nuevo)");
+
+    // Historial sintético: el MISMO ejercicio guardado con tres escrituras
+    // distintas — el nombre viejo, una variante tipeada y el canónico.
+    function withRegistros(regs, fn){
+      var prev = A.state.registros;
+      A.state.registros = regs;
+      try { return fn(); } finally { A.state.registros = prev; }
+    }
+    var REGS_MIXTOS = [
+      { id:"r1", exercise:"Gemelos",                      peso:20, date:"2026-01-05", series:"3", reps:"12", nota:"", createdAt:1 },
+      { id:"r2", exercise:"Gemelos parado con mancuerna",  peso:22, date:"2026-01-12", series:"3", reps:"12", nota:"", createdAt:2 },
+      { id:"r3", exercise:"gemelos",                       peso:24, date:"2026-01-19", series:"3", reps:"10", nota:"", createdAt:3 },
+      { id:"r4", exercise:"Press de banca plano",          peso:60, date:"2026-01-05", series:"4", reps:"8",  nota:"", createdAt:4 },
+      { id:"r5", exercise:"Press de banca con barra",      peso:65, date:"2026-01-12", series:"4", reps:"8",  nota:"", createdAt:5 },
+      { id:"r6", exercise:"Gemelos en prensa",             peso:80, date:"2026-01-12", series:"3", reps:"15", nota:"", createdAt:6 }
+    ];
+
+    test("los tres nombres del mismo ejercicio caen en un solo historial", function(){
+      withRegistros(REGS_MIXTOS, function(){
+        var h = A.exerciseHistoryFor("Gemelos parado con mancuerna");
+        assert(h.length === 3, "esperaba 3 registros unificados, hubo " + h.length);
+        var ids = h.map(function(r){ return r.id; }).sort();
+        assert(ids.join(",") === "r1,r2,r3", "ids unificados: " + ids.join(","));
+        // Entrar por el nombre VIEJO da exactamente el mismo historial.
+        var hViejo = A.exerciseHistoryFor("Gemelos");
+        assert(hViejo.length === 3, "entrando por el nombre viejo: " + hViejo.length);
+        assert(hViejo.map(function(r){return r.id;}).sort().join(",") === ids.join(","), "historiales distintos según el nombre de entrada");
+      });
+    });
+
+    test("no arrastra un ejercicio que solo se parece", function(){
+      withRegistros(REGS_MIXTOS, function(){
+        var h = A.exerciseHistoryFor("Gemelos en prensa");
+        assert(h.length === 1 && h[0].id === "r6", "Gemelos en prensa se mezcló: " + h.length);
+      });
+    });
+
+    test("el historial unificado sale ordenado por fecha ascendente", function(){
+      withRegistros(REGS_MIXTOS, function(){
+        var h = A.exerciseHistoryFor("Gemelos");
+        var fechas = h.map(function(r){ return r.date; });
+        var ordenadas = fechas.slice().sort();
+        assert(fechas.join(",") === ordenadas.join(","), "desordenado: " + fechas.join(","));
+      });
+    });
+
+    test("el gráfico de evolución no se parte en dos series", function(){
+      withRegistros(REGS_MIXTOS, function(){
+        var h = A.exerciseHistoryFor("Gemelos");
+        var semanas = A.exerciseWeeklyMax(h);
+        // Tres registros en tres semanas distintas -> tres puntos, progresión 20/22/24.
+        assert(semanas.length === 3, "puntos en el gráfico: " + semanas.length);
+        var pesos = semanas.map(function(s){ return s.peso; });
+        assert(pesos.join(",") === "20,22,24", "progresión rota: " + pesos.join(","));
+      });
+    });
+
+    test("la ficha del ejercicio muestra el historial completo", function(){
+      withRegistros(REGS_MIXTOS, function(){
+        var prevDetail = A.state.exDetail;
+        // Se abre desde un día que todavía tiene el nombre viejo.
+        A.openExerciseDetail({ nombre:"Gemelos" }, { returnTab:"rutina" });
+        assert(A.state.exDetail.nombre === "Gemelos parado con mancuerna",
+          "la ficha no se abrió sobre el canónico: " + A.state.exDetail.nombre);
+        var html = A.screenExerciseDetail();
+        assert(html.indexOf("Gemelos parado con mancuerna") !== -1, "no muestra el nombre canónico");
+        assert(html.indexOf("No hay datos todavía") === -1, "la ficha salió sin historial");
+        A.state.exDetail = prevDetail;
+      });
+    });
+
+    group("V34 · escritura canonicalizada");
+
+    test("una fila nueva se escribe con el nombre canónico", function(){
+      var R = A.Store.registroRowFor;
+      assert(R("p1", { exercise:"Gemelos", peso:20, date:"2026-02-01" }).exercise === "Gemelos parado con mancuerna", "alias explícito");
+      assert(R("p1", { exercise:"press de banca plano", peso:60, date:"2026-02-01" }).exercise === "Press de banca con barra", "variante de escritura");
+      assert(R("p1", { exercise:"Dominadas", peso:0, date:"2026-02-01" }).exercise === "Dominadas", "canónico");
+      // Un nombre que no resuelve se guarda TAL CUAL: no se inventa nada.
+      assert(R("p1", { exercise:"Ejercicio Propio XYZ", peso:10, date:"2026-02-01" }).exercise === "Ejercicio Propio XYZ", "nombre propio alterado");
+    });
+
+    test("la canonicalización al escribir no toca el resto de la fila", function(){
+      var row = A.Store.registroRowFor("p1", { exercise:"Gemelos", peso:20.5, date:"2026-02-01", series:"3", reps:"12", nota:"ok", setNumber:2, createdAt:999 });
+      assert(row.profile_id === "p1" && row.peso === 20.5 && row.date === "2026-02-01", "campos base alterados");
+      assert(row.series === "3" && row.reps === "12" && row.nota === "ok", "series/reps/nota alterados");
+      assert(row.set_number === 2 && row.created_at === 999, "set_number/created_at alterados");
+      // Sin setNumber queda null, como siempre (formulario clásico de Registro).
+      assert(A.Store.registroRowFor("p1", { exercise:"Dominadas", peso:0, date:"2026-02-01" }).set_number === null, "set_number debería ser null");
+    });
+
+    test("escribir y volver a leer da la misma identidad (ida y vuelta)", function(){
+      var row = A.Store.registroRowFor("p1", { exercise:"Gemelos", peso:20, date:"2026-02-01" });
+      var leido = A.Store.rowToRegistro({ id:"x", exercise:row.exercise, peso:row.peso, date:row.date, set_number:null });
+      assert(leido.exercise === "Gemelos parado con mancuerna", "ida y vuelta: " + leido.exercise);
+      // Y una fila HISTÓRICA con el nombre viejo se lee con la misma identidad.
+      var historico = A.Store.rowToRegistro({ id:"y", exercise:"Gemelos", peso:18, date:"2025-12-01", set_number:null });
+      assert(historico.exercise === leido.exercise, "el histórico no se unifica con el nuevo");
+    });
+
+    group("V34 · rutinas canonicalizadas");
+
+    test("canonicalizeDayNames reescribe solo el nombre", function(){
+      var day = { id:"d1", nombre:"Día 1", exercises:[
+        { id:"e1", nombre:"Gemelos", series:3, reps:"12", notas:"suave" },
+        { id:"e2", nombre:"press banca plano", series:4, reps:"8" },
+        { id:"e3", nombre:"Ejercicio Propio XYZ", series:2, reps:"10" }
+      ]};
+      A.canonicalizeDayNames(day);
+      assert(day.exercises[0].nombre === "Gemelos parado con mancuerna", "alias no aplicado");
+      assert(day.exercises[1].nombre === "Press de banca con barra", "variante no aplicada");
+      assert(day.exercises[2].nombre === "Ejercicio Propio XYZ", "nombre sin canónico fue alterado");
+      // Lo demás intacto: los id son la clave de sets/setLogs de una sesión viva.
+      assert(day.exercises[0].id === "e1" && day.exercises[1].id === "e2", "los id cambiaron");
+      assert(day.exercises[0].series === 3 && day.exercises[0].notas === "suave", "series/notas alteradas");
+      assert(day.nombre === "Día 1", "el nombre del día cambió");
+      assert(day.exercises.length === 3, "se perdió o duplicó un ejercicio");
+    });
+
+    test("canonicalizeDayNames es idempotente y tolera basura", function(){
+      var day = { id:"d", nombre:"D", exercises:[{ id:"e", nombre:"Gemelos" }] };
+      A.canonicalizeDayNames(day);
+      var unaVez = day.exercises[0].nombre;
+      A.canonicalizeDayNames(day);
+      assert(day.exercises[0].nombre === unaVez, "no es idempotente");
+      // Nada de esto debe lanzar.
+      A.canonicalizeDayNames(null);
+      A.canonicalizeDayNames({});
+      A.canonicalizeDayNames({ exercises:null });
+      A.canonicalizeDayNames({ exercises:[null, {}, { nombre:"" }] });
+    });
+
+    test("canonicalizeRutinaSlots cubre los tres slots", function(){
+      var slots = {
+        personalizada: { days:[{ id:"d1", nombre:"D1", exercises:[{ id:"e1", nombre:"Gemelos" }] }] },
+        automatica:    { days:[{ id:"d2", nombre:"D2", exercises:[{ id:"e2", nombre:"press banca plano" }] }] },
+        enfocada:      { days:[{ id:"d3", nombre:"D3", exercises:[{ id:"e3", nombre:"Sentadilla" }] }] }
+      };
+      A.canonicalizeRutinaSlots(slots);
+      assert(slots.personalizada.days[0].exercises[0].nombre === "Gemelos parado con mancuerna", "personalizada");
+      assert(slots.automatica.days[0].exercises[0].nombre === "Press de banca con barra", "automatica");
+      assert(slots.enfocada.days[0].exercises[0].nombre === "Sentadilla con barra", "enfocada");
+      A.canonicalizeRutinaSlots(null);
+      A.canonicalizeRutinaSlots({ personalizada:{ days:null } });
+    });
+
+    test("allExerciseNames devuelve nombres canónicos sin duplicar", function(){
+      var prev = A.state.rutina;
+      // El mismo ejercicio escrito de dos formas en dos días distintos debe
+      // aparecer UNA sola vez en el selector.
+      A.state.rutina = { days:[
+        { id:"d1", nombre:"D1", exercises:[{ id:"e1", nombre:"Gemelos" }] },
+        { id:"d2", nombre:"D2", exercises:[{ id:"e2", nombre:"Gemelos parado con mancuerna" }, { id:"e3", nombre:"Dominadas" }] }
+      ]};
+      var names = A.allExerciseNames();
+      assert(names.indexOf("Gemelos") === -1, "quedó el nombre viejo en el selector");
+      assert(names.filter(function(n){ return n === "Gemelos parado con mancuerna"; }).length === 1,
+        "el canónico aparece duplicado: " + JSON.stringify(names));
+      assert(names.indexOf("Dominadas") !== -1, "faltó un ejercicio");
+      assert(names.length === 2, "cantidad inesperada: " + JSON.stringify(names));
+      A.state.rutina = prev;
+    });
+
+    group("V34 · filtros, agrupación y PDF");
+
+    test("filterHistory unifica viejo y nuevo", function(){
+      var prevFilter = A.state.historyFilter;
+      // Filtrar por el nombre CANÓNICO trae también los registros viejos.
+      A.state.historyFilter = { exercise:"Gemelos parado con mancuerna", from:"", to:"" };
+      var r1 = A.filterHistory(REGS_MIXTOS);
+      assert(r1.length === 3, "filtrando por canónico: " + r1.length);
+      // Y filtrar por el nombre VIEJO trae exactamente lo mismo.
+      A.state.historyFilter = { exercise:"Gemelos", from:"", to:"" };
+      var r2 = A.filterHistory(REGS_MIXTOS);
+      assert(r2.length === 3, "filtrando por el nombre viejo: " + r2.length);
+      assert(r1.map(function(r){return r.id;}).sort().join(",") === r2.map(function(r){return r.id;}).sort().join(","),
+        "el filtro da distinto según el nombre usado");
+      // El rango de fechas sigue funcionando igual que siempre.
+      A.state.historyFilter = { exercise:"Gemelos", from:"2026-01-10", to:"2026-01-31" };
+      assert(A.filterHistory(REGS_MIXTOS).length === 2, "el filtro de fechas dejó de funcionar");
+      A.state.historyFilter = prevFilter;
+    });
+
+    test("el historial agrupado muestra un solo grupo por ejercicio", function(){
+      var prevFilter = A.state.historyFilter, prevRutina = A.state.rutina, prevRegs = A.state.registros;
+      A.state.historyFilter = { exercise:"", from:"", to:"" }; // sin filtro -> vista agrupada
+      A.state.registros = REGS_MIXTOS;
+      A.state.rutina = { days:[] };
+      var html = A.screenRegistro();
+      // Un grupo por ejercicio canónico, con el nombre canónico como título.
+      var ocurrencias = html.split("data-hist-group=").length - 1;
+      assert(ocurrencias === 3, "grupos esperados 3 (gemelos parado / press banca / gemelos prensa), hubo " + ocurrencias);
+      assert(html.indexOf('data-hist-group="Gemelos parado con mancuerna"') !== -1, "falta el grupo canónico");
+      assert(html.indexOf('data-hist-group="Gemelos"') === -1, "quedó un grupo con el nombre viejo");
+      assert(html.indexOf('data-hist-group="Press de banca plano"') === -1, "quedó un grupo con la variante tipeada");
+      // El grupo unificado declara sus 3 registros.
+      assert(/3 registros/.test(html), "el grupo no cuenta los 3 registros");
+      A.state.historyFilter = prevFilter; A.state.rutina = prevRutina; A.state.registros = prevRegs;
+    });
+
+    test("el CSV exporta el nombre canónico", function(){
+      var csv = A.toCSV(REGS_MIXTOS.map(function(r){
+        return A.Store.rowToRegistro({ id:r.id, exercise:r.exercise, peso:r.peso, date:r.date, set_number:null });
+      }));
+      assert(csv.indexOf("Gemelos parado con mancuerna") !== -1, "falta el canónico en el CSV");
+      assert(!/,Gemelos,/.test(csv), "el CSV todavía exporta el nombre viejo");
+      assert(csv.indexOf("Press de banca plano") === -1, "el CSV todavía exporta la variante tipeada");
+    });
+
+    test("el PDF usa el nombre canónico y encuentra el máximo histórico", function(){
+      var prevRutina = A.state.rutina, prevSlot = A.state.activeSlot,
+          prevRegs = A.state.registros, prevProfile = A.state.profile;
+      A.state.profile = { id:"p1", name:"Test", metaSemanal:3 };
+      A.state.activeSlot = "personalizada";
+      A.state.registros = REGS_MIXTOS;
+      // El día todavía tiene el nombre viejo, como en los datos reales.
+      A.state.rutina = { days:[{ id:"d1", nombre:"Día 1", exercises:[
+        { id:"e1", nombre:"Gemelos", series:3, reps:"12" }
+      ]}]};
+      var pdf = A.buildRoutinePdfData();
+      var ex = pdf.days[0].exercises[0];
+      assert(ex.nombre === "Gemelos parado con mancuerna", "el PDF muestra el nombre viejo: " + ex.nombre);
+      // El máximo sale del historial UNIFICADO: 24 kg (registro guardado como "gemelos"),
+      // no 20 (el que coincidía literalmente con el nombre del día).
+      assert(ex.max && ex.max.peso === 24, "máximo del historial unificado: " + JSON.stringify(ex.max));
+      A.state.rutina = prevRutina; A.state.activeSlot = prevSlot;
+      A.state.registros = prevRegs; A.state.profile = prevProfile;
+    });
+
+    test("no se borró ni reescribió ningún registro histórico", function(){
+      // Todo el trabajo de esta etapa es de resolución en lectura/escritura:
+      // ninguna de las funciones nuevas muta la lista de registros ni pierde filas.
+      var copia = REGS_MIXTOS.map(function(r){ return JSON.stringify(r); }).join("|");
+      withRegistros(REGS_MIXTOS, function(){
+        A.exerciseHistoryFor("Gemelos");
+        A.filterHistory(REGS_MIXTOS);
+        A.exerciseWeeklyMax(A.exerciseHistoryFor("Gemelos"));
+      });
+      var despues = REGS_MIXTOS.map(function(r){ return JSON.stringify(r); }).join("|");
+      assert(copia === despues, "una lectura mutó los registros");
+      assert(REGS_MIXTOS.length === 6, "se perdieron registros");
+    });
+
+    group("V34 · prime bump desacoplado del peso corporal");
+
+    // Helper: fija el perfil y pregunta por el bump. Restaura el perfil previo.
+    function bumpCon(edad, peso){
+      var prev = A.state.profile;
+      A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:edad, peso:peso };
+      try { return A.profileHasPrimeBump(); } finally { A.state.profile = prev; }
+    }
+
+    test("el bump depende de la edad: 18 no, 19 sí, 35 sí, 36 no", function(){
+      assert(bumpCon(18, 80) === false, "edad 18 no debería tener bump");
+      assert(bumpCon(19, 80) === true,  "edad 19 debería tener bump (límite inclusivo)");
+      assert(bumpCon(35, 80) === true,  "edad 35 debería tener bump (límite inclusivo)");
+      assert(bumpCon(36, 80) === false, "edad 36 no debería tener bump");
+      // Y el resto del rango, por si alguien mueve los límites.
+      assert(bumpCon(25, 80) === true, "edad 25 (centro del rango)");
+      assert(bumpCon(50, 80) === false, "edad 50");
+      assert(bumpCon(60, 80) === false, "edad 60");
+    });
+
+    test("sin edad no hay bump (comportamiento de siempre)", function(){
+      assert(bumpCon(null, 80) === false, "sin edad pero con peso");
+      assert(bumpCon(null, null) === false, "sin edad ni peso");
+      // Sin perfil tampoco explota.
+      var prev = A.state.profile;
+      A.state.profile = null;
+      try { assert(A.profileHasPrimeBump() === false, "sin perfil debería devolver false"); }
+      finally { A.state.profile = prev; }
+    });
+
+    test("el peso corporal ya NO influye en el bump", function(){
+      // V34: decisión de producto — el peso corporal es una métrica de
+      // seguimiento y no una variable del generador automático.
+      var referencia = bumpCon(25, 80);
+      assert(referencia === true, "el caso de referencia (25a/80kg) debería tener bump");
+      // Peso ausente con edad válida: el peso ya no importa.
+      assert(bumpCon(25, null) === referencia, "peso ausente cambió el resultado");
+      // Muy por debajo y muy por encima del viejo rango 73-93.
+      assert(bumpCon(25, 50) === referencia, "peso 50 cambió el resultado");
+      assert(bumpCon(25, 100) === referencia, "peso 100 cambió el resultado");
+      // Y los bordes exactos del rango viejo, que antes eran los que decidían.
+      [40, 72, 73, 93, 94, 120, 300, 0].forEach(function(p){
+        assert(bumpCon(25, p) === referencia, "peso " + p + " cambió el resultado");
+      });
+      // Fuera del rango de edad, ningún peso lo enciende.
+      [null, 50, 80, 100].forEach(function(p){
+        assert(bumpCon(40, p) === false, "edad 40 con peso " + p + " no debería tener bump");
+      });
+    });
+
+    test("cambiar el peso corporal no cambia la rutina generada", function(){
+      // Se compara la CANTIDAD de ejercicios por día, que es lo único que el
+      // bump afecta. La selección en sí es aleatoria, así que se comparan las
+      // distribuciones de conteos, no los nombres.
+      var prev = A.state.profile;
+      function conteos(peso){
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:25, peso:peso };
+        var dist = {};
+        repeat(40, function(){
+          A.generateAutoRoutine(4, "Masculino", null).forEach(function(d){
+            var n = d.exercises.length;
+            dist[n] = (dist[n] || 0) + 1;
+          });
+        });
+        return dist;
+      }
+      try {
+        // Con 4 días por semana el bump es determinista (+1 fijo por el tope),
+        // así que la distribución tiene que ser idéntica para cualquier peso.
+        var c80 = conteos(80), cNull = conteos(null), c50 = conteos(50), c100 = conteos(100);
+        var k80 = Object.keys(c80).sort().join(",");
+        assert(k80 === "8", "con bump y 4 días esperaba todos los días en 8, hubo: " + JSON.stringify(c80));
+        assert(Object.keys(cNull).sort().join(",") === k80, "peso ausente cambió la rutina: " + JSON.stringify(cNull));
+        assert(Object.keys(c50).sort().join(",") === k80, "peso 50 cambió la rutina: " + JSON.stringify(c50));
+        assert(Object.keys(c100).sort().join(",") === k80, "peso 100 cambió la rutina: " + JSON.stringify(c100));
+      } finally { A.state.profile = prev; }
+    });
+
+    test("el bump sigue sumando volumen respecto de un perfil sin bump", function(){
+      // No se cambió QUÉ hace el bump, solo CUÁNDO se activa. Con 4 días,
+      // sin bump son 7 por día y con bump 8.
+      var prev = A.state.profile;
+      function porDia(edad){
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:edad, peso:80 };
+        var dist = {};
+        repeat(30, function(){
+          A.generateAutoRoutine(4, "Masculino", null).forEach(function(d){
+            dist[d.exercises.length] = (dist[d.exercises.length] || 0) + 1;
+          });
+        });
+        return Object.keys(dist).sort().join(",");
+      }
+      try {
+        assert(porDia(25) === "8", "con bump (edad 25) esperaba 8 por día, hubo: " + porDia(25));
+        assert(porDia(40) === "7", "sin bump (edad 40) esperaba 7 por día, hubo: " + porDia(40));
+      } finally { A.state.profile = prev; }
+    });
+
+    test("el desacople no tocó series, descanso ni cantidad base", function(){
+      // Guardas de no-regresión: lo que el pedido dijo explícitamente de NO tocar.
+      assert(A.seriesForAge(25) === 4 && A.seriesForAge(30) === 3 && A.seriesForAge(null) === 3, "seriesForAge cambió");
+      assert(A.sessionCountRange(1).join(",") === "8,8", "cantidad base 1 día");
+      assert(A.sessionCountRange(3).join(",") === "7,7", "cantidad base 3 días");
+      assert(A.sessionCountRange(5).join(",") === "6,6", "cantidad base 5 días");
+      var r = A.restRangeForAge(25);
+      assert(r && r.length === 2, "restRangeForAge cambió de forma");
+    });
+
     finish();
   }
 

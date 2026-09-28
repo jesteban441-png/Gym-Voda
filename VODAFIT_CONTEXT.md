@@ -87,7 +87,8 @@ classification structure and no second source of truth.
 
 Additional V31 structures, none of which duplicate muscle data:
 `EXERCISE_ALIASES` (old name → canonical name, so renames never break
-history), `EXERCISES_RETIRED` (out of the active pools but kept in
+history — extended in V34, see "Exercise identity"),
+`EXERCISES_RETIRED` (out of the active pools but kept in
 `MUSCLE_MAP` for history/CSV/PDF), `EXERCISE_PATTERN` +
 `PATTERN_PREDOMINANCE` + `PATTERN_PREDOMINANCE_WEIGHT` (single
 four-level scale: ALTA / MEDIA_ALTA / MEDIA / BAJA), and
@@ -95,6 +96,72 @@ four-level scale: ALTA / MEDIA_ALTA / MEDIA / BAJA), and
 
 Pattern diversity beats nominal diversity: two variants of the same
 pattern are not selected while a different pattern is still available.
+
+## Exercise identity (V34)
+
+An exercise is identified by its CANONICAL NAME. There is no parallel
+table of exercise IDs, and exercise identity does not depend on any SQL
+migration — V34 added none.
+
+Resolution has exactly two layers, in this order, both inside
+`canonicalExerciseName`:
+
+1.  `EXERCISE_ALIASES` — the EXPLICIT layer, and the only source of
+    confirmed equivalences. Every entry was decided by hand. It always
+    wins.
+2.  `EXERCISE_NORMALIZED_INDEX` — the normalizing layer. It collapses
+    differences of SPELLING only: case, accents, punctuation, spacing
+    and a closed set of 15 prepositions/articles
+    (`EXERCISE_NAME_STOPWORDS`). The index is built from `EXERCISES`
+    plus the targets of `EXERCISE_ALIASES` — no new catalogue.
+
+The normalizing layer never invents semantic equivalences. Words that
+distinguish one variant from another (`plano`, `inclinado`,
+`unilateral`, `inverso`, `alternado`, and every equipment word) are
+deliberately NOT stopwords, so `Press de banca con barra` and
+`Press de banca inclinado con barra` stay different exercises. It
+resolves only when the normalized key maps to exactly ONE canonical
+name; if two canonical names ever shared a key, the key is marked
+ambiguous and stops resolving rather than guessing. There are currently
+zero ambiguous keys, and a test fails if one appears.
+
+`Gemelos` → `Gemelos parado con mancuerna` is the only alias added in
+V34. It was confirmed by hand against the identity diagnostics (5
+historical records, 2 appearances in routines); it is a genuinely
+different name, not a spelling variant, so the normalizing layer
+deliberately left it unresolved. Alias count: 38.
+
+Canonicalization is applied on BOTH sides:
+
+-   On write — `registroRowFor` (the single write point for `registros`)
+    canonicalizes the name, so new rows always carry the canonical
+    identity. `updateRegistro` never touches `exercise`.
+-   On read — `rowToRegistro` canonicalizes every row coming out of
+    Supabase.
+-   On routine load — `canonicalizeRutinaSlots` /
+    `canonicalizeDayNames` rewrite only the `nombre` field of the three
+    slots (plus the embedded Día Especial day) in `loadProfileData`,
+    before any screen uses the data. Exercise `id`s are untouched, so an
+    in-progress session (which indexes `sets`/`setLogs` by `id`) is
+    restored unaffected. It is idempotent and forces no write: the
+    `rutinas.data` blob is rewritten canonicalized on the next ordinary
+    `persistRutina()`.
+
+History is grouped and queried by canonical name, so records saved under
+an old name and records saved under the current one share one history,
+one evolution graph and one exercise detail page. The name shown to the
+user is always the current canonical one — in the routine, the history,
+the exercise detail, the CSV and the PDF.
+
+Historical Supabase rows were NOT migrated or physically modified. No
+row was deleted or rewritten; old names are resolved at read time. A
+name that resolves to nothing is left exactly as it is.
+
+`exerciseIdentityDiagnostics` (Perfil → Diagnóstico → Identidad de
+ejercicios) is a read-only report of the raw names present in the user's
+own records and routines, split into unresolved / resolved by
+normalization / ambiguous. It never writes, never deletes and never adds
+aliases — new equivalences are only ever added by hand.
 
 ## Age and equipment (V31)
 
@@ -118,6 +185,64 @@ hard-exclusion rule and is unchanged.
 -   No automatic 2-series exercises under the current rule.
 -   Keep `restRangeForAge` and `EXERCISES_RISKY_50PLUS` unchanged unless
     requested.
+
+## Automatic routine: exercises per session
+
+Previously undocumented; written down in V34 when the prime bump was
+decoupled from body weight.
+
+Base count per session is FIXED by days/week (`sessionCountRange`): 1-2
+days → 8, 3-4 days → 7, 5-6 days → 6. Both ends of every range are
+equal, so `biasedTarget` always returns that exact number and its
+sex-based bias is currently inert.
+
+On top of that, the "prime" bump (`profileHasPrimeBump`) adds
+`randInt(1,2)` exercises to EACH day's target, capped at 8:
+
+    edad >= 19 && edad <= 35
+
+Age only. With no age loaded there is no bump. Observed effect, since
+the cap absorbs part of the bonus:
+
+-   1-2 days/week: no effect at all (base is already 8).
+-   3-4 days/week: always exactly +1 per day (7+1 and 7+2 both cap to 8).
+-   5-6 days/week: +1 or +2 per day, at random (6+1=7, 6+2=8), so two
+    routines generated for the same profile can differ in volume.
+
+Weekly totals measured over 40 generations: 3 days 22 → 24, 4 days
+28 → 32, 5 days 32 → 38, 6 days 38 → 45.
+
+## Body weight is not a generator variable (V34)
+
+Body weight is a TRACKING METRIC. It must never automatically change the
+number of exercises, the series, the rest or any other output of the
+automatic generators.
+
+Until V34 the prime bump also required `peso` between 73 and 93 kg. That
+was decoupled because body weight is becoming a metric with its own
+history: crossing 73 or 93 kg would have silently changed routine volume
+(up to 7 exercises per week at 6 days/week, and abruptly, since the
+threshold was hard). The bump now reads only `edad`.
+
+The change is strictly additive: every profile that had the bump still
+has it, and profiles aged 19-35 whose weight fell outside 73-93 kg (or
+who had no weight loaded) now get it too. No profile lost the bump.
+
+`profiles.peso_estimado` still exists and is still read into
+`state.profile.peso`, shown in the signup form and in Perfil. After V34
+NO generator reads it: `profileHasPrimeBump` was its only functional
+consumer. It has not been removed or renamed.
+
+## Pending findings (not fixed)
+
+-   The "hard cap of 8 exercises per day" is not actually enforced. The
+    weekly-coverage safety net (`REQUIRED_WEEK_SUBGROUPS` in
+    `generateAutoRoutine`) pushes missing subgroups onto the day with the
+    fewest exercises without checking the cap. Measured: 1 day/week
+    always produces 11 exercises, 2 days/week produces 9-10. It happens
+    identically with and without the prime bump, so it is independent of
+    it. Deliberately left unmodified — it needs its own decision about
+    whether the cap or the coverage rule wins.
 
 ## Automatic routine: enfocada (V31)
 
@@ -197,6 +322,9 @@ Recent reported tests: - V28: 58/58. - V29: 71/71. - Día Especial always
 available: 12/12. - Día Especial/explorer test: 26/26 after simulating
 missing migration. - Latest legs logic: 29/30, with the marked point
 related to finalization rather than leg-generation logic.
+- V34: 172/172 in `tests-v31.html` (exercise identity + prime-bump
+decoupling). The harness reports double that number because it runs the
+suite twice; the real single-run count is 172.
 
 ## Supabase issue
 

@@ -961,8 +961,14 @@
     // que su ficha salía vacía ("Todavía no hay datos de músculo cargados").
     // Mapearlos acá les devuelve ficha, media y equipamiento sin tocar
     // MUSCLE_MAP ni perder un solo registro del historial.
-    // "Gemelos" queda deliberadamente afuera: es ambiguo (en máquina, en
-    // prensa, sentado o parado con mancuerna) y hace falta decidir cuál es.
+    // V34: "Gemelos" era el único que quedaba sin decidir (es ambiguo por sí
+    // solo: en máquina, en prensa, sentado o parado con mancuerna). Juan lo
+    // confirmó a mano contra el diagnóstico de identidad — sus 5 registros
+    // históricos y las 2 apariciones en rutinas son "Gemelos parado con
+    // mancuerna". No se dedujo automáticamente: la capa normalizadora deja
+    // "Gemelos" sin resolver a propósito, porque no es una variante de
+    // escritura sino un nombre genuinamente distinto.
+    "Gemelos": "Gemelos parado con mancuerna",
     "Press banca plano": "Press de banca con barra",
     "Press banca inclinado": "Press de banca inclinado con barra",
     "Pec deck (contractora)": "Pec Fly",
@@ -976,9 +982,149 @@
   // Devuelve el nombre canónico de un ejercicio (el mismo nombre si ya lo es).
   // Se usa al LEER datos guardados (historial, registros, rutinas persistidas),
   // nunca para reescribir la base: los datos históricos quedan intactos.
+  //
+  // V34: la resolución pasa a tener DOS capas, en este orden:
+  //   1) EXERCISE_ALIASES — la capa EXPLÍCITA, única fuente de equivalencias
+  //      declaradas a mano. Siempre gana.
+  //   2) Índice normalizado — colapsa diferencias de ESCRITURA (mayúsculas,
+  //      acentos, puntuación, espacios y un set cerrado de preposiciones y
+  //      artículos) contra los nombres canónicos. Solo resuelve cuando el
+  //      resultado es ÚNICO; ante ambigüedad devuelve el nombre sin tocar.
+  // La capa 2 NO inventa equivalencias: dos nombres genuinamente distintos
+  // ("Prensa inclinada" vs "Sentadilla Hack") normalizan distinto y siguen
+  // siendo ejercicios distintos. Lo único que resuelve son variantes de
+  // escritura del MISMO nombre, que es lo que aparece cuando el nombre se
+  // cargó a mano ("press de banca plano", "Press Banca Plano").
   function canonicalExerciseName(name){
     if(!name) return name;
-    return EXERCISE_ALIASES[name] || name;
+    const explicit = EXERCISE_ALIASES[name];
+    if(explicit) return explicit;
+    return resolveExerciseNameNormalized(name) || name;
+  }
+
+  // ---- Capa normalizadora (V34).
+  // Palabras que se descartan al normalizar. Es un set CERRADO y conservador:
+  // solo preposiciones y artículos que nunca distinguen un ejercicio de otro.
+  // No se descarta ninguna palabra con valor semántico ("sin", "unilateral",
+  // "inverso", "alternado"...), porque ahí sí se perdería la variante.
+  const EXERCISE_NAME_STOPWORDS = new Set([
+    "de","del","la","el","los","las","con","en","a","al","y","para","por","un","una",
+  ]);
+
+  // Clave de comparación: minúsculas, sin acentos, sin puntuación, espacios
+  // colapsados y sin las stopwords de arriba. Es SOLO una clave interna de
+  // lookup — nunca se muestra ni se guarda.
+  function normalizeExerciseName(name){
+    if(!name) return "";
+    // normalizeTxt (ya existe en la app) hace minúsculas + sin acentos; acá se
+    // agrega puntuación y espacios para no duplicar esa lógica.
+    const flat = normalizeTxt(name).replace(/[^a-z0-9]+/g, " ").trim();
+    if(!flat) return "";
+    return flat.split(/\s+/).filter(w=> !EXERCISE_NAME_STOPWORDS.has(w)).join(" ");
+  }
+
+  // Índice clave-normalizada -> nombre canónico, construido una sola vez a
+  // partir de las MISMAS fuentes que ya existen (EXERCISES y los targets de
+  // EXERCISE_ALIASES). No hay una tabla nueva de identidades ni un segundo
+  // catálogo: si un nombre no sale de ahí, no se resuelve.
+  //
+  // Cuando dos nombres canónicos distintos comparten clave, la clave queda
+  // marcada como AMBIGUA y deja de resolver: preferimos no resolver antes que
+  // adivinar mal y unificar dos ejercicios que no son el mismo. Hoy no hay
+  // ninguna clave ambigua entre los canónicos (verificado), pero la guarda
+  // queda para que agregar un ejercicio nuevo nunca pueda romper el historial
+  // en silencio.
+  const EXERCISE_NORMALIZED_INDEX = (()=>{
+    const idx = new Map();
+    const add = (name, target)=>{
+      const key = normalizeExerciseName(name);
+      if(!key) return;
+      const prev = idx.get(key);
+      if(prev === undefined){ idx.set(key, target); return; }
+      if(prev === null) return;              // ya marcada ambigua
+      if(prev !== target) idx.set(key, null); // conflicto real -> ambigua
+    };
+    // Los canónicos primero: son el destino legítimo de cualquier variante.
+    EXERCISES.forEach(n=> add(n, n));
+    // Las claves de los alias apuntan al MISMO target que el alias explícito,
+    // así una variante de escritura de un nombre viejo ("face pull" con otra
+    // capitalización) también llega al canónico. Cuando la clave de un alias
+    // coincide con la de su propio target (los renombres que solo cambian
+    // mayúsculas) no hay conflicto: el target es el mismo.
+    Object.keys(EXERCISE_ALIASES).forEach(old=> add(old, EXERCISE_ALIASES[old]));
+    return idx;
+  })();
+
+  // Devuelve el canónico si la clave normalizada resuelve de forma ÚNICA.
+  // Devuelve null si el nombre no está en el índice o si la clave es ambigua.
+  function resolveExerciseNameNormalized(name){
+    const key = normalizeExerciseName(name);
+    if(!key) return null;
+    const hit = EXERCISE_NORMALIZED_INDEX.get(key);
+    return (hit === undefined || hit === null) ? null : hit;
+  }
+
+  // ¿La clave de este nombre es ambigua en el índice? (se usa en el
+  // diagnóstico para separar "no lo conozco" de "no me arriesgo a decidir").
+  function isAmbiguousExerciseName(name){
+    const key = normalizeExerciseName(name);
+    if(!key) return false;
+    return EXERCISE_NORMALIZED_INDEX.get(key) === null;
+  }
+
+  // ¿Este nombre resuelve a algún canónico, por cualquiera de las dos capas?
+  function exerciseNameResolves(name){
+    if(!name) return false;
+    if(EXERCISE_ALIASES[name]) return true;
+    if(EXERCISES.indexOf(name) !== -1) return true;
+    return resolveExerciseNameNormalized(name) !== null;
+  }
+
+  // ---- Diagnóstico de identidad (V34).
+  // Herramienta de LECTURA PURA: recorre los nombres crudos que aparecen en
+  // los datos del usuario (registros históricos y rutinas guardadas) y los
+  // clasifica. No escribe nada, no borra nada, no agrega aliases y no toca la
+  // base. Sirve para decidir a mano qué equivalencias genuinas faltan.
+  //
+  // `registroNames` y `rutinaNames` son listas de nombres CRUDOS (sin pasar
+  // por canonicalExerciseName), porque justamente lo que se quiere ver es qué
+  // hay guardado de verdad.
+  function exerciseIdentityDiagnostics(registroNames, rutinaNames){
+    const clasificar = (names)=>{
+      const seen = new Map(); // nombre crudo -> cantidad de apariciones
+      (names||[]).forEach(n=>{
+        const raw = (n==null ? "" : String(n)).trim();
+        if(!raw) return;
+        seen.set(raw, (seen.get(raw)||0) + 1);
+      });
+      const unresolved = [], ambiguous = [], normalized = [];
+      seen.forEach((count, raw)=>{
+        if(EXERCISE_ALIASES[raw] || EXERCISES.indexOf(raw) !== -1) return; // ya identificado
+        if(isAmbiguousExerciseName(raw)){
+          ambiguous.push({ nombre: raw, count, key: normalizeExerciseName(raw) });
+          return;
+        }
+        const hit = resolveExerciseNameNormalized(raw);
+        if(hit) normalized.push({ nombre: raw, count, canonico: hit });
+        else unresolved.push({ nombre: raw, count });
+      });
+      const porNombre = (a,b)=> a.nombre.localeCompare(b.nombre, "es");
+      return {
+        unresolved: unresolved.sort(porNombre),
+        ambiguous: ambiguous.sort(porNombre),
+        normalized: normalized.sort(porNombre),
+        total: seen.size,
+      };
+    };
+    const registros = clasificar(registroNames);
+    const rutinas = clasificar(rutinaNames);
+    return {
+      registros,
+      rutinas,
+      // Ambigüedades vistas en los datos, de las dos fuentes juntas.
+      ambiguas: registros.ambiguous.concat(rutinas.ambiguous),
+      sinResolver: registros.unresolved.length + rutinas.unresolved.length,
+    };
   }
 
   // ---- Ejercicios retirados del pool activo.
@@ -2511,9 +2657,15 @@
     // deja donde estaba. Si la fila ya no existe, se cae al scrollY de siempre.
     const nombreAbierto = isObj ? exOrName.nombre : exOrName;
     state.navScrollY = window.scrollY;
+    // El ancla de scroll usa el nombre CRUDO a propósito: es el que está puesto
+    // en el atributo data-ex-explore de la fila del DOM que se acaba de tocar.
     state.navScrollAnchor = anchorSnapshotFor(nombreAbierto);
     state.exDetail = {
-      nombre: nombreAbierto,
+      // V34: la ficha se abre siempre sobre la identidad canónica, así el
+      // título, el equipamiento, la lámina, el gráfico y el historial son los
+      // del mismo ejercicio aunque se haya entrado desde un día que todavía
+      // tenía el nombre viejo.
+      nombre: canonicalExerciseName(nombreAbierto),
       imagenUrl: isObj ? (exOrName.imagenUrl||"") : "", // link personalizado pegado en ESTE día/sesión (si lo hay)
       tab:"stats",
       mobileView:"detail",
@@ -2589,8 +2741,15 @@
     setTimeout(once, 32);
   }
 
+  // V34: los dos lados de la comparación pasan por canonicalExerciseName, así
+  // un registro guardado con un nombre viejo ("Gemelos") y uno nuevo
+  // ("Gemelos parado con mancuerna") caen en el MISMO historial y en el mismo
+  // gráfico de evolución. `state.registros` ya viene canonicalizado por
+  // rowToRegistro; canonicalizar igual los dos lados deja la función correcta
+  // sin depender de quién la llame ni con qué nombre.
   function exerciseHistoryFor(nombre){
-    return (state.registros||[]).filter(r=>r.exercise===nombre)
+    const canon = canonicalExerciseName(nombre);
+    return (state.registros||[]).filter(r=>canonicalExerciseName(r.exercise)===canon)
       .slice().sort((a,b)=> a.date<b.date?-1:(a.date>b.date?1:0));
   }
   function exStatsTabHtml(history){
@@ -3034,8 +3193,19 @@
     // hace falta para poder reabrir y editar ESA serie puntual más tarde sin
     // crear un registro duplicado; ningún llamador existente miraba el valor
     // de retorno, así que este cambio de forma no rompe nada ya escrito.
+    // V34: la fila que se va a insertar se arma en una función aparte y PURA,
+    // para poder testear la canonicalización de la escritura sin tocar la base.
+    // El nombre se canonicaliza acá, en este único punto de escritura — así
+    // toda fila nueva entra ya con la identidad canónica y deja de sumar
+    // variantes de escritura. Las filas históricas NO se tocan: se siguen
+    // resolviendo al leer (rowToRegistro), que es lo que mantiene el historial
+    // viejo y el nuevo en un mismo grupo.
+    function registroRowFor(pid, data){
+      return { profile_id: pid, exercise: canonicalExerciseName(data.exercise), peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now(), set_number: (data.setNumber==null? null : data.setNumber) };
+    }
+
     async function addRegistro(pid, data){
-      const row = { profile_id: pid, exercise: data.exercise, peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now(), set_number: (data.setNumber==null? null : data.setNumber) };
+      const row = registroRowFor(pid, data);
       const { data: inserted, error } = await client().from("registros").insert(row).select().single();
       return { ok: !error, id: inserted && inserted.id };
     }
@@ -3060,6 +3230,20 @@
         .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(300);
       if(error) throw error;
       return (data||[]).map(rowToRegistro);
+    }
+
+    // V34: nombres de ejercicio CRUDOS de todo el historial, sin pasar por
+    // rowToRegistro (que canonicaliza). Es solo-lectura y existe únicamente
+    // para el diagnóstico de identidad: lo que hay que ver ahí es exactamente
+    // lo que está guardado en la base, no la versión ya resuelta.
+    //
+    // No reusa listRegistros porque esa tiene `limit(300)` para la pantalla de
+    // Registro, y el diagnóstico necesita mirar TODO el historial. Trae una
+    // sola columna, así el costo de pedir más filas es bajo.
+    async function listRegistroExerciseNames(pid){
+      const { data, error } = await client().from("registros").select("exercise").eq("profile_id", pid).limit(5000);
+      if(error) throw error;
+      return (data||[]).map(r=> r.exercise);
     }
 
     function rowToEntreno(r){
@@ -3100,7 +3284,9 @@
       return !error;
     }
 
-    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro, updateRegistro, deleteRegistro, listRegistros, addEntreno, listEntrenos, deleteEntreno };
+    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro,
+      // V34: expuestas para los tests de canonicalizacion (escritura y lectura).
+      registroRowFor, rowToRegistro, updateRegistro, deleteRegistro, listRegistros, listRegistroExerciseNames, addEntreno, listEntrenos, deleteEntreno };
   })();
 
   function mapAuthError(error){
@@ -3530,6 +3716,18 @@
       slots = { personalizada: (raw && raw.days) ? raw : { days: [] }, automatica: { days: [] }, enfocada: { days: [] } };
       state.activeSlot = "personalizada";
     }
+    // V34: los nombres de ejercicio de las rutinas guardadas se canonicalizan
+    // acá, al cargar, ANTES de que cualquier pantalla los use. Es lo que hace
+    // que "Mi rutina" muestre el nombre canónico actual y que las
+    // comparaciones contra el historial (que ya viene canonicalizado por
+    // rowToRegistro) coincidan de los dos lados.
+    //
+    // Solo cambia el campo `nombre`; los `id` de cada ejercicio quedan igual,
+    // así que la sesión en curso (que indexa `sets`/`setLogs` por id) se
+    // restaura sin tocar nada. No fuerza ninguna escritura: el blob de
+    // `rutinas.data` se reescribe canonicalizado la próxima vez que algo
+    // llame a persistRutina() por su cuenta.
+    canonicalizeRutinaSlots(slots);
     state.rutinaSlots = slots;
     state.rutina = slots[state.activeSlot];
     state.registros = registros || [];
@@ -3564,11 +3762,37 @@
           setLogs[exId] = new Array(n).fill(null).map((_,i)=> savedLog[i] || null);
         });
         state.session = { dayId: s.dayId, slot, dayNombre: s.dayNombre||day.nombre, startedAt: s.startedAt||Date.now(), sets: s.sets, setLogs };
-        if(isSpecial) state.session.specialDay = day;
+        // El día embebido del Día Especial no vive en rutinaSlots, así que
+        // se canonicaliza por separado.
+        if(isSpecial){ canonicalizeDayNames(day); state.session.specialDay = day; }
       }
     }
   }
 
+
+  // ---- V34: canonicalización de los nombres de ejercicio de una rutina.
+  // Reescribe SOLO el campo `nombre` de cada ejercicio, en el mismo objeto (no
+  // clona): los `id`, series, reps, notas y el orden quedan intactos, así que
+  // una sesión en curso —que indexa `sets`/`setLogs` por `id`— sigue válida.
+  //
+  // Es idempotente (aplicarla dos veces da lo mismo) y no destructiva: si un
+  // nombre no resuelve a ningún canónico, se lo deja exactamente como está.
+  // Nada se pierde y nada se inventa.
+  function canonicalizeDayNames(day){
+    if(!day || !Array.isArray(day.exercises)) return day;
+    day.exercises.forEach(ex=>{
+      if(ex && ex.nombre) ex.nombre = canonicalExerciseName(ex.nombre);
+    });
+    return day;
+  }
+  function canonicalizeRutinaSlots(slots){
+    if(!slots) return slots;
+    Object.keys(slots).forEach(k=>{
+      const days = slots[k] && slots[k].days;
+      if(Array.isArray(days)) days.forEach(canonicalizeDayNames);
+    });
+    return slots;
+  }
   // V31: los tres slots de rutina que pueden estar guardados a la vez. El
   // orden es el que se muestra en la pestaña de Rutina. "especial" NO está
   // acá: el Día Especial no vive en rutinaSlots (embebe su propio día).
@@ -3603,9 +3827,13 @@
   }
 
   /* ================= RUTINA ================= */
+  // V34: los nombres salen canonicalizados. Las rutinas ya se canonicalizan al
+  // cargar (canonicalizeRutinaSlots), así que en la práctica esto es una red de
+  // seguridad para un día recién armado en memoria; deja el selector del
+  // formulario y el del filtro alineados con el historial unificado.
   function allExerciseNames(){
     const set = new Set();
-    (state.rutina.days||[]).forEach(d=> (d.exercises||[]).forEach(ex=> set.add(ex.nombre)));
+    (state.rutina.days||[]).forEach(d=> (d.exercises||[]).forEach(ex=> set.add(canonicalExerciseName(ex.nombre))));
     return Array.from(set);
   }
 
@@ -4177,14 +4405,29 @@
     return groups.map((g,i)=>[g,counts[i]]);
   }
 
-  // ¿Perfil "en su prime" (Juan): edad 19-35 y peso 73-93kg → un poco más de
-  // volumen. Si edad/peso no están cargados, no hay bump (comportamiento
-  // normal de siempre).
+  // ¿Perfil "en su prime": edad 19-35 → un poco más de volumen. Si la edad no
+  // está cargada, no hay bump (comportamiento normal de siempre).
+  //
+  // V34: el bump DEJÓ de depender del peso corporal. Antes exigía además
+  // peso 73-93kg, y eso lo volvía inaceptable a futuro: el peso corporal pasa
+  // a ser una métrica de seguimiento con su propio historial, así que cruzar
+  // 73 o 93kg habría cambiado solo la cantidad de ejercicios de la rutina
+  // automática (medido: hasta 7 ejercicios semanales de diferencia con 6 días
+  // por semana, y de golpe, porque el umbral era duro). Decisión de producto:
+  // el peso corporal NO modifica automáticamente el volumen de una rutina.
+  //
+  // El resto del bump queda EXACTAMENTE igual: sigue sumando randInt(1,2) al
+  // objetivo de cada día con el mismo tope de 8 (ver generateAutoRoutine), y
+  // no se tocó la cantidad base por sesión, la red de cobertura semanal, las
+  // series, el descanso ni ningún otro criterio.
+  //
+  // Consecuencia intencional: un perfil con edad 19-35 y SIN peso cargado
+  // ahora sí recibe el bump (antes no, porque faltaba el segundo dato).
   function profileHasPrimeBump(){
     const p = state.profile;
     if(!p) return false;
-    const edad = p.edad, peso = p.peso;
-    return edad!=null && peso!=null && edad>=19 && edad<=35 && peso>=73 && peso<=93;
+    const edad = p.edad;
+    return edad!=null && edad>=19 && edad<=35;
   }
   // Cantidad FIJA de ejercicios por sesión según días/semana — regla que
   // pasó Juan (15-sep-2026, v25, reemplaza el rango más amplio de v20): 10
@@ -5673,7 +5916,7 @@
       };
     });
     el.querySelectorAll("[data-log-ex]").forEach(b=>{
-      b.onclick = ()=>{ state.exerciseSelForm = b.dataset.logEx; setTab("registro"); };
+      b.onclick = ()=>{ state.exerciseSelForm = canonicalExerciseName(b.dataset.logEx); setTab("registro"); };
     });
     el.querySelectorAll("[data-howto-ex]").forEach(b=>{
       b.onclick = (e)=>{
@@ -5946,7 +6189,7 @@
         toggleSessionSet(ex.id, idx); // idx es siempre la serie activa (next) acá, nunca una ya hecha — no hay riesgo de descascadear
       }
       state.registros = await Store.listRegistros(state.profile.id);
-      state.exerciseSelForm = ex.nombre;
+      state.exerciseSelForm = canonicalExerciseName(ex.nombre);
       await persistRutina();
       closeModal();
       renderScreenSession();
@@ -6022,7 +6265,9 @@
   function filterHistory(list){
     const f = state.historyFilter;
     return list.filter(r=>{
-      if(f.exercise && r.exercise!==f.exercise) return false;
+      // V34: el filtro puede traer un nombre viejo guardado en el estado; se
+      // canonicalizan los dos lados para que coincida con el historial unificado.
+      if(f.exercise && canonicalExerciseName(r.exercise)!==canonicalExerciseName(f.exercise)) return false;
       if(f.from && r.date < f.from) return false;
       if(f.to && r.date > f.to) return false;
       return true;
@@ -6064,14 +6309,16 @@
       exercises: (d.exercises||[]).map(ex => {
         let max = null;
         registros.forEach(r => {
-          if(r.exercise !== ex.nombre) return;
+          if(canonicalExerciseName(r.exercise) !== canonicalExerciseName(ex.nombre)) return;
           const p = parseFloat(r.peso);
           if(isNaN(p)) return;
           if(max===null || p > max.peso || (p === max.peso && r.date > max.date)){
             max = { peso: p, date: r.date };
           }
         });
-        return { nombre: ex.nombre, series: ex.series||"", reps: ex.reps||"", notas: ex.notas||"", max };
+        // V34: el PDF muestra el nombre canónico actual, no el que se haya
+        // guardado en su momento.
+        return { nombre: canonicalExerciseName(ex.nombre), series: ex.series||"", reps: ex.reps||"", notas: ex.notas||"", max };
       }),
     }));
     return {
@@ -6247,7 +6494,8 @@
 
     const forExercise = sel==="__otro__" ? null : sel;
     const historyAll = state.registros;
-    const historyForSel = forExercise ? historyAll.filter(r=>r.exercise===forExercise) : [];
+    const canonSel = forExercise ? canonicalExerciseName(forExercise) : null;
+    const historyForSel = canonSel ? historyAll.filter(r=>canonicalExerciseName(r.exercise)===canonSel) : [];
     const spark = forExercise ? sparklineFor(historyForSel) : "";
 
     return `
@@ -6319,7 +6567,10 @@
           listHtml = `<div class="card empty">${icon("log")}<h3>Sin registros para este filtro</h3><p>Probá cambiar el ejercicio o el rango de fechas.</p></div>`;
         } else if(grouped){
           const byExercise = {};
-          filtered.forEach(r=>{ (byExercise[r.exercise]=byExercise[r.exercise]||[]).push(r); });
+          // V34: se agrupa por nombre CANÓNICO, así los registros viejos y los
+          // nuevos del mismo ejercicio caen en un solo grupo y el título que se
+          // muestra es el nombre canónico actual.
+          filtered.forEach(r=>{ const k = canonicalExerciseName(r.exercise); (byExercise[k]=byExercise[k]||[]).push(r); });
           const sortDesc = (a,b)=> a.date===b.date ? (b.createdAt||0)-(a.createdAt||0) : (a.date<b.date?1:-1);
           const groups = Object.keys(byExercise).map(name=>{
             const list = byExercise[name].slice().sort(sortDesc);
@@ -6457,7 +6708,7 @@
       const data = { exercise, peso: parseFloat(peso), date, series: series||"", reps: reps||"", nota, createdAt: Date.now() };
       await Store.addRegistro(state.profile.id, data);
       state.registros = await Store.listRegistros(state.profile.id);
-      state.exerciseSelForm = exercise;
+      state.exerciseSelForm = canonicalExerciseName(exercise);
       renderScreen();
     };
 
@@ -6795,6 +7046,124 @@
   });
 
   /* ================= PERFIL ================= */
+
+  /* ---------- V34: diagnóstico de identidad de ejercicios ----------
+     Pantalla de LECTURA PURA dentro de Perfil. No escribe, no borra, no agrega
+     aliases y no toca la base. Su único objetivo es mostrar qué nombres reales
+     hay guardados en los datos del usuario y cuáles no llegan a un canónico,
+     para poder decidir A MANO las equivalencias genuinas que falten. */
+
+  // Todos los nombres CRUDOS que aparecen en las rutinas guardadas: los tres
+  // slots (personalizada / automatica / enfocada) más el día embebido de una
+  // sesión de Día Especial en curso, que no vive en rutinaSlots.
+  function rutinaExerciseNamesRaw(){
+    const out = [];
+    const pushDays = (days)=> (days||[]).forEach(d=> (d.exercises||[]).forEach(ex=> ex && ex.nombre && out.push(ex.nombre)));
+    RUTINA_SLOTS.forEach(s=> pushDays((state.rutinaSlots && state.rutinaSlots[s] && state.rutinaSlots[s].days) || []));
+    if(state.session && state.session.specialDay) pushDays([state.session.specialDay]);
+    return out;
+  }
+
+  async function openExerciseDiagnosticsModal(){
+    const m = openModal(`
+      <h3>Diagnóstico de identidad</h3>
+      <p class="helptext">Leyendo tus datos…</p>
+    `);
+    let registroNames = [];
+    let loadError = null;
+    try{
+      registroNames = await Store.listRegistroExerciseNames(state.profile.id);
+    }catch(e){
+      loadError = (e && e.message) ? e.message : String(e);
+    }
+    if(!document.body.contains(m)) return; // lo cerraron mientras cargaba
+    const diag = exerciseIdentityDiagnostics(registroNames, rutinaExerciseNamesRaw());
+    state.lastExerciseDiagnostics = diag; // queda accesible para inspección/tests
+
+    const lista = (items, render)=> `<div class="loglist">${items.map(render).join("")}</div>`;
+    const bloqueSinResolver = (titulo, items, fuente)=>{
+      if(!items.length) return `<p class="helptext">${esc(titulo)}: ninguno. Todos los nombres de ${esc(fuente)} llegan a un ejercicio canónico.</p>`;
+      return `
+        <div class="section-title" style="margin-top:4px"><h2>${esc(titulo)}</h2><span class="muted">${items.length}</span></div>
+        ${lista(items, it=>`
+          <div class="logrow">
+            <div><div class="lex">${esc(it.nombre)}</div><div class="ldate">sin canónico</div></div>
+            <div><div class="lval num">${it.count}</div><div class="lsub">aparicion${it.count===1?"":"es"}</div></div>
+          </div>
+        `)}
+      `;
+    };
+    const bloqueNormalizados = (titulo, items)=>{
+      if(!items.length) return "";
+      return `
+        <div class="section-title" style="margin-top:4px"><h2>${esc(titulo)}</h2><span class="muted">${items.length}</span></div>
+        ${lista(items, it=>`
+          <div class="logrow">
+            <div><div class="lex">${esc(it.nombre)}</div><div class="ldate">→ ${esc(it.canonico)}</div></div>
+            <div><div class="lval num">${it.count}</div><div class="lsub">aparicion${it.count===1?"":"es"}</div></div>
+          </div>
+        `)}
+      `;
+    };
+    const bloqueAmbiguas = ()=>{
+      if(!diag.ambiguas.length) return `<p class="helptext">Equivalencias ambiguas: ninguna.</p>`;
+      return `
+        <div class="section-title" style="margin-top:4px"><h2>Ambiguas (no se resuelven a propósito)</h2><span class="muted">${diag.ambiguas.length}</span></div>
+        ${lista(diag.ambiguas, it=>`
+          <div class="logrow">
+            <div><div class="lex">${esc(it.nombre)}</div><div class="ldate">clave compartida: ${esc(it.key)}</div></div>
+            <div><div class="lval num">${it.count}</div><div class="lsub">aparicion${it.count===1?"":"es"}</div></div>
+          </div>
+        `)}
+      `;
+    };
+
+    m.innerHTML = `
+      <h3>Diagnóstico de identidad</h3>
+      ${loadError ? `<div class="banner warn">${icon("info")}<span>No se pudo leer el historial: ${esc(loadError)}</span></div>` : ""}
+      <p class="helptext">Solo lectura: esta pantalla no modifica, no borra y no agrega equivalencias. Los nombres que quedan “sin canónico” son los que hay que decidir a mano.</p>
+      <div class="card stack" style="max-height:52vh; overflow:auto">
+        <div class="row between"><span class="helptext">Nombres distintos en el historial</span><b>${diag.registros.total}</b></div>
+        <div class="row between"><span class="helptext">Nombres distintos en las rutinas</span><b>${diag.rutinas.total}</b></div>
+        ${bloqueSinResolver("Historial sin resolver", diag.registros.unresolved, "tu historial")}
+        ${bloqueSinResolver("Rutinas sin resolver", diag.rutinas.unresolved, "tus rutinas")}
+        ${bloqueNormalizados("Historial resuelto por normalización", diag.registros.normalized)}
+        ${bloqueNormalizados("Rutinas resueltas por normalización", diag.rutinas.normalized)}
+        ${bloqueAmbiguas()}
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="copy">Copiar</button>
+        <button class="btn btn-primary" data-act="close">Cerrar</button>
+      </div>
+    `;
+    m.querySelector('[data-act="close"]').onclick = closeModal;
+    m.querySelector('[data-act="copy"]').onclick = ()=>{
+      const txt = exerciseDiagnosticsText(diag);
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(()=> showToast("Diagnóstico copiado")).catch(()=> showToast("No se pudo copiar"));
+      } else showToast("No se pudo copiar");
+    };
+  }
+
+  // Versión en texto plano del diagnóstico, para pegarla en el chat/repo.
+  function exerciseDiagnosticsText(diag){
+    const L = [];
+    L.push("VodaFit — diagnóstico de identidad de ejercicios");
+    L.push(`Nombres distintos en historial: ${diag.registros.total}`);
+    L.push(`Nombres distintos en rutinas: ${diag.rutinas.total}`);
+    const sec = (titulo, items, fmt)=>{
+      L.push("");
+      L.push(`${titulo} (${items.length})`);
+      if(!items.length) L.push("  (ninguno)");
+      else items.forEach(it=> L.push("  " + fmt(it)));
+    };
+    sec("HISTORIAL SIN RESOLVER", diag.registros.unresolved, it=> `${it.nombre}  [${it.count}]`);
+    sec("RUTINAS SIN RESOLVER", diag.rutinas.unresolved, it=> `${it.nombre}  [${it.count}]`);
+    sec("HISTORIAL RESUELTO POR NORMALIZACION", diag.registros.normalized, it=> `${it.nombre} -> ${it.canonico}  [${it.count}]`);
+    sec("RUTINAS RESUELTAS POR NORMALIZACION", diag.rutinas.normalized, it=> `${it.nombre} -> ${it.canonico}  [${it.count}]`);
+    sec("AMBIGUAS", diag.ambiguas, it=> `${it.nombre}  (clave: ${it.key})  [${it.count}]`);
+    return L.join("\n");
+  }
   function screenPerfil(){
     const email = (state.authSession && state.authSession.user && state.authSession.user.email) || "";
     return `
@@ -6840,6 +7209,12 @@
         </div>
       </div>
 
+      <div class="section-title" style="margin-top:6px"><h2>Diagnóstico</h2></div>
+      <div class="card stack">
+        <p class="helptext">Revisa los nombres de ejercicio guardados en tu historial y en tus rutinas, y muestra cuáles no llegan a un ejercicio del catálogo. Es solo lectura: no modifica ni borra nada.</p>
+        <button class="btn btn-outline btn-block" id="btn-ex-diagnostics">Identidad de ejercicios</button>
+      </div>
+
       <button class="btn btn-outline btn-block" id="btn-logout">${icon("back")} Cerrar sesión</button>
     `;
   }
@@ -6873,6 +7248,8 @@
       state.profile.peso = v;
       await Store.updateProfile(state.profile.id, { peso: v });
     };
+    const diagBtn = el.querySelector("#btn-ex-diagnostics");
+    if(diagBtn) diagBtn.onclick = ()=> openExerciseDiagnosticsModal();
     el.querySelector("#btn-logout").onclick = async ()=>{
       const ok = await confirmDialog("Cerrar sesión", "¿Cerrar sesión en este dispositivo?", "Cerrar sesión");
       if(!ok) return;
@@ -6976,6 +7353,8 @@
     generateAutoRoutine, exerciseEquipment, exercisePrincipalSecondaryGroups,
     exerciseMuscleGroup, muscleGroupPools, subgroupPools, MUSCLE_GROUPS,
     exerciseLegFocus, seriesForAge, restRangeForAge, sessionCountRange,
+    // v34: el prime bump depende SOLO de la edad (ver profileHasPrimeBump).
+    profileHasPrimeBump,
     EXERCISES_RISKY_50PLUS, dayModality, get state(){ return state; },
     EXERCISES,
     screenExerciseDetail, EXERCISES_COMPOUND, seriesForExercise,
@@ -6988,6 +7367,14 @@
     calendarOriginFor, calendarOriginsFor, CALENDAR_ORIGIN_LABELS,
     // v31 — biblioteca, clasificación, patrones, edad y rutina enfocada
     EXERCISE_ALIASES, canonicalExerciseName, EXERCISES_RETIRED, isRetiredExercise,
+    // v34 — capa normalizadora + diagnóstico de identidad
+    EXERCISE_NAME_STOPWORDS, normalizeExerciseName, EXERCISE_NORMALIZED_INDEX,
+    resolveExerciseNameNormalized, isAmbiguousExerciseName, exerciseNameResolves,
+    exerciseIdentityDiagnostics, exerciseDiagnosticsText, rutinaExerciseNamesRaw,
+    canonicalizeDayNames, canonicalizeRutinaSlots, exerciseHistoryFor, allExerciseNames,
+    Store,
+    filterHistory, toCSV, screenRegistro,
+    openExerciseDiagnosticsModal,
     EXERCISE_PATTERN, exercisePattern, PATTERN_PREDOMINANCE, PATTERN_PREDOMINANCE_WEIGHT,
     exercisePredominance, exercisePredominanceWeight,
     ageEquipmentWeight, weightedPick, weightedPickMany, v31Weight,
