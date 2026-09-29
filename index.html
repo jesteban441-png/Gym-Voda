@@ -11,7 +11,8 @@
 <meta name="description" content="Rutina, registro de pesos y cronómetro para el gimnasio">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -154,12 +155,17 @@
     border-bottom:1px solid var(--border);
   }
   .brand{ display:flex; align-items:center; gap:10px; }
+  /* V38: el tile de marca pasa a ser NEGRO, igual que el ícono de la app.
+     El isotipo es blanco + naranja, así que necesita su propio fondo oscuro
+     para conservar contraste en tema claro y en tema oscuro por igual. El
+     borde sutil lo despega del fondo cuando la app está en oscuro. */
   .brand-mark{
-    width:32px;height:32px;border-radius:10px;background:var(--accent);
-    color:var(--accent-on);
+    width:32px;height:32px;border-radius:10px;
+    background:#111111; border:1px solid rgba(255,255,255,.10);
     display:flex;align-items:center;justify-content:center;flex:none;
   }
-  .brand-mark svg{ width:19px; height:19px; }
+  /* El isotipo es apaisado (~2:1): se fija el ancho y el alto sale solo. */
+  .brand-mark svg{ width:24px; height:auto; display:block; }
   .brand h1{ font-size:22px; line-height:1; color:var(--text); }
   .profile-chip{
     display:flex; align-items:center; gap:8px;
@@ -600,12 +606,16 @@
   /* ---------- Icons (inline SVG, currentColor) ---------- */
   const ICONS = {
     dumbbell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 3 10l4 4M17.5 17.5 21 14l-4-4M2 10l4-4M22 14l-4 4M9 6l9 9M6 9l9 9"/></svg>',
-    // Monograma de marca VodaFit: una "V" trazada de punta a punta y dos
-    // barras cortas que cruzan su pata derecha sugiriendo la "F" — un solo
-    // color (currentColor), pensado para leerse bien chico (badge del header,
-    // 18-22px) y también como marca grande (portada del PDF). No es un ícono
-    // funcional como el resto de ICONS, es la identidad de marca.
-    logoVF:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5L12 20L20 5"/><path d="M18 8.6h5.2"/><path d="M15.6 13.2h4.8"/></svg>',
+    // V38: isotipo oficial VodaFit. Dos polígonos macizos —la "V" blanca y la
+    // "F" naranja— trazados desde el archivo del logo, con su geometría exacta
+    // (viewBox 0 0 1164 578, el bounding box real del isotipo). No es un ícono
+    // funcional como el resto de ICONS: es la identidad de marca, y por eso
+    // lleva colores propios en vez de currentColor.
+    //
+    // Va siempre sobre fondo oscuro (.brand-mark es un tile negro), así que
+    // esta es la variante blanco/naranja. Para fondo claro existe la variante
+    // de contraste del PDF, donde la V se dibuja en tinta oscura (pdfDrawMark).
+    logoVF:'<svg viewBox="0 0 1164 578" fill="none" aria-hidden="true"><path fill="#FFFFFF" d="M0 1H199L423 320L682 1H1164L1057 136H747L404 564Z"/><path fill="#FF6A00" d="M751 199H1018L906 340H817L628 577H457Z"/></svg>',
     routine:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
     log:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
     timer:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M18 4l1.5 1.5"/></svg>',
@@ -6521,23 +6531,39 @@
   const PDF_SUCCESS = [46,158,91];      // --success (claro)
   const PDF_WATERMARK = [239,235,229];  // igual que --border pero más pálido, solo para la marca de agua
 
-  // Dibuja el monograma VF con líneas vectoriales (misma geometría que el
-  // ícono "logoVF" de la app, en escala 0-24) — nada de imágenes ni fuentes
-  // nuevas, así se ve idéntico en la app y en el PDF.
-  function pdfDrawMark(doc, x, y, size, inkColor, accentColor, weight){
-    const s = size/24;
-    doc.setLineWidth(weight*s);
-    doc.setDrawColor(inkColor[0], inkColor[1], inkColor[2]);
-    doc.line(x+4*s, y+5*s, x+12*s, y+20*s);
-    doc.line(x+12*s, y+20*s, x+20*s, y+5*s);
-    doc.setDrawColor(accentColor[0], accentColor[1], accentColor[2]);
-    doc.line(x+18*s, y+8.6*s, x+23.2*s, y+8.6*s);
-    doc.line(x+15.6*s, y+13.2*s, x+20.4*s, y+13.2*s);
+  // V38: isotipo VodaFit en el PDF, con la MISMA geometría que el SVG de la app
+  // (viewBox 0 0 1164 578), dibujado como dos polígonos rellenos — nada de
+  // imágenes ni fuentes nuevas, así se ve idéntico en la app y en el PDF.
+  //
+  // El PDF se imprime sobre página blanca, así que esta es la variante de
+  // CONTRASTE PARA FONDO CLARO: la "V" va en tinta oscura (inkColor) en lugar
+  // de blanca; la "F" mantiene el naranja de marca. `size` es el ANCHO del
+  // isotipo; el alto sale de su proporción (~2:1).
+  // Naranja del ISOTIPO: el de la marca (#FF6A00), igual que el ícono de la app
+  // y el SVG del header. Es distinto de PDF_ACCENT (#C84A22), que es el acento
+  // del documento y lo siguen usando el resto de los elementos del PDF.
+  const PDF_BRAND_ORANGE = [255,106,0];
+  const PDF_MARK_W = 1164, PDF_MARK_H = 578;
+  const PDF_MARK_V = [[0,1],[199,1],[423,320],[682,1],[1164,1],[1057,136],[747,136],[404,564]];
+  const PDF_MARK_F = [[751,199],[1018,199],[906,340],[817,340],[628,577],[457,577]];
+  function pdfDrawMark(doc, x, y, size, inkColor, accentColor){
+    const s = size/PDF_MARK_W;
+    const poly = (pts, col)=>{
+      doc.setFillColor(col[0], col[1], col[2]);
+      // jsPDF dibuja polígonos con lines() a partir de un punto y deltas.
+      const deltas = [];
+      for(let i=1;i<pts.length;i++) deltas.push([(pts[i][0]-pts[i-1][0])*s, (pts[i][1]-pts[i-1][1])*s]);
+      doc.lines(deltas, x + pts[0][0]*s, y + pts[0][1]*s, [1,1], "F", true);
+    };
+    poly(PDF_MARK_V, inkColor);
+    poly(PDF_MARK_F, accentColor);
   }
+  // Alto que ocupa el isotipo para un ancho dado — para centrarlo verticalmente.
+  function pdfMarkHeight(size){ return size * PDF_MARK_H / PDF_MARK_W; }
 
   function pdfWatermark(doc, pageW, pageH){
-    const size = 230;
-    pdfDrawMark(doc, pageW/2 - size/2, pageH/2 - size/2, size, PDF_WATERMARK, PDF_WATERMARK, 9);
+    const size = 260; // ancho del isotipo; el alto sale de su proporción
+    pdfDrawMark(doc, pageW/2 - size/2, pageH/2 - pdfMarkHeight(size)/2, size, PDF_WATERMARK, PDF_WATERMARK);
   }
 
   // Encabezado grande, solo en la primera página — hace las veces de portada
@@ -6546,13 +6572,14 @@
   function pdfBigHeader(doc, pageW, marginX, data){
     doc.setFillColor(PDF_INK[0], PDF_INK[1], PDF_INK[2]);
     doc.rect(0, 0, pageW, 92, "F");
-    pdfDrawMark(doc, marginX, 22, 46, [255,255,255], PDF_ACCENT, 3.2);
+    // Sobre la banda oscura va la variante blanco/naranja, como en la app.
+    pdfDrawMark(doc, marginX, 34, 52, [255,255,255], PDF_BRAND_ORANGE);
     doc.setFont("helvetica","bold"); doc.setFontSize(24);
     doc.setTextColor(255,255,255);
-    doc.text("V O D A F I T", marginX+58, 45); // espaciado manual entre letras: sin fuente nueva, sin riesgo de carga
+    doc.text("V O D A F I T", marginX+66, 45); // espaciado manual entre letras: sin fuente nueva, sin riesgo de carga
     doc.setFont("helvetica","normal"); doc.setFontSize(11);
     doc.setTextColor(224,219,212);
-    doc.text("Rutina de entrenamiento", marginX+58, 62);
+    doc.text("Rutina de entrenamiento", marginX+66, 62);
     doc.setFont("helvetica","bold"); doc.setFontSize(10.5);
     doc.setTextColor(255,255,255);
     doc.text(data.routineLabel, pageW-marginX, 45, { align:"right" });
@@ -6565,10 +6592,11 @@
 
   // Encabezado chico, repetido en cada página siguiente.
   function pdfSlimHeader(doc, pageW, marginX, data){
-    pdfDrawMark(doc, marginX, 14, 20, PDF_INK, PDF_ACCENT, 2.6);
+    // Sobre página blanca: variante de contraste, la V en tinta oscura.
+    pdfDrawMark(doc, marginX, 16, 24, PDF_INK, PDF_BRAND_ORANGE);
     doc.setFont("helvetica","bold"); doc.setFontSize(11);
     doc.setTextColor(PDF_INK[0], PDF_INK[1], PDF_INK[2]);
-    doc.text("VODAFIT", marginX+28, 28);
+    doc.text("VODAFIT", marginX+32, 28);
     doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
     doc.setTextColor(PDF_MUTED[0], PDF_MUTED[1], PDF_MUTED[2]);
     doc.text(data.routineLabel, pageW-marginX, 28, { align:"right" });
