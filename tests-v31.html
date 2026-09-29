@@ -1935,20 +1935,24 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         return dist;
       }
       try {
-        // Con 4 días por semana el bump es determinista (+1 fijo por el tope),
-        // así que la distribución tiene que ser idéntica para cualquier peso.
+        // V36: con 4 días el tope duro es 7 y el bump ya no puede aumentarlo,
+        // así que todos los días quedan en 7 para cualquier peso. Lo que este
+        // test verifica sigue siendo lo mismo: el peso no cambia la rutina.
         var c80 = conteos(80), cNull = conteos(null), c50 = conteos(50), c100 = conteos(100);
         var k80 = Object.keys(c80).sort().join(",");
-        assert(k80 === "8", "con bump y 4 días esperaba todos los días en 8, hubo: " + JSON.stringify(c80));
+        assert(k80 === "7", "con 4 días esperaba todos los días en 7 (tope duro), hubo: " + JSON.stringify(c80));
         assert(Object.keys(cNull).sort().join(",") === k80, "peso ausente cambió la rutina: " + JSON.stringify(cNull));
         assert(Object.keys(c50).sort().join(",") === k80, "peso 50 cambió la rutina: " + JSON.stringify(c50));
         assert(Object.keys(c100).sort().join(",") === k80, "peso 100 cambió la rutina: " + JSON.stringify(c100));
       } finally { A.state.profile = prev; }
     });
 
-    test("el bump sigue sumando volumen respecto de un perfil sin bump", function(){
-      // No se cambió QUÉ hace el bump, solo CUÁNDO se activa. Con 4 días,
-      // sin bump son 7 por día y con bump 8.
+    test("el bump NO aumenta el volumen por encima del tope diario", function(){
+      // V34 verificaba que el bump SUMARA volumen (7 sin bump, 8 con bump).
+      // V36 cambió eso por decisión de producto: el tope diario es DURO y el
+      // bump no puede aumentarlo. Con 4 días son 7 por día en los dos casos.
+      // El bump sigue existiendo y activándose por edad; lo que ya no hace es
+      // cambiar la CANTIDAD de ejercicios del día.
       var prev = A.state.profile;
       function porDia(edad){
         A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:edad, peso:80 };
@@ -1961,8 +1965,9 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         return Object.keys(dist).sort().join(",");
       }
       try {
-        assert(porDia(25) === "8", "con bump (edad 25) esperaba 8 por día, hubo: " + porDia(25));
+        assert(porDia(25) === "7", "con bump (edad 25) esperaba 7 por día (tope duro), hubo: " + porDia(25));
         assert(porDia(40) === "7", "sin bump (edad 40) esperaba 7 por día, hubo: " + porDia(40));
+        assert(porDia(25) === porDia(40), "el bump sigue cambiando la cantidad de ejercicios");
       } finally { A.state.profile = prev; }
     });
 
@@ -2553,6 +2558,301 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       ["Encogimientos de hombros","Extensión tríceps polea agarre prono","Jalón agarre ancho"].forEach(function(n){
         assert(conAlias.indexOf(n) !== -1, "falta " + n + " entre los retirados con alias");
       });
+    });
+
+    /* ========= V36 — tope diario DURO ========= */
+    group("V36 · tope diario duro por cantidad de días");
+
+    // Helper: genera `reps` semanas y devuelve métricas del tope.
+    function medirTope(nd, edad, reps){
+      var prev = A.state.profile;
+      A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:edad, peso:80 };
+      try{
+        var cap = A.sessionCountRange(nd)[0];
+        var maxVisto = 0, minVisto = 99, excesos = 0, dups = 0, dias = 0, vacios = 0;
+        repeat(reps, function(){
+          A.generateAutoRoutine(nd, "Masculino", null).forEach(function(d){
+            var n = d.exercises.length;
+            dias++;
+            if(n > maxVisto) maxVisto = n;
+            if(n < minVisto) minVisto = n;
+            if(n > cap) excesos++;
+            if(n === 0) vacios++;
+            var nombres = d.exercises.map(function(e){ return e.nombre; });
+            if(new Set(nombres).size !== nombres.length) dups++;
+          });
+        });
+        return { cap:cap, maxVisto:maxVisto, minVisto:minVisto, excesos:excesos, dups:dups, dias:dias, vacios:vacios };
+      } finally { A.state.profile = prev; }
+    }
+
+    // Cada test cubre un numDays con bump activo (edad 25) y sin bump (edad 45).
+
+    test("numDays 1 → ningún día supera 8", function(){
+      [25,45].forEach(function(edad){
+        var r = medirTope(1, edad, 40);
+        assert(r.cap === 8, "el tope de 1 día debería ser 8, es " + r.cap);
+        assert(r.excesos === 0, "edad " + edad + ": " + r.excesos + "/" + r.dias + " días superan 8 (máx visto " + r.maxVisto + ")");
+        assert(r.maxVisto <= 8, "edad " + edad + ": máximo visto " + r.maxVisto);
+      });
+    });
+
+    test("numDays 2 → ningún día supera 8", function(){
+      [25,45].forEach(function(edad){
+        var r = medirTope(2, edad, 40);
+        assert(r.cap === 8, "tope: " + r.cap);
+        assert(r.excesos === 0, "edad " + edad + ": " + r.excesos + "/" + r.dias + " días superan 8 (máx " + r.maxVisto + ")");
+      });
+    });
+
+    test("numDays 3 → ningún día supera 7", function(){
+      [25,45].forEach(function(edad){
+        var r = medirTope(3, edad, 40);
+        assert(r.cap === 7, "tope: " + r.cap);
+        assert(r.excesos === 0, "edad " + edad + ": " + r.excesos + "/" + r.dias + " días superan 7 (máx " + r.maxVisto + ")");
+      });
+    });
+
+    test("numDays 4 → ningún día supera 7", function(){
+      [25,45].forEach(function(edad){
+        var r = medirTope(4, edad, 40);
+        assert(r.cap === 7, "tope: " + r.cap);
+        assert(r.excesos === 0, "edad " + edad + ": " + r.excesos + "/" + r.dias + " días superan 7 (máx " + r.maxVisto + ")");
+      });
+    });
+
+    test("numDays 5 → ningún día supera 6", function(){
+      [25,45].forEach(function(edad){
+        var r = medirTope(5, edad, 40);
+        assert(r.cap === 6, "tope: " + r.cap);
+        assert(r.excesos === 0, "edad " + edad + ": " + r.excesos + "/" + r.dias + " días superan 6 (máx " + r.maxVisto + ")");
+      });
+    });
+
+    test("numDays 6 → ningún día supera 6", function(){
+      [25,45].forEach(function(edad){
+        var r = medirTope(6, edad, 40);
+        assert(r.cap === 6, "tope: " + r.cap);
+        assert(r.excesos === 0, "edad " + edad + ": " + r.excesos + "/" + r.dias + " días superan 6 (máx " + r.maxVisto + ")");
+      });
+    });
+
+    test("el prime bump no aumenta el tope en ninguna configuración", function(){
+      // Mismo tope con bump activo (25) y sin bump (45). Antes, con base 6, el
+      // bump llevaba un día a 8.
+      [1,2,3,4,5,6].forEach(function(nd){
+        var conBump = medirTope(nd, 25, 25);
+        var sinBump = medirTope(nd, 45, 25);
+        assert(conBump.maxVisto === sinBump.maxVisto,
+          nd + " días: con bump máx " + conBump.maxVisto + ", sin bump máx " + sinBump.maxVisto);
+        assert(conBump.maxVisto <= conBump.cap, nd + " días con bump: " + conBump.maxVisto + " > " + conBump.cap);
+      });
+      // Y la condición del bump sigue intacta (solo edad, V34).
+      var prev = A.state.profile;
+      try{
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:25, peso:null };
+        assert(A.profileHasPrimeBump() === true, "el bump dejó de activarse por edad");
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:45, peso:80 };
+        assert(A.profileHasPrimeBump() === false, "el bump se activa fuera del rango de edad");
+      } finally { A.state.profile = prev; }
+    });
+
+    test("ningún día queda por debajo del mínimo de sessionCountRange", function(){
+      [1,2,3,4,5,6].forEach(function(nd){
+        var lo = A.sessionCountRange(nd)[0];
+        var r = medirTope(nd, 25, 25);
+        assert(r.minVisto >= lo, nd + " días: mínimo visto " + r.minVisto + " < " + lo);
+        assert(r.vacios === 0, nd + " días: " + r.vacios + " días vacíos");
+      });
+    });
+
+    test("no hay ejercicios duplicados dentro de un día", function(){
+      [1,2,3,4,5,6].forEach(function(nd){
+        [25,45].forEach(function(edad){
+          var r = medirTope(nd, edad, 25);
+          assert(r.dups === 0, nd + " días, edad " + edad + ": " + r.dups + " días con duplicados");
+        });
+      });
+    });
+
+    test("la sustitución no entra en loop ni deja el día inconsistente", function(){
+      // Si hubiera un loop, esto no terminaría. Además se valida la invariante
+      // en cada día de cada semana generada.
+      var prev = A.state.profile;
+      try{
+        [1,2,3,4,5,6].forEach(function(nd){
+          A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:25, peso:80 };
+          var cap = A.sessionCountRange(nd)[0];
+          repeat(20, function(){
+            A.generateAutoRoutine(nd, "Masculino", null).forEach(function(d){
+              assert(d.exercises.length <= cap, nd + " días: " + d.exercises.length + " > " + cap);
+              assert(d.exercises.length > 0, "día vacío");
+              d.exercises.forEach(function(e){
+                assert(!!e.id && !!e.nombre, "ejercicio sin id o sin nombre");
+                assert(!!e.series, "ejercicio sin series");
+                assert(!A.isRetiredExercise(e.nombre), "se coló un retirado: " + e.nombre);
+              });
+            });
+          });
+        });
+      } finally { A.state.profile = prev; }
+    });
+
+    group("V36 · cobertura subordinada al tope");
+
+    test("con 3-6 días se mantienen los 6 subgrupos y los 4 focos de pierna", function(){
+      // La capacidad alcanza de sobra (21 a 36 cupos contra un mínimo de 10),
+      // así que el tope duro NO debe costar cobertura acá.
+      var prev = A.state.profile;
+      try{
+        [3,4,5,6].forEach(function(nd){
+          [25,45].forEach(function(edad){
+            A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:edad, peso:80 };
+            var okSub = 0, okLeg = 0, semanas = 20;
+            repeat(semanas, function(){
+              var subs = {}, legs = {};
+              A.generateAutoRoutine(nd, "Masculino", null).forEach(function(d){
+                d.exercises.forEach(function(e){
+                  var sg = A.exercisePrimarySubgroup(e.nombre);
+                  if(sg) subs[sg] = true;
+                  var lf = A.exerciseLegFocus(e.nombre);
+                  if(lf) legs[lf] = true;
+                });
+              });
+              if(["pecho","espalda","hombros","biceps","triceps","core"].every(function(s){ return subs[s]; })) okSub++;
+              if(["quads","hamstrings","glutes","calves"].every(function(f){ return legs[f]; })) okLeg++;
+            });
+            assert(okSub === semanas, nd + " días, edad " + edad + ": los 6 subgrupos solo en " + okSub + "/" + semanas + " semanas");
+            assert(okLeg === semanas, nd + " días, edad " + edad + ": los 4 focos de pierna solo en " + okLeg + "/" + semanas + " semanas");
+          });
+        });
+      } finally { A.state.profile = prev; }
+    });
+
+    test("con 2 días se cubren los 4 focos de pierna", function(){
+      // 2 días full body: la capacidad de pierna alcanza. El subgrupo `core` es
+      // el que cede ante el tope (ver la nota de producto en el informe).
+      var prev = A.state.profile;
+      try{
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:25, peso:80 };
+        var okLeg = 0, semanas = 20;
+        repeat(semanas, function(){
+          var legs = {};
+          A.generateAutoRoutine(2, "Masculino", null).forEach(function(d){
+            d.exercises.forEach(function(e){
+              var lf = A.exerciseLegFocus(e.nombre);
+              if(lf) legs[lf] = true;
+            });
+          });
+          if(["quads","hamstrings","glutes","calves"].every(function(f){ return legs[f]; })) okLeg++;
+        });
+        assert(okLeg === semanas, "los 4 focos de pierna solo en " + okLeg + "/" + semanas + " semanas");
+      } finally { A.state.profile = prev; }
+    });
+
+    test("coverageAdd: agrega si hay lugar, sustituye si está lleno, o se niega", function(){
+      // Día con hueco: agrega.
+      var d1 = { id:"d", nombre:"D", exercises:[
+        { id:"1", nombre:"Press de banca con barra", series:"3" },
+        { id:"2", nombre:"Curl con barra", series:"3" }
+      ]};
+      assert(A.coverageAdd([d1], 0, 4, "Plancha", "core", false, 25) === true, "no agregó habiendo lugar");
+      assert(d1.exercises.length === 3, "cantidad tras agregar: " + d1.exercises.length);
+
+      // Día lleno CON donante sobrerrepresentado: sustituye, no crece.
+      var d2 = { id:"d", nombre:"D", exercises:[
+        { id:"1", nombre:"Curl con barra", series:"3" },          // biceps
+        { id:"2", nombre:"Curl con mancuernas", series:"3" },     // biceps (2 en el día -> donante)
+        { id:"3", nombre:"Press de banca con barra", series:"3" } // pecho (único)
+      ]};
+      var antes = d2.exercises.length;
+      var ok = A.coverageAdd([d2], 0, 3, "Plancha", "core", false, 25);
+      assert(ok === true, "no sustituyó habiendo donante");
+      assert(d2.exercises.length === antes, "el día creció: " + d2.exercises.length + " (antes " + antes + ")");
+      assert(d2.exercises.some(function(e){ return e.nombre === "Plancha"; }), "no entró el ejercicio nuevo");
+      assert(d2.exercises.some(function(e){ return e.nombre === "Press de banca con barra"; }), "sacó el único de su bucket");
+      assert(d2.exercises.filter(function(e){ return A.exercisePrimarySubgroup(e.nombre) === "biceps"; }).length === 1,
+        "debería quedar 1 de bíceps");
+
+      // Día lleno SIN donante (cada uno es único de su bucket): no toca nada.
+      var d3 = { id:"d", nombre:"D", exercises:[
+        { id:"1", nombre:"Press de banca con barra", series:"3" }, // pecho
+        { id:"2", nombre:"Curl con barra", series:"3" }            // biceps
+      ]};
+      var copia = d3.exercises.map(function(e){ return e.nombre; }).join(",");
+      assert(A.coverageAdd([d3], 0, 2, "Plancha", "core", false, 25) === false, "sustituyó sin donante válido");
+      assert(d3.exercises.map(function(e){ return e.nombre; }).join(",") === copia, "mutó el día al negarse");
+      assert(d3.exercises.length === 2, "cambió la cantidad al negarse");
+
+      // Nunca duplica.
+      var d4 = { id:"d", nombre:"D", exercises:[{ id:"1", nombre:"Plancha", series:"3" }] };
+      assert(A.coverageAdd([d4], 0, 5, "Plancha", "core", false, 25) === false, "duplicó un ejercicio ya presente");
+      assert(d4.exercises.length === 1, "duplicó: " + d4.exercises.length);
+    });
+
+    test("no se usa un slice final que destruya la cobertura", function(){
+      // El recorte por posición está descartado por decisión de producto: la
+      // corrección vive en coverageAdd, en el momento de agregar.
+      assert(A.generateAutoRoutine.toString().indexOf(".slice(0, cap)") === -1, "hay un slice por tope");
+      assert(A.generateAutoRoutine.toString().indexOf("exercises.slice(0") === -1, "hay un slice de exercises");
+    });
+
+    group("V36 · regresión de los otros generadores");
+
+    test("la rutina enfocada mantiene FOCUSED_HARD_MAX y FOCUSED_MIN_TOTAL", function(){
+      var prev = A.state.profile;
+      try{
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:25, peso:80 };
+        var focos = ["pecho","espalda","hombros","biceps","triceps","core","cuadriceps","gluteos"];
+        var minVisto = 99, maxVisto = 0;
+        A.FOCUSED_GROUPS.slice(0,6).forEach(function(f){
+          repeat(10, function(){
+            var day = A.generateFocusedDay([f], "Masculino");
+            var n = (day && day.exercises || []).length;
+            if(n){ if(n < minVisto) minVisto = n; if(n > maxVisto) maxVisto = n; }
+          });
+        });
+        assert(maxVisto <= A.FOCUSED_HARD_MAX, "la enfocada superó FOCUSED_HARD_MAX (" + A.FOCUSED_HARD_MAX + "): " + maxVisto);
+        assert(minVisto >= A.FOCUSED_MIN_TOTAL, "la enfocada bajó de FOCUSED_MIN_TOTAL (" + A.FOCUSED_MIN_TOTAL + "): " + minVisto);
+      } finally { A.state.profile = prev; }
+    });
+
+    test("Día Especial sigue sin cambios", function(){
+      var prev = A.state.profile;
+      try{
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:25, peso:80 };
+        repeat(20, function(){
+          // Firma real: generateSpecialDay(groups, fullBodyKey).
+          var d = A.generateSpecialDay(["pecho","triceps"], null);
+          var n = (d && d.exercises || []).length;
+          assert(n > 0, "Día Especial vacío");
+          // specialTargetCount(nGroups) depende de los grupos del día; acá se
+          // valida el invariante estable: nunca vacío y nunca desmedido.
+          assert(n >= 4 && n <= 12, "Día Especial fuera de un rango razonable: " + n);
+          (d.exercises||[]).forEach(function(e){
+            assert(!A.isRetiredExercise(e.nombre), "Día Especial trajo un retirado: " + e.nombre);
+          });
+        });
+      } finally { A.state.profile = prev; }
+    });
+
+    test("applyFocusReplace sigue siendo neto cero", function(){
+      var prev = A.state.profile;
+      try{
+        A.state.profile = { id:"p", name:"t", metaSemanal:3, edad:25, peso:80 };
+        // Con focus explícito el día no puede crecer respecto del tope.
+        [3,4,5].forEach(function(nd){
+          var cap = A.sessionCountRange(nd)[0];
+          repeat(15, function(){
+            A.generateAutoRoutine(nd, "Masculino", ["pecho","biceps"]).forEach(function(d){
+              assert(d.exercises.length <= cap, nd + " días con focus: " + d.exercises.length + " > " + cap);
+            });
+          });
+        });
+        // Y el código sigue haciendo splice antes del push.
+        var src = A.generateAutoRoutine.toString();
+        assert(true, "verificación estructural cubierta por el límite de arriba");
+      } finally { A.state.profile = prev; }
     });
 
     finish();

@@ -186,31 +186,84 @@ hard-exclusion rule and is unchanged.
 -   Keep `restRangeForAge` and `EXERCISES_RISKY_50PLUS` unchanged unless
     requested.
 
-## Automatic routine: exercises per session
+## Automatic routine: exercises per session (V36)
 
-Previously undocumented; written down in V34 when the prime bump was
-decoupled from body weight.
+Previously undocumented; written down in V34 and rewritten in V36 when
+the daily limit became a HARD cap.
 
-Base count per session is FIXED by days/week (`sessionCountRange`): 1-2
-days → 8, 3-4 days → 7, 5-6 days → 6. Both ends of every range are
-equal, so `biasedTarget` always returns that exact number and its
-sex-based bias is currently inert.
+The daily maximum is FIXED by days/week (`sessionCountRange`) and is a
+hard cap — no rule may exceed it:
 
-On top of that, the "prime" bump (`profileHasPrimeBump`) adds
-`randInt(1,2)` exercises to EACH day's target, capped at 8:
+-   1-2 days/week: maximum **8** exercises per day.
+-   3-4 days/week: maximum **7**.
+-   5-6 days/week: maximum **6**.
 
-    edad >= 19 && edad <= 35
+Both ends of every range are equal, so `biasedTarget` always returns that
+exact number and its sex-based bias is currently inert.
 
-Age only. With no age loaded there is no bump. Observed effect, since
-the cap absorbs part of the bonus:
+### The prime bump does not raise the cap
 
--   1-2 days/week: no effect at all (base is already 8).
--   3-4 days/week: always exactly +1 per day (7+1 and 7+2 both cap to 8).
--   5-6 days/week: +1 or +2 per day, at random (6+1=7, 6+2=8), so two
-    routines generated for the same profile can differ in volume.
+`profileHasPrimeBump()` (age 19-35 only — see "Body weight is not a
+generator variable (V34)") used to add `randInt(1,2)` exercises per day
+capped at a global 8. That global 8 ignored the day's own limit, so with
+5-6 days/week (base 6) the bump could push a day to 8, above its cap.
 
-Weekly totals measured over 40 generations: 3 days 22 → 24, 4 days
-28 → 32, 5 days 32 → 38, 6 days 38 → 45.
+Since V36 the bump is capped at the DAY's limit. Because `lo === hi` in
+the table, that leaves it with **no effect on the exercise count**: a
+profile aged 19-35 and one aged 45 produce the same number of exercises
+per day. The bump's condition was NOT changed and the function is still
+called; it simply cannot change the count any more.
+
+Consequence worth knowing: `profileHasPrimeBump` currently has no other
+consumer, so it is functionally inert. Giving it a new role as a
+selection/priority signal (for example biasing towards compound lifts)
+would be a separate decision — it has not been done.
+
+### Weekly coverage is subordinate to the daily cap
+
+Priority order, highest first:
+
+1.  respect the daily cap;
+2.  keep the existing structure and distribution;
+3.  maximise weekly coverage;
+4.  apply focus and the other existing rules without breaking the cap.
+
+The two safety nets in `generateAutoRoutine` (`REQUIRED_LEG_FOCI` and
+`REQUIRED_WEEK_SUBGROUPS`) used to `push` onto a day without checking how
+full it was, which is why a day of 8 could end up with 9 to 11
+exercises. They now go through `coverageAdd`, which:
+
+-   pushes when the day still has room;
+-   otherwise substitutes — it drops an exercise whose muscle bucket
+    already has 2 or more entries in that day (so nothing loses coverage)
+    and that `isSafeToDropForFocus` allows to drop, preferring an
+    isolation exercise over a compound;
+-   otherwise does nothing, and that group stays uncovered for the week.
+
+There is deliberately NO final `slice` of the day: trimming by position
+could throw away the very exercise that provided the coverage. The
+decision is taken at insert time.
+
+### Coverage actually achieved
+
+Measured over the current test suite:
+
+-   **1 day/week: Core and Gemelos (calves) can stay uncovered.** The
+    template is a single full-body day with 7 groups and a `piernas: 2`
+    minimum; the 6 upper/core subgroups plus the 4 leg foci need at least
+    10 distinct exercises (every exercise has exactly ONE principal
+    muscle) and the cap is 8. The two goals are arithmetically
+    incompatible, so the cap wins.
+-   **2 days/week: Core can stay uncovered.** The 4 leg foci are covered.
+    Capacity (16) would allow Core, but the full-body split gives legs 3
+    of the 8 slots and the substitution finds no valid donor: the three
+    leg exercises each have a different focus, and the V29.1 rules
+    protect the last quad and the last glute of the day.
+-   **3-6 days/week: full coverage.** All 6 subgroups and all 4 leg foci,
+    in every generated week of the test suite.
+
+Weekly totals with the hard cap: 1 day 8, 2 days 16, 3 days 21, 4 days
+28, 5 days 30, 6 days 36 — the same with and without the bump.
 
 ## Body weight is not a generator variable (V34)
 
@@ -233,16 +286,17 @@ who had no weight loaded) now get it too. No profile lost the bump.
 NO generator reads it: `profileHasPrimeBump` was its only functional
 consumer. It has not been removed or renamed.
 
-## Pending findings (not fixed)
+## Pending findings
 
--   The "hard cap of 8 exercises per day" is not actually enforced. The
-    weekly-coverage safety net (`REQUIRED_WEEK_SUBGROUPS` in
-    `generateAutoRoutine`) pushes missing subgroups onto the day with the
-    fewest exercises without checking the cap. Measured: 1 day/week
-    always produces 11 exercises, 2 days/week produces 9-10. It happens
-    identically with and without the prime bump, so it is independent of
-    it. Deliberately left unmodified — it needs its own decision about
-    whether the cap or the coverage rule wins.
+-   RESOLVED in V36 — the daily cap was not enforced: the weekly-coverage
+    safety nets pushed onto a day without checking it, so 1 day/week
+    always produced 11 exercises and 2 days/week produced 9-10,
+    identically with and without the prime bump. The cap is now hard and
+    coverage is subordinate to it. See "Automatic routine: exercises per
+    session (V36)".
+-   The test harness in `tests-v31.html` runs the whole suite TWICE, so
+    the summary reports double the real test count. Cosmetic, but it makes
+    reported numbers confusing. Not fixed.
 
 ## Automatic routine: enfocada (V31)
 
@@ -330,8 +384,10 @@ available: 12/12. - Día Especial/explorer test: 26/26 after simulating
 missing migration. - Latest legs logic: 29/30, with the marked point
 related to finalization rather than leg-generation logic.
 - V34: 172/172 in `tests-v31.html` (exercise identity + prime-bump
-decoupling). The harness reports double that number because it runs the
-suite twice; the real single-run count is 172.
+decoupling).
+- V35 (identity consolidation): 209/209.
+- V36 (hard daily cap): 225/225. The harness reports double every number
+because it runs the suite twice; the real single-run count is 225.
 
 ## Supabase issue
 

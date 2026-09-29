@@ -4726,6 +4726,74 @@
   // automático, pero nunca da "3 de gemelos" o "3 de isquios" en un mismo día.
   const LEG_FOCUS_DAY_CAP = { hamstrings:2, calves:2 };
 
+  // ---- V36: alta de cobertura semanal RESPETANDO el tope diario.
+  //
+  // Antes las dos redes de cobertura de generateAutoRoutine hacían push directo
+  // sin mirar cuántos ejercicios tenía el día, y por eso un día de 8 podía
+  // terminar en 11. El tope diario ahora es DURO y la cobertura es un objetivo
+  // subordinado: si no entra, se intenta sustituir, y si no se puede sustituir
+  // el grupo queda sin cubrir. Nunca se supera el tope.
+  //
+  // Deliberadamente NO se hace un slice final del día: eso recortaría por
+  // posición y podría tirar justo el ejercicio que aportaba la cobertura. La
+  // decisión se toma acá, en el momento de agregar.
+  //
+  // Devuelve true si el ejercicio quedó en el día (por hueco o por sustitución),
+  // false si no hubo forma. No muta nada cuando devuelve false.
+  function coverageAdd(days, dayIdx, cap, name, key, isLegFocus, edad){
+    const day = days[dayIdx];
+    if(!day || !name) return false;
+    // Nunca duplicar dentro del mismo día.
+    if(day.exercises.some(e=> e.nombre===name)) return false;
+    const nuevo = ()=> ({ id:uid(), nombre:name, series:String(seriesForExercise(name,edad)), reps:"10", notas:"", imagenUrl:"" });
+
+    // Caso 1: hay lugar. Comportamiento de siempre.
+    if(cap==null || day.exercises.length < cap){
+      day.exercises.push(nuevo());
+      return true;
+    }
+
+    // Caso 2: el día está lleno. Se busca un donante sobrerrepresentado.
+    //
+    // "Sobrerrepresentado" = su bucket (foco de pierna para piernas, subgrupo
+    // principal para el resto) tiene 2 o más ejercicios en ESTE día, así que
+    // sacarle uno no le quita la cobertura a nadie. Además se exige
+    // isSafeToDropForFocus, que ya protege lo no negociable: el propio músculo
+    // que se quiere cubrir, la última aparición semanal de un subgrupo o foco
+    // requerido, y el último cuádriceps/glúteo del día.
+    //
+    // Se prefiere sacar un ejercicio de AISLAMIENTO antes que un compuesto
+    // (mismo criterio que applyFocusReplace), y se recorre de atrás hacia
+    // adelante porque los accesorios quedan al final del día.
+    const bucketDe = (nombre)=>{
+      const sg = exercisePrimarySubgroup(nombre);
+      return sg==="piernas" ? ("leg:"+(exerciseLegFocus(nombre)||"")) : ("sg:"+(sg||""));
+    };
+    const conteo = {};
+    day.exercises.forEach(e=>{ const b=bucketDe(e.nombre); conteo[b]=(conteo[b]||0)+1; });
+
+    const esDonante = (i)=>{
+      const e = day.exercises[i];
+      if(conteo[bucketDe(e.nombre)] < 2) return false;      // es el único de su bucket en el día
+      return isSafeToDropForFocus(days, dayIdx, i, key, isLegFocus);
+    };
+
+    let dropIdx = -1;
+    for(let i=day.exercises.length-1; i>=0; i--){
+      if(esDonante(i) && !EXERCISES_COMPOUND.has(day.exercises[i].nombre)){ dropIdx=i; break; }
+    }
+    if(dropIdx===-1){
+      for(let i=day.exercises.length-1; i>=0; i--){
+        if(esDonante(i)){ dropIdx=i; break; }
+      }
+    }
+    if(dropIdx===-1) return false; // no hay sustitución válida: el día se queda como está
+
+    day.exercises.splice(dropIdx, 1);
+    day.exercises.push(nuevo());
+    return true;
+  }
+
   function applyFocusReplace(days, templ, focus, avoid, riskyExclude, edad){
     (focus||[]).slice(0,FOCUS_MAX_GROUPS).forEach(key=>{
       const isLeg = REQUIRED_LEG_FOCI.indexOf(key)!==-1;
@@ -4909,15 +4977,28 @@
     legDayIdxs.forEach((dayI,k)=>{ emphasisByDay[dayI] = emphSeq[k % emphSeq.length]; });
     const lastLegDayIdx = legDayIdxs.length ? legDayIdxs[legDayIdxs.length-1] : -1;
 
+    // V36: tope duro de cada día, indexado igual que `days`. Lo llena el .map()
+    // de abajo y lo leen las redes de cobertura.
+    const dayCaps = [];
+
     const days = templ.map((dd, dayI)=>{
       const modality = dayModality(dd.groups);
       let target = biasedTarget(lo, hi, modality, sexo);
-      // Tope duro en 8: Juan pidió explícitamente "máximo 8 ejercicios por
-      // día" sin excepción — el bump de perfil "en su prime" (edad/peso
-      // cargados en el rango ideal) puede seguir sumando 1-2 ejercicios,
-      // pero nunca por encima de ese máximo global.
-      if(bump) target = Math.min(8, target + randInt(1,2));
-      target = Math.max(lo, target);
+      // V36: el tope diario es DURO y sale de sessionCountRange, no de una
+      // constante global. Antes el bump se topeaba en 8 sin importar el tope
+      // del día, así que con 5-6 días por semana (base 6) podía llevar un día
+      // a 8, por encima de su propio límite.
+      //
+      // El bump NO puede aumentar la cantidad máxima de ejercicios del día.
+      // Como la tabla de sessionCountRange tiene lo===hi, topearlo en `hi` lo
+      // deja sin efecto sobre el CONTEO — es exactamente lo pedido. La
+      // condición del bump (solo edad, V34) no se toca.
+      if(bump) target = Math.min(hi, target + randInt(1,2));
+      target = Math.max(lo, Math.min(hi, target));
+      // El tope se guarda por día: las redes de cobertura corren DESPUÉS de
+      // este .map() y, sin esto, `target` se perdía y no tenían contra qué
+      // comparar. Es la causa de que un día pudiera llegar a 9-11.
+      dayCaps[dayI] = target;
       const dist = modality==="mixto"
         ? distributeCountByRatio(dd.groups, target, sexo, { piernas:2 })
         : distributeCount(dd.groups, target, sexo, { piernas:2 });
@@ -4961,20 +5042,39 @@
     REQUIRED_LEG_FOCI.filter(f=>!legFociCovered.has(f)).forEach((f,idx)=>{
       const pool = (focusPools[f]||[]).filter(n=>!avoid.has(n));
       const name = pool[0] || (focusPools[f]||[])[0];
-      const dayIdx = piernasDaysIdx.length ? piernasDaysIdx[idx % piernasDaysIdx.length] : 0;
-      if(name && days[dayIdx]){
-        days[dayIdx].exercises.push({ id:uid(), nombre:name, series:String(seriesForExercise(name,edad)), reps:"10", notas:"", imagenUrl:"" });
-        avoid.add(name); legFociCovered.add(f);
+      if(!name) return;
+      // V36: se prueba en TODOS los días de pierna, empezando por el que le
+      // tocaba por round-robin. Antes se pusheaba a ese día sin más; ahora, si
+      // está lleno, se intenta sustituir, y si tampoco se puede se pasa al
+      // siguiente día candidato.
+      const candidatos = piernasDaysIdx.length ? piernasDaysIdx : [0];
+      for(let k=0; k<candidatos.length; k++){
+        const dayIdx = candidatos[(idx + k) % candidatos.length];
+        if(!days[dayIdx]) continue;
+        if(coverageAdd(days, dayIdx, dayCaps[dayIdx], name, f, true, edad)){
+          avoid.add(name); legFociCovered.add(f);
+          return;
+        }
       }
+      // Sin lugar y sin sustitución válida en ningún día: este foco queda sin
+      // cubrir esta semana. El tope diario manda (decisión de producto).
     });
     const pools = subgroupPools(riskyExclude);
     REQUIRED_WEEK_SUBGROUPS.filter(sg=>!subgroupsCovered.has(sg)).forEach(sg=>{
       const pool = (pools[sg]||[]).filter(n=>!avoid.has(n));
       const name = pool[0] || (pools[sg]||[])[0];
       if(!name) return;
-      const dayIdx = days.reduce((best,d,i)=> d.exercises.length < days[best].exercises.length ? i : best, 0);
-      days[dayIdx].exercises.push({ id:uid(), nombre:name, series:String(seriesForExercise(name,edad)), reps:"10", notas:"", imagenUrl:"" });
-      avoid.add(name); subgroupsCovered.add(sg);
+      // V36: se recorren los días de menos a más cargados. El primero con
+      // lugar (o con una sustitución válida) se lo lleva.
+      const orden = days.map((d,i)=>i).sort((a,b)=> days[a].exercises.length - days[b].exercises.length);
+      for(const dayIdx of orden){
+        if(coverageAdd(days, dayIdx, dayCaps[dayIdx], name, sg, false, edad)){
+          avoid.add(name); subgroupsCovered.add(sg);
+          return;
+        }
+      }
+      // Igual que arriba: si no hay lugar ni sustitución, el subgrupo queda sin
+      // cubrir antes que romper el tope.
     });
 
     applyFocusReplace(days, templ, focus, avoid, riskyExclude, edad);
@@ -7420,6 +7520,8 @@
     generateAutoRoutine, exerciseEquipment, exercisePrincipalSecondaryGroups,
     exerciseMuscleGroup, muscleGroupPools, subgroupPools, MUSCLE_GROUPS,
     exerciseLegFocus, seriesForAge, restRangeForAge, sessionCountRange,
+    // v36: tope diario duro + sustitucion de cobertura
+    coverageAdd, isSafeToDropForFocus, SPLIT_DAYS, REQUIRED_WEEK_SUBGROUPS, REQUIRED_LEG_FOCI,
     // v34: el prime bump depende SOLO de la edad (ver profileHasPrimeBump).
     profileHasPrimeBump,
     EXERCISES_RISKY_50PLUS, dayModality, get state(){ return state; },
