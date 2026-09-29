@@ -7052,9 +7052,52 @@
   const workoutClock = savedWorkoutClock ? {
     running: savedWorkoutClock.running, elapsedMs: savedWorkoutClock.elapsedMs,
     startEpoch: savedWorkoutClock.startEpoch, intervalId: null,
-  } : { running:false, elapsedMs:0, startEpoch:null, intervalId:null };
+    // V37: vueltas. Cada entrada es el TOTAL transcurrido desde el inicio en el
+    // momento de marcarla, en ms. Se guarda el total y no el parcial porque el
+    // total es el dato que el cronómetro ya sabe calcular (currentWorkoutElapsed);
+    // el parcial se deriva restando la vuelta anterior, nunca al revés.
+    // Defensivo: localStorage de antes de V37 no tiene la clave.
+    laps: Array.isArray(savedWorkoutClock.laps) ? savedWorkoutClock.laps.filter(n=> typeof n==="number" && isFinite(n) && n>0) : [],
+  } : { running:false, elapsedMs:0, startEpoch:null, intervalId:null, laps:[] };
   function persistWorkoutClock(){
-    lsSet("fierros:workoutClock", { running:workoutClock.running, elapsedMs:workoutClock.elapsedMs, startEpoch:workoutClock.startEpoch });
+    // V37: `laps` se suma al mismo blob que ya se guardaba. Es lo mínimo para
+    // que recargar la app no pierda las vueltas de un entrenamiento en curso,
+    // igual que ya pasaba con el tiempo transcurrido.
+    lsSet("fierros:workoutClock", { running:workoutClock.running, elapsedMs:workoutClock.elapsedMs, startEpoch:workoutClock.startEpoch, laps:workoutClock.laps });
+  }
+
+  /* ---------- V37: vueltas del cronómetro de entrenamiento ----------
+     Capa aditiva: marcar una vuelta NO inicia, NO pausa y NO reinicia el
+     cronómetro. Lo único que hace es anotar cuánto tiempo va. */
+
+  // Marca una vuelta con el total transcurrido actual. Devuelve el total
+  // anotado, o null si no se creó ninguna.
+  // Con el cronómetro en cero no se crea vuelta (no hay nada que marcar).
+  function addWorkoutLap(){
+    const total = currentWorkoutElapsed();
+    if(!(total > 0)) return null;
+    workoutClock.laps.push(total);
+    persistWorkoutClock();
+    return total;
+  }
+
+  function clearWorkoutLaps(){
+    workoutClock.laps = [];
+    persistWorkoutClock();
+  }
+
+  // Vueltas listas para mostrar. Orden: la MÁS RECIENTE primero (criterio único
+  // en toda la pantalla, como el cronómetro del teléfono). `numero` mantiene el
+  // orden cronológico de marcado, así la vuelta 1 siempre es la primera que se
+  // marcó aunque se muestre última.
+  // `parcial` es el tiempo desde la vuelta anterior; en la primera, el total.
+  function workoutLapRows(){
+    const laps = workoutClock.laps || [];
+    return laps.map((total, i)=> ({
+      numero: i+1,
+      total,
+      parcial: total - (i>0 ? laps[i-1] : 0),
+    })).reverse();
   }
   let workoutClockRerender = () => renderScreen();
 
@@ -7078,6 +7121,34 @@
           <button class="btn btn-ghost btn-sm" id="btn-workout-reset">${icon("reset")} Reiniciar</button>
           <button class="btn btn-primary btn-sm" id="btn-workout-toggle">${workoutClock.running? icon("pause")+" Pausar" : icon("play")+" Iniciar entrenamiento"}</button>
         </div>
+        ${workoutLapsBlockHtml()}
+      </div>
+    `;
+  }
+
+  // V37: bloque de vueltas, dentro de la misma tarjeta del cronómetro.
+  // El botón queda deshabilitado con el cronómetro en cero: así la regla "en
+  // cero no se crea vuelta" se ve, en vez de que el botón no haga nada.
+  function workoutLapsBlockHtml(){
+    const rows = workoutLapRows();
+    const enCero = !(currentWorkoutElapsed() > 0);
+    return `
+      <div style="width:100%; border-top:1px solid var(--border); padding-top:10px; margin-top:2px; display:flex; flex-direction:column; gap:8px">
+        <div class="row between">
+          <button class="btn btn-outline btn-sm" id="btn-workout-lap" ${enCero?"disabled":""}>${icon("plus")} Vuelta</button>
+          ${rows.length ? `<a class="linklike" id="btn-workout-laps-clear" style="font-size:13px">Limpiar vueltas</a>` : `<span class="helptext">${enCero?"Iniciá el cronómetro para marcar vueltas":"Sin vueltas"}</span>`}
+        </div>
+        ${rows.length ? `
+          <div class="loglist">
+            ${rows.map(r=>`
+              <div class="logrow">
+                <div><div class="lex">Vuelta ${r.numero}</div><div class="ldate">+${esc(fmtElapsed(r.parcial))}</div></div>
+                <div><div class="lval num">${esc(fmtElapsed(r.total))}</div></div>
+              </div>
+            `).join("")}
+          </div>
+          <div class="helptext" style="text-align:center">${rows.length} vuelta${rows.length===1?"":"s"} · la más reciente arriba</div>
+        ` : ""}
       </div>
     `;
   }
@@ -7108,7 +7179,19 @@
       workoutClock.running = false;
       workoutClock.elapsedMs = 0;
       workoutClock.startEpoch = null;
+      workoutClock.laps = []; // V37: reiniciar el cronómetro reinicia las vueltas
       persistWorkoutClock();
+      workoutClockRerender();
+    };
+    // V37: marcar vuelta. No toca running, elapsedMs, startEpoch ni el
+    // intervalId — el cronómetro sigue corriendo exactamente igual.
+    const lapBtn = root.querySelector("#btn-workout-lap");
+    if(lapBtn) lapBtn.onclick = ()=>{
+      if(addWorkoutLap() != null) workoutClockRerender();
+    };
+    const lapsClearBtn = root.querySelector("#btn-workout-laps-clear");
+    if(lapsClearBtn) lapsClearBtn.onclick = ()=>{
+      clearWorkoutLaps();
       workoutClockRerender();
     };
   }
@@ -7546,6 +7629,9 @@
     openExerciseDetail,
     // v28
     exerciseWeeklyMax, sessionProgress, sessionDay, reorderDayExercisesByGroup,
+    // v37 — vueltas del cronómetro de entrenamiento
+    workoutClock, addWorkoutLap, clearWorkoutLaps, workoutLapRows, workoutLapsBlockHtml,
+    currentWorkoutElapsed, fmtElapsed, workoutClockHtml, persistWorkoutClock,
     // v30
     calendarOriginFor, calendarOriginsFor, CALENDAR_ORIGIN_LABELS,
     // v31 — biblioteca, clasificación, patrones, edad y rutina enfocada

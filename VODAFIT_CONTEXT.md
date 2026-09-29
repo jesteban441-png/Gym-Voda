@@ -332,6 +332,72 @@ workout is a normal workout: it appears in history and the calendar and
 counts toward the weekly goal and the streak. Día Especial keeps its
 current behaviour and is unaffected.
 
+## Timer
+
+The Timer tab holds TWO independent stopwatches. They share no state, no
+localStorage key and no controls, and a change to one must never touch
+the other.
+
+-   **`timer`** — rest between sets. Counts DOWN from a preset
+    (30/45/60/90/120/180 s), beeps and vibrates when it reaches zero, and
+    can be opened as a modal from inside a session (`openRestModal`).
+    Persisted under `fierros:restTimer` with an absolute `endAt`, so the
+    remaining time is recomputed against the clock after the app has been
+    closed or backgrounded. It has NO laps.
+-   **`workoutClock`** — total workout time. Counts UP. Persisted under
+    `fierros:workoutClock` with `elapsedMs` plus an absolute `startEpoch`,
+    for the same reason. This is the one that has laps.
+
+### Laps (V37)
+
+Laps are an additive layer on `workoutClock`. Marking a lap only records
+how much time has passed: it does not start, pause or reset the
+stopwatch. The handler never touches `running`, `elapsedMs`, `startEpoch`
+or `intervalId`, and a test compares all three fields before and after.
+
+`workoutClock.laps` is an array of the TOTAL elapsed time since the start,
+in milliseconds, at the moment each lap was marked. The total is stored
+rather than the split because the total is what the stopwatch already
+knows how to compute (`currentWorkoutElapsed`); the split is derived by
+subtracting the previous lap, never the other way round.
+
+`workoutLapRows()` returns the rows to display as
+`{ numero, total, parcial }`:
+
+-   `parcial` = `total` minus the previous lap's total; for the first lap
+    it equals its own total.
+-   Display order is MOST RECENT FIRST, a single consistent criterion
+    across the screen.
+-   `numero` stays chronological, so lap 1 is always the first one marked
+    even though it is shown last.
+
+Example, matching the implementation: at 00:42 the first lap records
+total 00:42; 25 seconds later the second records total 01:07 with a split
+of +00:25, and the stopwatch keeps running throughout.
+
+Actions:
+
+-   **Vuelta** — appends the current total. With the stopwatch at zero NO
+    lap is created (`addWorkoutLap` returns `null`), and the button is
+    also rendered disabled so the rule is visible instead of the button
+    silently doing nothing. Paused with elapsed time above zero a lap CAN
+    still be marked: the rule forbids zero, not the pause.
+-   **Limpiar vueltas** — empties the list and leaves the stopwatch
+    exactly as it was, still running if it was running.
+-   **Reiniciar** — the existing reset also clears the laps. This is the
+    only change made to a pre-existing handler; start, pause and resume
+    were not modified.
+
+Persistence: `laps` was added to the same `fierros:workoutClock` blob that
+was already being written, and the read is defensive because a
+localStorage entry from before V37 has no such key. That is the minimum
+needed so reloading does not lose the laps of a workout in progress, the
+same way the elapsed time already survived. The fields that were already
+persisted are unchanged.
+
+The laps list reuses the existing `.loglist` / `.logrow` classes, so V37
+added no CSS.
+
 ## Calendar
 
 Visual distinction: - Mi rutina = strong orange. - Rutina automática =
@@ -386,8 +452,10 @@ related to finalization rather than leg-generation logic.
 - V34: 172/172 in `tests-v31.html` (exercise identity + prime-bump
 decoupling).
 - V35 (identity consolidation): 209/209.
-- V36 (hard daily cap): 225/225. The harness reports double every number
-because it runs the suite twice; the real single-run count is 225.
+- V36 (hard daily cap): 225/225.
+- V36.1 (execution references): 231/231.
+- V37 (stopwatch laps): 242/242. The harness reports double every number
+because it runs the suite twice; the real single-run count is 242.
 
 ## Supabase issue
 

@@ -2955,6 +2955,208 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(!A.exerciseHowtoLinkFor("Patada lateral a cuatro patas"), "Patada lateral recibió un enlace");
     });
 
+    /* ========= V37 — vueltas del cronómetro de entrenamiento ========= */
+    group("V37 · vueltas (laps)");
+
+    // El cronómetro se manipula por su estado (running / elapsedMs / startEpoch),
+    // que es exactamente lo que hacen los handlers reales. Así los tests no
+    // dependen de esperar segundos de verdad.
+    function conCrono(fn){
+      var W = A.workoutClock;
+      var backup = { running:W.running, elapsedMs:W.elapsedMs, startEpoch:W.startEpoch, laps:(W.laps||[]).slice() };
+      try { return fn(W); }
+      finally {
+        W.running = backup.running; W.elapsedMs = backup.elapsedMs;
+        W.startEpoch = backup.startEpoch; W.laps = backup.laps;
+        A.persistWorkoutClock();
+      }
+    }
+    // Deja el cronómetro corriendo como si hubiera arrancado `ms` atrás.
+    function corriendoDesde(W, ms){
+      W.running = true; W.elapsedMs = 0; W.startEpoch = Date.now() - ms; W.laps = [];
+    }
+
+    test("crear una vuelta registra el total transcurrido", function(){
+      conCrono(function(W){
+        corriendoDesde(W, 42000);
+        var t = A.addWorkoutLap();
+        assert(t !== null, "no creó la vuelta");
+        assert(Math.abs(t - 42000) < 1000, "total registrado: " + t + " (esperaba ~42000)");
+        assert(A.fmtElapsed(t) === "00:42", "formato: " + A.fmtElapsed(t));
+        assert(W.laps.length === 1, "cantidad de vueltas: " + W.laps.length);
+      });
+    });
+
+    test("varias vueltas: el ejemplo de la especificación", function(){
+      conCrono(function(W){
+        // 00:42 -> Vuelta 1. A los 25 segundos -> Vuelta 2 = 01:07.
+        corriendoDesde(W, 42000);
+        A.addWorkoutLap();
+        W.startEpoch -= 25000; // pasan 25s
+        A.addWorkoutLap();
+        assert(W.laps.length === 2, "cantidad: " + W.laps.length);
+        var filas = A.workoutLapRows();
+        // Orden: la más reciente primero, con numeración cronológica.
+        assert(filas[0].numero === 2 && filas[1].numero === 1, "orden/numeración: " + filas.map(function(r){return r.numero;}).join(","));
+        assert(A.fmtElapsed(filas[1].total) === "00:42", "vuelta 1 total: " + A.fmtElapsed(filas[1].total));
+        assert(A.fmtElapsed(filas[0].total) === "01:07", "vuelta 2 total: " + A.fmtElapsed(filas[0].total));
+        // El parcial de la vuelta 2 son los 25 s desde la anterior.
+        assert(A.fmtElapsed(filas[0].parcial) === "00:25", "parcial de la vuelta 2: " + A.fmtElapsed(filas[0].parcial));
+        // El parcial de la primera es su propio total.
+        assert(filas[1].parcial === filas[1].total, "el parcial de la vuelta 1 debería ser su total");
+      });
+    });
+
+    test("los totales de las vueltas nunca decrecen", function(){
+      conCrono(function(W){
+        corriendoDesde(W, 5000);
+        [3000, 7000, 1000, 12000].forEach(function(delta){
+          W.startEpoch -= delta;
+          A.addWorkoutLap();
+        });
+        for(var i=1;i<W.laps.length;i++){
+          assert(W.laps[i] >= W.laps[i-1], "la vuelta " + (i+1) + " es menor que la anterior");
+        }
+        assert(W.laps.length === 4, "cantidad: " + W.laps.length);
+        // Y todos los parciales son positivos.
+        A.workoutLapRows().forEach(function(r){
+          assert(r.parcial >= 0, "parcial negativo en la vuelta " + r.numero + ": " + r.parcial);
+        });
+      });
+    });
+
+    test("marcar vuelta NO detiene ni reinicia el cronómetro", function(){
+      conCrono(function(W){
+        corriendoDesde(W, 30000);
+        var runningAntes = W.running, startAntes = W.startEpoch, elapsedAntes = W.elapsedMs;
+        var tAntes = A.currentWorkoutElapsed();
+        A.addWorkoutLap();
+        assert(W.running === runningAntes, "cambió `running`");
+        assert(W.startEpoch === startAntes, "cambió `startEpoch`");
+        assert(W.elapsedMs === elapsedAntes, "cambió `elapsedMs`");
+        assert(A.currentWorkoutElapsed() >= tAntes, "el tiempo transcurrido retrocedió");
+        assert(W.running === true, "el cronómetro dejó de correr");
+        // Tres vueltas seguidas tampoco lo tocan.
+        A.addWorkoutLap(); A.addWorkoutLap();
+        assert(W.running === true && W.startEpoch === startAntes, "varias vueltas alteraron el cronómetro");
+      });
+    });
+
+    test("con el cronómetro en cero no se crea vuelta", function(){
+      conCrono(function(W){
+        W.running = false; W.elapsedMs = 0; W.startEpoch = null; W.laps = [];
+        assert(A.addWorkoutLap() === null, "creó una vuelta con el cronómetro en cero");
+        assert(W.laps.length === 0, "quedó una vuelta: " + W.laps.length);
+        // Tampoco corriendo pero con 0 ms transcurridos.
+        W.running = true; W.startEpoch = Date.now(); W.elapsedMs = 0;
+        assert(A.addWorkoutLap() === null, "creó una vuelta con 0 ms transcurridos");
+        assert(W.laps.length === 0, "quedó una vuelta con 0 ms");
+      });
+    });
+
+    test("pausar y continuar conserva el tiempo y las vueltas", function(){
+      conCrono(function(W){
+        corriendoDesde(W, 60000);
+        A.addWorkoutLap();                       // vuelta a los 60 s
+        // Pausa: mismo camino que el handler real.
+        W.elapsedMs = A.currentWorkoutElapsed();
+        W.running = false; W.startEpoch = null;
+        var enPausa = A.currentWorkoutElapsed();
+        assert(Math.abs(enPausa - 60000) < 1000, "el tiempo en pausa: " + enPausa);
+        assert(W.laps.length === 1, "la pausa perdió las vueltas");
+        // Pausado y con tiempo > 0 se puede seguir marcando.
+        assert(A.addWorkoutLap() !== null, "pausado con tiempo no dejó marcar vuelta");
+        assert(W.laps.length === 2, "cantidad tras marcar en pausa: " + W.laps.length);
+        // Continuar: el tiempo no salta.
+        W.running = true; W.startEpoch = Date.now();
+        var alContinuar = A.currentWorkoutElapsed();
+        assert(Math.abs(alContinuar - enPausa) < 1000, "el tiempo saltó al continuar: " + enPausa + " -> " + alContinuar);
+        assert(W.laps.length === 2, "continuar perdió las vueltas");
+      });
+    });
+
+    test("reiniciar el cronómetro limpia las vueltas", function(){
+      conCrono(function(W){
+        corriendoDesde(W, 90000);
+        A.addWorkoutLap(); W.startEpoch -= 10000; A.addWorkoutLap();
+        assert(W.laps.length === 2, "precondición: " + W.laps.length);
+        // Mismo camino que el handler de #btn-workout-reset.
+        W.running = false; W.elapsedMs = 0; W.startEpoch = null; W.laps = [];
+        A.persistWorkoutClock();
+        assert(W.laps.length === 0, "el reinicio dejó vueltas");
+        assert(A.currentWorkoutElapsed() === 0, "el reinicio no puso el tiempo en cero");
+        assert(A.workoutLapRows().length === 0, "workoutLapRows sigue devolviendo filas");
+      });
+    });
+
+    test("limpiar vueltas no toca el cronómetro", function(){
+      conCrono(function(W){
+        corriendoDesde(W, 45000);
+        A.addWorkoutLap(); A.addWorkoutLap();
+        var startAntes = W.startEpoch, tAntes = A.currentWorkoutElapsed();
+        A.clearWorkoutLaps();
+        assert(W.laps.length === 0, "no limpió las vueltas");
+        assert(W.running === true, "detuvo el cronómetro");
+        assert(W.startEpoch === startAntes, "cambió startEpoch");
+        assert(A.currentWorkoutElapsed() >= tAntes, "el tiempo retrocedió");
+      });
+    });
+
+    test("las vueltas se persisten junto al cronómetro", function(){
+      conCrono(function(W){
+        corriendoDesde(W, 20000);
+        A.addWorkoutLap();
+        var raw = JSON.parse(localStorage.getItem("fierros:workoutClock"));
+        assert(Array.isArray(raw.laps), "no se guardó `laps`");
+        assert(raw.laps.length === 1, "vueltas guardadas: " + raw.laps.length);
+        // Los campos que ya se guardaban siguen ahí.
+        ["running","elapsedMs","startEpoch"].forEach(function(k){
+          assert(k in raw, "se perdió el campo " + k + " de la persistencia");
+        });
+      });
+    });
+
+    test("la UI de vueltas se integra en la tarjeta del cronómetro", function(){
+      conCrono(function(W){
+        // En cero: botón deshabilitado, sin lista, y los controles de siempre intactos.
+        W.running = false; W.elapsedMs = 0; W.startEpoch = null; W.laps = [];
+        var h = A.workoutClockHtml();
+        assert(/id="btn-workout-lap" disabled/.test(h), "el botón Vuelta no está deshabilitado en cero");
+        assert(!/logrow/.test(h), "muestra lista de vueltas estando en cero");
+        assert(/btn-workout-toggle/.test(h) && /btn-workout-reset/.test(h), "se perdió Iniciar o Reiniciar");
+        assert(/Tiempo de entrenamiento/.test(h), "se perdió el título del cronómetro");
+        // Con vueltas: botón habilitado, lista ordenada y acción de limpiar.
+        W.running = true; W.startEpoch = Date.now() - 67000; W.laps = [42000, 67000];
+        h = A.workoutClockHtml();
+        assert(!/id="btn-workout-lap" disabled/.test(h), "el botón Vuelta quedó deshabilitado teniendo tiempo");
+        assert(/btn-workout-laps-clear/.test(h), "falta la acción de limpiar vueltas");
+        var etiquetas = h.match(/Vuelta \d+/g) || [];
+        assert(etiquetas.join(",") === "Vuelta 2,Vuelta 1", "orden en pantalla: " + etiquetas.join(","));
+        assert(h.indexOf("01:07") !== -1 && h.indexOf("00:42") !== -1, "faltan los totales en pantalla");
+        assert(/Pausar/.test(h), "se perdió el botón Pausar mientras corre");
+      });
+    });
+
+    test("no regresión: el cronómetro y el timer de descanso siguen igual", function(){
+      // fmtElapsed no cambió de formato.
+      assert(A.fmtElapsed(0) === "00:00", "fmtElapsed(0): " + A.fmtElapsed(0));
+      assert(A.fmtElapsed(42000) === "00:42", "fmtElapsed(42s): " + A.fmtElapsed(42000));
+      assert(A.fmtElapsed(67000) === "01:07", "fmtElapsed(1m07s): " + A.fmtElapsed(67000));
+      assert(A.fmtElapsed(3600000) === "01:00:00", "fmtElapsed(1h): " + A.fmtElapsed(3600000));
+      // currentWorkoutElapsed sigue siendo elapsedMs + (running ? ahora-inicio : 0).
+      conCrono(function(W){
+        W.running = false; W.elapsedMs = 15000; W.startEpoch = null; W.laps = [];
+        assert(A.currentWorkoutElapsed() === 15000, "pausado debería devolver elapsedMs: " + A.currentWorkoutElapsed());
+        W.running = true; W.startEpoch = Date.now() - 5000;
+        assert(Math.abs(A.currentWorkoutElapsed() - 20000) < 500, "corriendo debería sumar: " + A.currentWorkoutElapsed());
+      });
+      // El timer de DESCANSO es otro objeto y no se tocó: sigue existiendo su
+      // bloque con presets y su propia clave de localStorage.
+      assert(typeof A.workoutClock === "object", "falta workoutClock");
+      assert(!("laps" in (JSON.parse(localStorage.getItem("fierros:restTimer")) || {})),
+        "se le agregaron vueltas al timer de descanso");
+    });
+
     finish();
   }
 
