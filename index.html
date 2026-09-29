@@ -2,15 +2,23 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>VodaFit</title>
+<title>Voda Fit</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="VodaFit">
+<!-- V38.1: nombre con el que iOS rotula el ícono en la pantalla de inicio.
+     iOS IGNORA name/short_name de manifest.json para esto: manda este meta. -->
+<meta name="apple-mobile-web-app-title" content="Voda Fit">
 <meta name="theme-color" content="#171412">
 <meta name="description" content="Rutina, registro de pesos y cronómetro para el gimnasio">
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon-192.png">
+<!-- V38.1: iOS tampoco usa los iconos del manifest para la pantalla de inicio;
+     usa apple-touch-icon. Se sirve en 180x180, el tamaño nativo del iPhone, y
+     CUADRADO a sangre: iOS le aplica su propio redondeo, así que un PNG ya
+     redondeado quedaría con esquinas dobles.
+     El archivo se llama apple-touch-icon.png a propósito: es además la ruta
+     que iOS prueba por convención cuando no encuentra el <link>. -->
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">

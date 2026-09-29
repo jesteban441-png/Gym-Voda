@@ -1,9 +1,22 @@
-const CACHE = "gymapp-v4";
-const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"];
+const CACHE = "gymapp-v5";
+const ASSETS = ["./", "./index.html", "./manifest.json", "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS)).catch(() => {})
+    // V38.1: se piden con `cache: "reload"` en vez de usar cache.addAll() a
+    // secas. addAll() pasa por la caché HTTP normal del navegador, así que una
+    // versión NUEVA del Service Worker podía poblarse con los BYTES VIEJOS de
+    // un ícono que esa caché todavía consideraba fresco — y servirlos como si
+    // fueran los nuevos, porque abajo los assets se resuelven cache-first.
+    // Es el mismo problema que ya se había arreglado para el HTML en el
+    // handler de navegación, que no se había aplicado a los assets.
+    caches.open(CACHE).then((cache) =>
+      Promise.all(ASSETS.map((url) =>
+        fetch(url, { cache: "reload" })
+          .then((resp) => (resp && resp.status === 200) ? cache.put(url, resp) : null)
+          .catch(() => {})
+      ))
+    ).catch(() => {})
   );
   self.skipWaiting();
 });
