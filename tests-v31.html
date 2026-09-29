@@ -2855,6 +2855,106 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       } finally { A.state.profile = prev; }
     });
 
+    /* ========= V36.1 — referencia de ejecución por ejercicio ========= */
+    group("V36.1 · todo ejercicio activo tiene referencia de ejecución");
+
+    // Hay DOS fuentes de instrucciones y alcanza con una:
+    //   EXERCISE_HOWTO_LINKS (MuscleWiki) o EXERCISE_TIPS (consejos propios).
+    function tieneReferencia(n){
+      return !!(A.exerciseHowtoLinkFor(n)) || (A.EXERCISE_TIPS[n] || []).length > 0;
+    }
+
+    test("ningún ejercicio activo de fuerza queda sin referencia de ejecución", function(){
+      var sinNada = A.EXERCISES.filter(function(n){
+        if(A.isRetiredExercise(n)) return false;
+        // El cardio queda fuera por decisión de producto: son máquinas o
+        // implementos donde la ejecución es autoexplicativa. Si alguna vez se
+        // les agrega referencia, este filtro se saca.
+        if((A.exerciseMuscleGroup(n) || "Cardio/funcional") === "Cardio/funcional") return false;
+        return !tieneReferencia(n);
+      });
+      assert(sinNada.length === 0, "activos de fuerza sin ninguna referencia: " + sinNada.join(", "));
+    });
+
+    test("los cinco críticos de la auditoría quedaron cubiertos", function(){
+      // Los cinco que no tenían enlace NI consejos. Uno recibió enlace
+      // verificado; los otros cuatro, consejos propios (MuscleWiki no tiene
+      // página para ellos).
+      var criticos = ["Press de hombros en máquina","Remo en máquina unilateral","Remo en TRX",
+        "Press de banca declinado en Smith","Peso muerto sumo con mancuernas"];
+      criticos.forEach(function(n){
+        assert(A.EXERCISES.indexOf(n) !== -1, n + " ya no está en EXERCISES");
+        assert(!A.isRetiredExercise(n), n + " quedó retirado");
+        assert(tieneReferencia(n), n + " sigue sin referencia de ejecución");
+      });
+      // El único que recibió enlace, verificado contra musclewiki.com.
+      assert(A.exerciseHowtoLinkFor("Press de hombros en máquina") === "https://musclewiki.com/exercise/machine-overhand-overhead-press",
+        "el enlace de Press de hombros en máquina cambió: " + A.exerciseHowtoLinkFor("Press de hombros en máquina"));
+      // Los otros cuatro se cubrieron con consejos, NO con un enlace inventado.
+      ["Remo en máquina unilateral","Remo en TRX","Press de banca declinado en Smith","Peso muerto sumo con mancuernas"].forEach(function(n){
+        assert(!A.exerciseHowtoLinkFor(n), n + " recibió un enlace que no se pudo verificar: " + A.exerciseHowtoLinkFor(n));
+        assert((A.EXERCISE_TIPS[n] || []).length === 3, n + " debería tener 3 consejos, tiene " + (A.EXERCISE_TIPS[n]||[]).length);
+      });
+    });
+
+    test("Step Up queda sin enlace y conserva sus consejos", function(){
+      // No existe una página de MuscleWiki para el step up a PESO CORPORAL (las
+      // variantes publicadas son con barra, mancuernas, kettlebell, inverso o
+      // con rodilla). Decisión: sin enlace antes que un enlace de otro
+      // movimiento o equipamiento.
+      assert(!A.exerciseHowtoLinkFor("Step Up"), "Step Up recibió un enlace: " + A.exerciseHowtoLinkFor("Step Up"));
+      assert((A.EXERCISE_TIPS["Step Up"] || []).length === 3, "Step Up perdió sus consejos");
+      assert(A.exerciseEquipment("Step Up") === "Peso corporal", "cambió el equipamiento de Step Up");
+      assert(tieneReferencia("Step Up"), "Step Up quedó sin referencia");
+    });
+
+    test("no se agregaron enlaces de MuscleWiki duplicados", function(){
+      // Un mismo URL para dos ejercicios activos distintos significa que
+      // MuscleWiki no los distingue. El único caso preexistente es
+      // dumbbell-curl (Curl con mancuernas y su variante alternada), que quedó
+      // marcado como decisión pendiente y NO se tocó.
+      var byUrl = {};
+      A.EXERCISES.filter(function(n){ return !A.isRetiredExercise(n) && A.exerciseHowtoLinkFor(n); })
+        .forEach(function(n){
+          var u = A.exerciseHowtoLinkFor(n);
+          (byUrl[u] = byUrl[u] || []).push(n);
+        });
+      var dups = Object.keys(byUrl).filter(function(u){ return byUrl[u].length > 1; });
+      assert(dups.length === 1, "duplicados inesperados: " + dups.map(function(u){ return u + " <- " + byUrl[u].join(" + "); }).join(" ; "));
+      assert(dups[0] === "https://musclewiki.com/exercise/dumbbell-curl", "el duplicado no es el preexistente: " + dups[0]);
+    });
+
+    test("los enlaces existentes no se modificaron", function(){
+      // Muestra de enlaces de V31/V32 que deben seguir igual, incluido el que
+      // parecía un typo y resultó ser el slug real de MuscleWiki.
+      var esperado = {
+        "Press de banca con barra": "https://musclewiki.com/exercise/barbell-bench-press",
+        "Fondos inclinado": "https://musclewiki.com/exercise/parralel-bar-dips",
+        "Jalón al pecho": "https://musclewiki.com/exercise/machine-pulldown",
+        "Press militar con barra": "https://musclewiki.com/exercise/barbell-overhead-press",
+        "Press de hombros con mancuernas": "https://musclewiki.com/exercise/dumbbell-overhead-press",
+        "Sentadilla con barra": "https://musclewiki.com/exercise/barbell-squat"
+      };
+      Object.keys(esperado).forEach(function(n){
+        assert(A.exerciseHowtoLinkFor(n) === esperado[n],
+          "cambió el enlace de " + n + ": " + A.exerciseHowtoLinkFor(n));
+      });
+    });
+
+    test("esta tanda no tocó identidad, retirados ni pools", function(){
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 41, "cambió la cantidad de aliases: " + Object.keys(A.EXERCISE_ALIASES).length);
+      assert(A.EXERCISES_RETIRED.size === 12, "cambió la cantidad de retirados: " + A.EXERCISES_RETIRED.size);
+      assert(A.EXERCISES.length === 122, "cambió EXERCISES: " + A.EXERCISES.length);
+      var pools = A.muscleGroupPools();
+      var esperado = { Pecho:13, Espalda:15, Piernas:28, Hombros:17, Brazos:18, Core:9 };
+      Object.keys(esperado).forEach(function(g){
+        assert(pools[g].length === esperado[g], g + ": esperaba " + esperado[g] + ", hubo " + pools[g].length);
+      });
+      // Los retirados no recibieron consejos ni enlaces nuevos en esta tanda.
+      assert(!A.exerciseHowtoLinkFor("Jalón tras nuca"), "Jalón tras nuca recibió un enlace");
+      assert(!A.exerciseHowtoLinkFor("Patada lateral a cuatro patas"), "Patada lateral recibió un enlace");
+    });
+
     finish();
   }
 
