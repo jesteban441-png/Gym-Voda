@@ -1,4 +1,4 @@
-const CACHE = "gymapp-v5";
+const CACHE = "gymapp-v6";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"];
 
 self.addEventListener("install", (event) => {

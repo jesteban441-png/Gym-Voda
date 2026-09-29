@@ -596,9 +596,52 @@
     .navbtn-central{ margin-top:-12px; }
     .bottomnav .navbtn-central svg{ width:40px; height:40px; padding:10px; }
   }
+  /* ---------- V39: splash de apertura ----------
+     Vive en el HTML, no en JS: se pinta en el PRIMER paint, antes de que
+     bajen los scripts de Supabase/jsPDF que bloquean el arranque. Eso es
+     exactamente lo que antes se veía como pantalla negra (o blanca) — el
+     <div id="app"> vacío con el fondo del documento.
+     Sin imágenes: el isotipo es el mismo SVG inline de V38. */
+  #splash{
+    position:fixed; inset:0; z-index:9999;
+    background:#111111;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:18px;
+    /* iPhone con notch: el fondo cubre igual toda la pantalla. */
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    opacity:1; transition:opacity .22s ease;
+  }
+  #splash.splash-out{ opacity:0; pointer-events:none; }
+  #splash svg{ width:clamp(120px,42vw,190px); height:auto; display:block; }
+  #splash .splash-name{
+    font-family:"Barlow Condensed","Work Sans",system-ui,sans-serif;
+    font-weight:700; font-size:clamp(26px,8vw,36px); line-height:1;
+    letter-spacing:.14em; color:#FFFFFF; margin:0;
+  }
+  #splash .splash-tag{
+    font-family:"Work Sans",system-ui,sans-serif;
+    font-weight:500; font-size:clamp(9px,2.6vw,11px); line-height:1.4;
+    letter-spacing:.22em; color:rgba(255,255,255,.55);
+    margin:0; text-align:center; text-transform:uppercase;
+  }
+  @media (prefers-reduced-motion: reduce){
+    #splash{ transition:none; }
+  }
+
 </style>
 </head>
 <body>
+<!-- V39: splash de apertura. Es HTML estático a propósito — se pinta en el
+     primer paint, sin esperar a los scripts de CDN de abajo (que bloquean el
+     arranque) ni a que corra una sola línea de JS. El isotipo es la MISMA
+     definición SVG de V38 (ICONS.logoVF, viewBox 0 0 1164 578, mismos dos
+     paths), no una versión nueva. Lo quita dismissSplash() cuando la app
+     termina de inicializar; no hay demora artificial. -->
+<div id="splash" role="status" aria-label="Cargando Voda Fit">
+  <svg viewBox="0 0 1164 578" fill="none" aria-hidden="true"><path fill="#FFFFFF" d="M0 1H199L423 320L682 1H1164L1057 136H747L404 564Z"/><path fill="#FF6A00" d="M751 199H1018L906 340H817L628 577H457Z"/></svg>
+  <p class="splash-name">VODA FIT</p>
+  <p class="splash-tag">Entrena &middot; Progresa &middot; Supera tu versi&oacute;n</p>
+</div>
 <div id="app"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -3482,6 +3525,26 @@
   }
 
   /* ---------- Rendering shell ---------- */
+  /* ---------- V39: cierre del splash ----------
+     El splash se va en cuanto la app terminó de inicializar (primer render
+     con state.booted, sea la pantalla de login, la app o el error de
+     conexión). No hay temporizador ni demora artificial: si el arranque es
+     instantáneo, la transición es instantánea.
+     Se quita del DOM después del fundido para que no quede un overlay
+     fijo interceptando nada, y es idempotente: durante la navegación normal
+     el elemento ya no existe y la función no hace nada. */
+  let splashGone = false;
+  function dismissSplash(){
+    if(splashGone) return;
+    splashGone = true;
+    const el = document.getElementById("splash");
+    if(!el) return;
+    el.classList.add("splash-out");
+    const drop = ()=>{ if(el.parentNode) el.parentNode.removeChild(el); };
+    el.addEventListener("transitionend", drop, { once:true });
+    setTimeout(drop, 400); // red de seguridad si no llega transitionend
+  }
+
   function render(){
     if(!state.booted){
       app.innerHTML = `
@@ -3495,6 +3558,8 @@
       `;
       return;
     }
+
+    dismissSplash();
 
     if(state.dbError){
       renderConnectionError();
