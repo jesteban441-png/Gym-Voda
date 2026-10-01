@@ -388,6 +388,26 @@
   .spark-stats .lbl{ font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
   svg.spark{ flex:1; min-width:0; height:44px; width:100%; overflow:visible; }
 
+  /* V42: dashboard de Perfil. Se apoya en .pesostats/.pesostat de V40 y en
+     los colores de origen del calendario (.cal-origin-bar/.cal-legend-dot),
+     así que agrega lo mínimo: la fila de identidad, la barra apilada de
+     origen y una fila de etiqueta+número. */
+  .perfil-id{ display:flex; align-items:center; gap:12px; }
+  /* El Resumen es el titular de la pantalla: sus tres números van por encima
+     del resto. No se baja .racha-count porque esa tarjeta es compartida con
+     Rutina y cambiarla cambiaría Rutina. */
+  .perfil-resumen .pesostat-val{ font-size:30px; }
+  .perfil-about{ text-align:center; }
+  /* La tarjeta de la semana es la MISMA de Rutina. Acá es una sección
+     secundaria, así que su número no debe tapar al del Resumen; se baja solo
+     dentro de Perfil, por ancestro, sin tocar cómo se ve en Rutina. */
+  .perfil-week .racha-count{ font-size:26px; }
+  .perfil-id .avatar{ width:46px; height:46px; font-size:18px; flex:none; }
+  .origin-stack{ display:flex; gap:2px; height:9px; border-radius:999px; overflow:hidden; }
+  .origin-stack > span{ min-width:3px; }
+  .statline{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .statline > .num{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:22px; color:var(--text); flex:none; }
+
   /* V40: trío de métricas de "Mi peso" (actual / inicial / diferencia). */
   .pesostats{ display:flex; gap:8px; text-align:center; }
   .pesostat{ flex:1 1 0; min-width:0; }
@@ -3560,6 +3580,14 @@
     pesoCorporal:[],          // V40: historial de peso corporal (tabla peso_corporal)
     pesoCorporalError:null,   // V40: mensaje si la tabla no está disponible (migración v40 sin correr)
     pesoChartPeriod:"30d",    // V40: período del gráfico de evolución (ver PESO_PERIODS)
+    // V42: estado PROPIO del dashboard de Perfil. Son claves aparte a
+    // propósito: navegar la semana o cambiar el período del gráfico en Perfil
+    // no tiene que mover la semana de Rutina ni el período de Registro.
+    perfilWeekOffset:0,
+    perfilWeekDetailOpen:false,
+    perfilPesoPeriod:"30d",
+    perfilScrollY:null,        // V42: scroll de Perfil, para restaurarlo al volver
+    perfilScrollPending:false,
     tab:"rutina",
     dayOpen:{},          // which day cards are expanded
     dayEditMode:{},      // which day cards show editar/borrar por ejercicio
@@ -3746,6 +3774,11 @@
   }
 
   function setTab(t){
+    // V42: Perfil pasó a ser una pantalla larga, así que recuerda su propio
+    // scroll y lo restaura al volver (lo hace mountPerfil). Las dos líneas son
+    // no-ops para cualquier otra pestaña: no cambia la navegación existente.
+    if(state.tab === "perfil" && t !== "perfil") state.perfilScrollY = window.scrollY;
+    if(t === "perfil" && state.tab !== "perfil") state.perfilScrollPending = true;
     state.tab = t;
     render();
   }
@@ -4225,7 +4258,18 @@
       </div>`;
   }
 
-  function rachaCardHtml(){
+  // V42: la tarjeta de la semana se muestra en Rutina Y en Perfil. El `scope`
+  // elige QUÉ claves de `state` lleva la navegación semanal, para que mover la
+  // semana en Perfil no mueva la de Rutina. Sin argumento se comporta igual
+  // que antes (scope "rutina"), así la llamada existente no cambia.
+  const WEEK_SCOPE_KEYS = {
+    rutina: { offset:"weekOffset", detail:"weekDetailOpen" },
+    perfil: { offset:"perfilWeekOffset", detail:"perfilWeekDetailOpen" },
+  };
+  function weekScopeKeys(scope){ return WEEK_SCOPE_KEYS[scope] || WEEK_SCOPE_KEYS.rutina; }
+
+  function rachaCardHtml(scope){
+    const sk = weekScopeKeys(scope);
     const goal = state.profile.metaSemanal || 3;
     const all = state.entrenos||[];
     // V29: el objetivo semanal NO cuenta los Día Especial (4/4 sigue 4/4).
@@ -4238,8 +4282,8 @@
     const streak = computeRacha(all, goal).streak;
     const frase = fraseDelDia();
     const maxOff = maxWeekOffset();
-    const offset = Math.min(Math.max(0, state.weekOffset||0), maxOff);
-    state.weekOffset = offset;
+    const offset = Math.min(Math.max(0, state[sk.offset]||0), maxOff);
+    state[sk.offset] = offset;
     const rg = weekRangeFor(offset);
     const inWeek = all.filter(e=> e.date>=rg.start && e.date<=rg.end);
     const specialCount = inWeek.filter(e=>e.isSpecial).length;
@@ -4252,7 +4296,7 @@
         <span class="iconbtn" id="week-next" aria-disabled="${offset===0}" title="Semana siguiente">${icon("chevronRight")}</span>
       </div>`;
     const extra = `<p class="helptext week-extra">Días entrenados: <b>${daysTrained}</b>${specialCount?` · +${specialCount} Día Especial (no suma al objetivo)`:""}</p>`;
-    const detailOpen = !!state.weekDetailOpen;
+    const detailOpen = !!state[sk.detail];
     const detailToggle = `<button class="btn btn-ghost btn-sm" id="week-toggle" style="align-self:flex-start">${detailOpen?"Ocultar detalle":"Ver detalle de la semana"}</button>`;
     if(offset>0){
       return `
@@ -4286,6 +4330,19 @@
         ${detailOpen ? weekDetailHtml(rg) : ""}
       </div>
     `;
+  }
+
+  // V42: handlers de la navegación semanal, compartidos por Rutina y Perfil.
+  // La única diferencia entre los dos es a qué claves de `state` escriben
+  // (ver WEEK_SCOPE_KEYS), así que la lógica no se duplica.
+  function mountWeekNav(el, scope){
+    const sk = weekScopeKeys(scope);
+    const prev = el.querySelector("#week-prev");
+    if(prev) prev.onclick = ()=>{ if(prev.getAttribute("aria-disabled")==="true") return; state[sk.offset] = (state[sk.offset]||0)+1; renderScreen(); };
+    const next = el.querySelector("#week-next");
+    if(next) next.onclick = ()=>{ if(next.getAttribute("aria-disabled")==="true") return; state[sk.offset] = Math.max(0,(state[sk.offset]||0)-1); renderScreen(); };
+    const toggle = el.querySelector("#week-toggle");
+    if(toggle) toggle.onclick = ()=>{ state[sk.detail] = !state[sk.detail]; renderScreen(); };
   }
 
   // V28: helper único para ubicar el día de la sesión activa. Antes se hacía
@@ -6234,13 +6291,10 @@
     if(specialBtn) specialBtn.onclick = openSpecialDayModal;
     const focusedBtn = el.querySelector("#btn-focused-routine");
     if(focusedBtn) focusedBtn.onclick = openFocusedRoutineModal;
-    // V29: navegación del historial semanal
-    const weekPrev = el.querySelector("#week-prev");
-    if(weekPrev) weekPrev.onclick = ()=>{ if(weekPrev.getAttribute("aria-disabled")==="true") return; state.weekOffset = (state.weekOffset||0)+1; renderScreen(); };
-    const weekNext = el.querySelector("#week-next");
-    if(weekNext) weekNext.onclick = ()=>{ if(weekNext.getAttribute("aria-disabled")==="true") return; state.weekOffset = Math.max(0,(state.weekOffset||0)-1); renderScreen(); };
-    const weekToggle = el.querySelector("#week-toggle");
-    if(weekToggle) weekToggle.onclick = ()=>{ state.weekDetailOpen = !state.weekDetailOpen; renderScreen(); };
+    // V29: navegación del historial semanal.
+    // V42: los tres handlers pasaron a mountWeekNav, compartido con Perfil, con
+    // el mismo comportamiento de siempre para Rutina (scope "rutina").
+    mountWeekNav(el, "rutina");
     const explorarBtn = el.querySelector("#btn-explorar-musculos");
     if(explorarBtn) explorarBtn.onclick = ()=>{ state.explorerGroup = null; state.tab = "explorar"; render(); };
     const exportPdfBtn = el.querySelector("#btn-export-pdf");
@@ -7982,16 +8036,215 @@
     sec("AMBIGUAS", diag.ambiguas, it=> `${it.nombre}  (clave: ${it.key})  [${it.count}]`);
     return L.join("\n");
   }
-  function screenPerfil(){
+  /* ================= V42: PERFIL COMO DASHBOARD =================
+     Perfil es LECTURA de progreso. Todo lo de acá lee `state` y no hace una
+     sola consulta nueva: las cuatro fuentes (profile, entrenos, registros,
+     pesoCorporal) ya vienen cargadas por loadProfileData en una sola tanda.
+
+     Tampoco recalcula nada por su cuenta: el peso sale de las funciones de
+     V40 (pesoResumen / pesoCorporalEnPeriodo / pesoLineChart), la semana de
+     computeRacha + rachaCardHtml, y el origen de calendarOriginFor. Si alguna
+     de esas reglas cambia, cambia en un solo lugar.
+
+     Lo que NO muestra, a propósito: récord personal histórico, totales de por
+     vida, volumen, tiempo entrenado, fuerza relativa y mapa muscular. No es
+     que falte UI — es que los datos actuales no permiten calcularlos bien
+     (ver la auditoría de Fase 2.2). */
+
+  // Fecha del primer dato REAL del usuario, mirando las tres fuentes con
+  // fecha. NO usa profile.createdAt: eso es cuándo se creó la cuenta, no
+  // desde cuándo entrena, y mostrarlo como "entrenando desde" sería inventar
+  // una fecha. Si no hay ningún dato todavía, devuelve null y la UI lo dice.
+  function primerDatoFecha(){
+    let oldest = null;
+    const ver = (d)=>{ if(d && (!oldest || d < oldest)) oldest = d; };
+    (state.entrenos||[]).forEach(e=> ver(e.date));
+    (state.registros||[]).forEach(r=> ver(r.date));
+    (state.pesoCorporal||[]).forEach(p=> ver(p.fecha));
+    return oldest;
+  }
+
+  // Ejercicios distintos registrados, contados por identidad CANÓNICA: dos
+  // nombres históricos que hoy resuelven al mismo ejercicio cuentan uno, no
+  // dos. Es la misma regla que usa el historial agrupado de Registro.
+  function ejerciciosDistintosCount(){
+    const set = new Set();
+    (state.registros||[]).forEach(r=>{
+      const c = canonicalExerciseName(r.exercise);
+      if(c) set.add(c);
+    });
+    return set.size;
+  }
+
+  // Composición de los entrenamientos por origen. Reusa calendarOriginFor,
+  // que es la misma función que pinta el calendario, así los dos lugares no
+  // pueden discrepar. El orden es fijo (el de la leyenda del calendario) y
+  // los orígenes sin entrenamientos no aparecen.
+  const PERFIL_ORIGIN_ORDER = ["personalizada","automatica","enfocada","especial","manual","unknown"];
+  function entrenosPorOrigen(){
+    const ents = state.entrenos||[];
+    const counts = {};
+    ents.forEach(e=>{ const o = calendarOriginFor(e); counts[o] = (counts[o]||0)+1; });
+    const total = ents.length;
+    return {
+      total,
+      rows: PERFIL_ORIGIN_ORDER.filter(o=> counts[o]).map(o=>({
+        origin: o,
+        count: counts[o],
+        pct: total ? Math.round(100*counts[o]/total) : 0,
+      })),
+    };
+  }
+
+  function perfilCuentaHtml(){
     const email = (state.authSession && state.authSession.user && state.authSession.user.email) || "";
+    const desde = primerDatoFecha();
     return `
       <div class="section-title"><h2>Tu cuenta</h2></div>
-      <div class="card row" style="gap:12px">
-        <div class="avatar" style="width:40px;height:40px;font-size:16px">${esc(initials(state.profile.name))}</div>
-        <div><b style="font-size:15px">${esc(state.profile.name)}</b><div class="helptext">${esc(email)}</div></div>
+      <div class="card">
+        <div class="perfil-id">
+          <div class="avatar">${esc(initials(state.profile.name))}</div>
+          <div style="min-width:0">
+            <b style="font-size:16px">${esc(state.profile.name)}</b>
+            <div class="helptext" style="overflow-wrap:anywhere">${esc(email)}</div>
+            <div class="helptext" style="margin-top:3px">${
+              desde
+                ? `Entrenando desde <b>${esc(fmtDate(desde))}</b>`
+                : "Todavía sin registros"
+            }</div>
+          </div>
+        </div>
       </div>
+    `;
+  }
 
-      <div class="section-title" style="margin-top:6px"><h2>Preferencias</h2></div>
+  function perfilResumenHtml(){
+    const resumen = pesoResumen(state.pesoCorporal||[]);
+    const goal = state.profile.metaSemanal || 3;
+    const all = state.entrenos||[];
+    // Mismo criterio que la tarjeta de la semana: el objetivo no cuenta los
+    // Día Especial, pero la racha sí mira la lista completa.
+    const r = computeRacha(all.filter(e=>!e.isSpecial), goal);
+    const streak = computeRacha(all, goal).streak;
+    return `
+      <div class="section-title"><h2>Resumen</h2></div>
+      <div class="card perfil-resumen">
+        <div class="pesostats">
+          <div class="pesostat">
+            <div class="num pesostat-val">${
+              resumen ? `${fmtPesoKg(resumen.actual.pesoKg)}<small> kg</small>` : `<span style="color:var(--text-muted)">&#8212;</span>`
+            }</div>
+            <div class="helptext">${resumen ? "Peso actual" : "Sin peso registrado"}</div>
+          </div>
+          <div class="pesostat">
+            <div class="num pesostat-val">${r.thisWeekCount}<small> / ${goal}</small></div>
+            <div class="helptext">Esta semana</div>
+          </div>
+          <div class="pesostat">
+            <div class="num pesostat-val">${streak > 0 ? `🔥${streak}` : `<span style="color:var(--text-muted)">0</span>`}</div>
+            <div class="helptext">Semana${streak===1?"":"s"} seguida${streak===1?"":"s"}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Bloque de peso SOLO LECTURA. Reusa las funciones de V40 y, a propósito,
+  // NO incluye el botón de alta, el modal, editar, eliminar ni el historial
+  // fila por fila: eso vive en Registro. Tiene su propio período
+  // (state.perfilPesoPeriod) para que mirar "1 año" acá no le cambie la vista
+  // a Registro.
+  function perfilPesoHtml(){
+    const rows = state.pesoCorporal||[];
+    const resumen = pesoResumen(rows);
+    const irARegistro = `<button class="btn btn-outline btn-block btn-sm" id="btn-perfil-ir-peso">Registrar o editar tu peso</button>`;
+
+    if(state.pesoCorporalError){
+      return `
+        <div class="section-title"><h2>Tu peso</h2></div>
+        <div class="banner">${icon("info")}<div>
+          <b>El peso corporal no está disponible todavía.</b>
+          <div class="helptext" style="margin-top:2px">Falta ejecutar la migración supabase-migration-v40.sql en Supabase.</div>
+        </div></div>
+      `;
+    }
+
+    if(!resumen){
+      return `
+        <div class="section-title"><h2>Tu peso</h2></div>
+        <div class="card stack">
+          <p class="helptext" style="text-align:center; padding:10px 0">Todavía no registraste tu peso. El primero va a ser tu punto de partida.</p>
+          ${irARegistro}
+        </div>
+      `;
+    }
+
+    const periodKey = PESO_PERIODS.some(p=>p.key===state.perfilPesoPeriod) ? state.perfilPesoPeriod : "30d";
+    const per = PESO_PERIODS.find(p=>p.key===periodKey);
+    const enPeriodo = pesoCorporalEnPeriodo(rows, periodKey, todayStr());
+    const diffColor = resumen.diff > 0 ? "var(--danger)" : (resumen.diff < 0 ? "var(--success)" : "var(--text-muted)");
+
+    return `
+      <div class="section-title"><h2>Tu peso</h2><span class="muted">solo lectura</span></div>
+      <div class="card stack">
+        <div class="statline">
+          <div>
+            <div class="num pesostat-val">${fmtPesoKg(resumen.actual.pesoKg)}<small> kg</small></div>
+            <div class="helptext">Actual · ${esc(fmtDate(resumen.actual.fecha))}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="num" style="font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:20px; color:${diffColor}">${fmtPesoDiff(resumen.diff)}</div>
+            <div class="helptext">${resumen.unico ? "Primer pesaje" : "Desde " + esc(fmtDate(resumen.inicial.fecha))}</div>
+          </div>
+        </div>
+        <div class="segmented">
+          ${PESO_PERIODS.map(p=>`<button data-perfil-peso-period="${p.key}" class="${p.key===periodKey?"active":""}">${esc(p.label)}</button>`).join("")}
+        </div>
+        ${enPeriodo.length===0
+          ? `<p class="helptext" style="text-align:center; padding:18px 0">Sin pesajes en este período.</p>`
+          : pesoLineChart(enPeriodo, per.label)}
+        ${irARegistro}
+      </div>
+    `;
+  }
+
+  function perfilEntrenamientoHtml(){
+    const distintos = ejerciciosDistintosCount();
+    const orig = entrenosPorOrigen();
+    const slotLabel = RUTINA_SLOT_LABELS[state.activeSlot] || "";
+
+    const composicion = orig.total === 0
+      ? `<p class="helptext">Todavía no hay entrenamientos registrados.</p>`
+      : `
+        <div class="origin-stack" aria-hidden="true">
+          ${orig.rows.map(row=>`<span class="cal-origin-bar ${row.origin}" style="flex:${row.count} 1 0"></span>`).join("")}
+        </div>
+        <div class="cal-legend">
+          ${orig.rows.map(row=>`<span class="cal-legend-item"><span class="cal-legend-dot ${row.origin}"></span>${esc(CALENDAR_ORIGIN_LABELS[row.origin])} ${row.count} · ${row.pct}%</span>`).join("")}
+        </div>
+      `;
+
+    return `
+      <div class="section-title"><h2>Tu entrenamiento</h2></div>
+      <div class="card stack">
+        <div class="statline">
+          <span class="helptext" style="font-size:13px; color:var(--text)">Ejercicios distintos registrados</span>
+          <span class="num">${distintos}</span>
+        </div>
+        ${distintos > 0 ? `<p class="helptext">Contados por identidad canónica: dos nombres viejos del mismo ejercicio cuentan uno.</p>` : `<p class="helptext">Cuando cargues pesos en Registro, acá vas a ver cuántos ejercicios distintos llevás.</p>`}
+        <div class="statline" style="margin-top:4px">
+          <span class="helptext" style="font-size:13px; color:var(--text)">Entrenamientos por origen</span>
+          <span class="num">${orig.total}</span>
+        </div>
+        ${composicion}
+        ${slotLabel ? `<p class="helptext">Rutina activa: <b>${esc(slotLabel)}</b></p>` : ""}
+      </div>
+    `;
+  }
+
+  function perfilConfigHtml(){
+    return `
+      <div class="section-title" style="margin-top:6px"><h2>Configuración</h2></div>
       <div class="card stack">
         <div class="field">
           <label>Nombre</label>
@@ -8005,18 +8258,12 @@
           <label>Edad</label>
           <input type="number" id="perfil-edad" min="10" max="99" placeholder="Opcional" value="${state.profile.edad||""}">
         </div>
-        <!-- V40: el campo "Peso aprox. (kg)" se retiró de acá. El peso corporal
-             ahora se registra con fecha e historial en Registro → "Mi peso"
-             (tabla peso_corporal). La columna profiles.peso_estimado NO se borró de
-             Supabase y NO se migra: simplemente dejó de usarse en la UI, y no
-             hay sincronización ni cache entre los dos. -->
+        <!-- V40/V42: acá NO va ningún campo de peso corporal. El peso se
+             registra con fecha e historial en Registro → "Mi peso" (tabla
+             peso_corporal), que es la única fuente de verdad. La columna
+             profiles.peso_estimado sigue existiendo en Supabase sin usarse. -->
         <p class="helptext">La edad es opcional — va a servir para el futuro asistente de IA personalizado. Tu peso corporal se registra en <b>Registro → Mi peso</b>.</p>
-      </div>
-
-      <div class="section-title" style="margin-top:6px"><h2>Acerca de VodaFit</h2></div>
-      <div class="card stack">
-        <p class="helptext">Rutina, registro de pesos y cronómetro de descanso. Los videos de ejercicios y otras funciones se van a ir sumando más adelante.</p>
-        <div class="row between">
+        <div class="row between" style="margin-top:2px">
           <span class="helptext">Tema</span>
           <div class="segmented" id="theme-seg" style="width:auto">
             <button data-theme="system" class="${lsGet('fierros:theme','system')==='system'?'active':''}">Auto</button>
@@ -8026,18 +8273,74 @@
         </div>
       </div>
 
-      <div class="section-title" style="margin-top:6px"><h2>Diagnóstico</h2></div>
       <div class="card stack">
+        <div class="statline"><span class="helptext" style="font-size:13px; color:var(--text); font-weight:600">Diagnóstico de identidad</span></div>
         <p class="helptext">Revisa los nombres de ejercicio guardados en tu historial y en tus rutinas, y muestra cuáles no llegan a un ejercicio del catálogo. Es solo lectura: no modifica ni borra nada.</p>
         <button class="btn btn-outline btn-block" id="btn-ex-diagnostics">Identidad de ejercicios</button>
       </div>
 
       <button class="btn btn-outline btn-block" id="btn-logout">${icon("back")} Cerrar sesión</button>
+      <p class="helptext perfil-about">Voda Fit — rutina, registro de pesos y cronómetro de descanso.</p>
+    `;
+  }
+
+  // V42: Perfil dejó de ser una pantalla de ajustes y pasó a ser un dashboard
+  // de LECTURA. El orden responde a "quién soy → cómo vengo progresando →
+  // estadísticas → evolución", y la configuración, que no se tocó, bajó al
+  // final para que no ocupe el centro de la pantalla.
+  //
+  // La tarjeta de la semana es la MISMA de Rutina (rachaCardHtml), con scope
+  // "perfil" para que la navegación semanal tenga su propio estado.
+  function screenPerfil(){
+    return `
+      ${perfilCuentaHtml()}
+      ${perfilResumenHtml()}
+
+      <div class="section-title"><h2>Esta semana</h2></div>
+      <div class="perfil-week">${rachaCardHtml("perfil")}</div>
+
+      ${perfilPesoHtml()}
+      ${perfilEntrenamientoHtml()}
+      ${perfilConfigHtml()}
     `;
   }
 
   function mountPerfil(){
     const el = document.getElementById("screen");
+
+    // --- V42: dashboard (solo lectura) ---
+    // Navegación semanal con estado propio de Perfil.
+    mountWeekNav(el, "perfil");
+
+    // Período del gráfico de peso. Clave propia: no toca el de Registro.
+    el.querySelectorAll("[data-perfil-peso-period]").forEach(btn=>{
+      btn.onclick = ()=>{ state.perfilPesoPeriod = btn.dataset.perfilPesoPeriod; renderScreen(); };
+    });
+
+    // El peso se GESTIONA en Registro; acá solo se manda para allá.
+    const irPeso = el.querySelector("#btn-perfil-ir-peso");
+    if(irPeso) irPeso.onclick = ()=> setTab("registro");
+
+    // Perfil es largo: al volver se recupera la posición donde estaba. Solo la
+    // primera vez que se entra (perfilScrollPending), para no pelearle el
+    // scroll al usuario en cada re-render de la misma pantalla.
+    if(state.perfilScrollPending){
+      state.perfilScrollPending = false;
+      const target = state.perfilScrollY || 0;
+      if(target > 0){
+        let tries = 0;
+        const step = ()=>{
+          tries++;
+          const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          const clamped = Math.min(target, max);
+          if(Math.abs(window.scrollY - clamped) > 1) window.scrollTo(0, clamped);
+          if(clamped < target && tries < 12) nextFrame(step);
+        };
+        nextFrame(step);
+      }
+    }
+
+    // --- Configuración (sin cambios de comportamiento) ---
     const nameInput = el.querySelector("#perfil-name");
     nameInput.onchange = async ()=>{
       const v = nameInput.value.trim() || state.profile.name;
@@ -8183,6 +8486,10 @@
     PESO_PERIODS, pesoCorporalSorted, pesoCorporalAsc, pesoResumen, pesoCorporalEnPeriodo,
     dateMinusDays, validarPesoKg, fmtPesoKg, fmtPesoDiff, pesoLineChart, pesoCorporalBlockHtml,
     openPesoCorporalModal, mountPesoCorporal, closeModal,
+    // V42: dashboard de Perfil. Todo lee state, ninguna consulta nueva.
+    screenPerfil, mountPerfil, perfilCuentaHtml, perfilResumenHtml, perfilPesoHtml,
+    perfilEntrenamientoHtml, perfilConfigHtml, primerDatoFecha, ejerciciosDistintosCount,
+    entrenosPorOrigen, rachaCardHtml, mountWeekNav, weekScopeKeys, WEEK_SCOPE_KEYS, PERFIL_ORIGIN_ORDER, setTab,
     currentWorkoutElapsed, fmtElapsed, workoutClockHtml, persistWorkoutClock,
     // v30
     calendarOriginFor, calendarOriginsFor, CALENDAR_ORIGIN_LABELS,

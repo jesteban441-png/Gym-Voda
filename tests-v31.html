@@ -3729,6 +3729,453 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(r.streak <= 104, "la racha no debería pasar de 104, dio " + r.streak);
     });
 
+    /* ---------------- V42 — PERFIL COMO DASHBOARD ----------------
+       Todo contra `state`: Perfil no hace consultas, así que se le puede poner
+       cualquier historial sintético y leer el HTML que produce. */
+
+    // Fecha a N días de hoy, en el formato que usa la app.
+    function diasAtras(n){
+      var h = new Date();
+      var d = new Date(h.getFullYear(), h.getMonth(), h.getDate()-n);
+      return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    }
+    // Monta un estado completo de Perfil y lo restaura al salir.
+    function conPerfil(datos, fn){
+      var S = A.state;
+      var prev = {
+        profile:S.profile, auth:S.authSession, ents:S.entrenos, regs:S.registros,
+        pc:S.pesoCorporal, pcErr:S.pesoCorporalError, tab:S.tab,
+        wOff:S.weekOffset, wDet:S.weekDetailOpen,
+        pOff:S.perfilWeekOffset, pDet:S.perfilWeekDetailOpen,
+        pPer:S.perfilPesoPeriod, rPer:S.pesoChartPeriod, slot:S.activeSlot
+      };
+      S.profile = datos.profile || { id:"p", name:"Juan", metaSemanal:4, edad:30, createdAt:1 };
+      S.authSession = { user:{ email:"juan@example.com" } };
+      S.entrenos = datos.entrenos || [];
+      S.registros = datos.registros || [];
+      S.pesoCorporal = datos.pesoCorporal || [];
+      S.pesoCorporalError = datos.pesoCorporalError || null;
+      try{ return fn(); }
+      finally{
+        S.profile=prev.profile; S.authSession=prev.auth; S.entrenos=prev.ents;
+        S.registros=prev.regs; S.pesoCorporal=prev.pc; S.pesoCorporalError=prev.pcErr;
+        S.tab=prev.tab; S.weekOffset=prev.wOff; S.weekDetailOpen=prev.wDet;
+        S.perfilWeekOffset=prev.pOff; S.perfilWeekDetailOpen=prev.pDet;
+        S.perfilPesoPeriod=prev.pPer; S.pesoChartPeriod=prev.rPer; S.activeSlot=prev.slot;
+      }
+    }
+
+    group("V42 — Perfil: estructura y cuenta");
+
+    test("el dashboard tiene las seis secciones, en orden", function(){
+      conPerfil({}, function(){
+        var html = A.screenPerfil();
+        var d = frame.contentWindow.document.createElement("div");
+        d.innerHTML = html;
+        var titulos = [].map.call(d.querySelectorAll(".section-title h2"), function(h){ return h.textContent; });
+        assert(titulos.join(" | ") === "Tu cuenta | Resumen | Esta semana | Tu peso | Tu entrenamiento | Configuración",
+          "dio: " + titulos.join(" | "));
+      });
+    });
+
+    test("Tu cuenta muestra nombre, email e iniciales", function(){
+      conPerfil({ profile:{ id:"p", name:"Juan Esteban", metaSemanal:3, edad:30, createdAt:1 } }, function(){
+        var html = A.perfilCuentaHtml();
+        assert(html.indexOf("Juan Esteban") !== -1, "falta el nombre");
+        assert(html.indexOf("juan@example.com") !== -1, "falta el email");
+        assert(html.indexOf("avatar") !== -1, "falta el avatar");
+      });
+    });
+
+    test("Entrenando desde usa el primer dato REAL, no la fecha de la cuenta", function(){
+      conPerfil({
+        // createdAt de la cuenta es hoy; el dato más viejo es de hace 100 días.
+        profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:Date.now() },
+        entrenos:[{ id:1, date:diasAtras(50) }],
+        registros:[{ id:1, exercise:"Gemelos", peso:40, date:diasAtras(30) }],
+        pesoCorporal:[{ id:"a", fecha:diasAtras(100), pesoKg:84, nota:"", createdAt:1, updatedAt:null }]
+      }, function(){
+        assert(A.primerDatoFecha() === diasAtras(100), "dio " + A.primerDatoFecha());
+        var html = A.perfilCuentaHtml();
+        assert(html.indexOf("Entrenando desde") !== -1, "falta la leyenda");
+      });
+    });
+
+    test("sin ningún dato NO se inventa una fecha", function(){
+      conPerfil({}, function(){
+        assert(A.primerDatoFecha() === null, "debería ser null y dio " + A.primerDatoFecha());
+        var html = A.perfilCuentaHtml();
+        assert(html.indexOf("Todavía sin registros") !== -1, "debería decir que no hay registros");
+        assert(html.indexOf("Entrenando desde") === -1, "no debería afirmar una fecha");
+      });
+    });
+
+    group("V42 — Resumen");
+
+    test("el peso actual del Resumen es el último pesaje", function(){
+      conPerfil({ pesoCorporal:[
+        { id:"a", fecha:"2026-01-01", pesoKg:84,   nota:"", createdAt:1, updatedAt:null },
+        { id:"b", fecha:"2026-03-01", pesoKg:79.5, nota:"", createdAt:2, updatedAt:null }
+      ]}, function(){
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf("79.5") !== -1, "debería mostrar 79.5");
+        assert(html.indexOf("Peso actual") !== -1, "falta la etiqueta Peso actual");
+      });
+    });
+
+    test("sin peso registrado muestra un estado neutro, sin inventar valor", function(){
+      conPerfil({}, function(){
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf("Sin peso registrado") !== -1, "debería decir que no hay peso");
+        assert(html.indexOf("&#8212;") !== -1, "debería mostrar un guión neutro");
+        assert(!/\d+(\.\d+)?<small> kg/.test(html), "no debería haber un peso en kg inventado");
+      });
+    });
+
+    test("sin entrenamientos el contador da 0 y respeta la meta", function(){
+      conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:5, createdAt:1 } }, function(){
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf("0<small> / 5</small>") !== -1, "debería mostrar 0 / 5, html: " + html.slice(html.indexOf("pesostat-val"), 400));
+      });
+    });
+
+    test("los entrenamientos de la semana se cuentan bien y el Día Especial no suma", function(){
+      conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:4, createdAt:1 }, entrenos:[
+        { id:1, date:diasAtras(0) },
+        { id:2, date:diasAtras(1) },
+        { id:3, date:diasAtras(1), isSpecial:true },   // no suma al objetivo
+        { id:4, date:diasAtras(400) }                  // fuera de la semana
+      ]}, function(){
+        var esperado = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(1)}], 4).thisWeekCount;
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf(esperado + "<small> / 4</small>") !== -1,
+          "debería mostrar " + esperado + " / 4");
+        // Y el especial efectivamente no está contado.
+        var conEspecial = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(1)},{date:diasAtras(1)}], 4).thisWeekCount;
+        assert(conEspecial === esperado + 1, "el control de la prueba no es válido");
+      });
+    });
+
+    test("la racha se muestra y con 0 no pone el fueguito", function(){
+      conPerfil({}, function(){
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf("🔥") === -1, "sin racha no debería haber fueguito");
+        assert(/>0<\/span>/.test(html), "debería mostrar 0");
+      });
+    });
+
+    group("V42 — Esta semana: estado propio, sin tocar Rutina");
+
+    test("navegar la semana en Perfil NO mueve la semana de Rutina", function(){
+      conPerfil({ entrenos:[{ id:1, date:diasAtras(0) }, { id:2, date:diasAtras(400) }] }, function(){
+        var S = A.state;
+        S.weekOffset = 0; S.perfilWeekOffset = 0;
+        // Se renderiza la tarjeta con scope perfil y se mueve una semana atrás.
+        var host = frame.contentWindow.document.createElement("div");
+        host.innerHTML = A.rachaCardHtml("perfil");
+        A.mountWeekNav(host, "perfil");
+        host.querySelector("#week-prev").click();
+        assert(S.perfilWeekOffset === 1, "Perfil debería estar en 1, dio " + S.perfilWeekOffset);
+        assert(S.weekOffset === 0, "Rutina NO debería haberse movido, dio " + S.weekOffset);
+      });
+    });
+
+    test("navegar la semana en Rutina NO mueve la de Perfil", function(){
+      conPerfil({ entrenos:[{ id:1, date:diasAtras(0) }, { id:2, date:diasAtras(400) }] }, function(){
+        var S = A.state;
+        S.weekOffset = 0; S.perfilWeekOffset = 0;
+        var host = frame.contentWindow.document.createElement("div");
+        host.innerHTML = A.rachaCardHtml("rutina");
+        A.mountWeekNav(host, "rutina");
+        host.querySelector("#week-prev").click();
+        assert(S.weekOffset === 1, "Rutina debería estar en 1, dio " + S.weekOffset);
+        assert(S.perfilWeekOffset === 0, "Perfil NO debería haberse movido, dio " + S.perfilWeekOffset);
+      });
+    });
+
+    test("el detalle semanal también tiene estado separado", function(){
+      conPerfil({ entrenos:[{ id:1, date:diasAtras(0) }] }, function(){
+        var S = A.state;
+        S.weekDetailOpen = false; S.perfilWeekDetailOpen = false;
+        var host = frame.contentWindow.document.createElement("div");
+        host.innerHTML = A.rachaCardHtml("perfil");
+        A.mountWeekNav(host, "perfil");
+        host.querySelector("#week-toggle").click();
+        assert(S.perfilWeekDetailOpen === true, "Perfil debería abrir su detalle");
+        assert(S.weekDetailOpen === false, "Rutina no debería abrirse");
+      });
+    });
+
+    test("rachaCardHtml sin argumento sigue siendo la de Rutina (no hay regresión)", function(){
+      conPerfil({ entrenos:[{ id:1, date:diasAtras(0) }, { id:2, date:diasAtras(400) }] }, function(){
+        var S = A.state;
+        S.weekOffset = 1; S.perfilWeekOffset = 0;
+        var html = A.rachaCardHtml(); // como la llama screenRutina
+        assert(S.weekOffset === 1, "la llamada sin scope debería seguir usando weekOffset");
+        assert(html.indexOf("week-prev") !== -1 && html.indexOf("week-toggle") !== -1, "faltan los controles de siempre");
+      });
+    });
+
+    test("la tarjeta de la semana muestra meta, días entrenados y detalle", function(){
+      conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:1 },
+        entrenos:[{ id:1, date:diasAtras(0) }, { id:2, date:diasAtras(0) }] }, function(){
+        A.state.perfilWeekOffset = 0;
+        var html = A.rachaCardHtml("perfil");
+        assert(/\/ 3 entrenamientos/.test(html), "falta el progreso contra la meta");
+        assert(html.indexOf("Días entrenados") !== -1, "faltan los días entrenados");
+        // Dos entrenamientos el MISMO día son 1 día entrenado.
+        assert(/Días entrenados: <b>1<\/b>/.test(html), "dos sesiones el mismo día deberían ser 1 día");
+        assert(html.indexOf("Ver detalle de la semana") !== -1, "falta el acceso al detalle");
+      });
+    });
+
+    group("V42 — Tu peso: solo lectura");
+
+    test("el bloque de peso de Perfil NO trae controles de edición", function(){
+      conPerfil({ pesoCorporal:[
+        { id:"a", fecha:diasAtras(40), pesoKg:84, nota:"", createdAt:1, updatedAt:null },
+        { id:"b", fecha:diasAtras(2),  pesoKg:79, nota:"", createdAt:2, updatedAt:null }
+      ]}, function(){
+        var html = A.perfilPesoHtml();
+        assert(html.indexOf("btn-peso-nuevo") === -1, "no debería tener el botón de alta");
+        assert(html.indexOf("data-peso-edit") === -1, "no debería tener editar");
+        assert(html.indexOf("data-peso-del") === -1, "no debería tener eliminar");
+        assert(html.indexOf("Historial de peso") === -1, "no debería traer el historial completo");
+        assert(html.indexOf("btn-perfil-ir-peso") !== -1, "debería tener el acceso a Registro");
+      });
+    });
+
+    test("reutiliza los cinco períodos de V40", function(){
+      conPerfil({ pesoCorporal:[
+        { id:"a", fecha:diasAtras(40), pesoKg:84, nota:"", createdAt:1, updatedAt:null },
+        { id:"b", fecha:diasAtras(2),  pesoKg:79, nota:"", createdAt:2, updatedAt:null }
+      ]}, function(){
+        A.state.perfilPesoPeriod = "todo";
+        var html = A.perfilPesoHtml();
+        A.PESO_PERIODS.forEach(function(p){
+          assert(html.indexOf('data-perfil-peso-period="'+p.key+'"') !== -1, "falta el período " + p.key);
+        });
+        assert(html.indexOf('<svg class="exchart"') !== -1, "falta el gráfico");
+      });
+    });
+
+    test("el período de Perfil es independiente del de Registro", function(){
+      conPerfil({ pesoCorporal:[
+        { id:"a", fecha:diasAtras(40), pesoKg:84, nota:"", createdAt:1, updatedAt:null },
+        { id:"b", fecha:diasAtras(2),  pesoKg:79, nota:"", createdAt:2, updatedAt:null }
+      ]}, function(){
+        A.state.pesoChartPeriod = "7d";
+        A.state.perfilPesoPeriod = "1a";
+        var perfil = A.perfilPesoHtml();
+        var registro = A.pesoCorporalBlockHtml();
+        assert(/data-perfil-peso-period="1a" class="active"/.test(perfil), "Perfil debería estar en 1 año");
+        assert(/data-peso-period="7d" class="active"/.test(registro), "Registro debería seguir en 7 días");
+      });
+    });
+
+    test("el peso de Perfil usa pesoResumen, no una cuenta propia", function(){
+      var rows = [
+        { id:"a", fecha:diasAtras(40), pesoKg:84,   nota:"", createdAt:1, updatedAt:null },
+        { id:"b", fecha:diasAtras(2),  pesoKg:79.5, nota:"", createdAt:2, updatedAt:null }
+      ];
+      conPerfil({ pesoCorporal:rows }, function(){
+        var esperado = A.pesoResumen(rows);
+        var html = A.perfilPesoHtml();
+        assert(html.indexOf(A.fmtPesoKg(esperado.actual.pesoKg)) !== -1, "el actual no coincide con pesoResumen");
+        assert(html.indexOf(A.fmtPesoDiff(esperado.diff)) !== -1, "la diferencia no coincide con pesoResumen");
+      });
+    });
+
+    test("sin peso muestra estado neutro y manda a Registro", function(){
+      conPerfil({}, function(){
+        var html = A.perfilPesoHtml();
+        assert(html.indexOf("Todavía no registraste tu peso") !== -1, "debería avisar que no hay peso");
+        assert(html.indexOf("btn-perfil-ir-peso") !== -1, "debería ofrecer ir a Registro");
+        assert(html.indexOf('<svg class="exchart"') === -1, "no debería dibujar un gráfico vacío");
+      });
+    });
+
+    test("si la tabla no está disponible avisa y no rompe", function(){
+      conPerfil({ pesoCorporalError:"relation does not exist" }, function(){
+        var html = A.perfilPesoHtml();
+        assert(html.indexOf("no está disponible todavía") !== -1, "debería avisar");
+        assert(html.indexOf("supabase-migration-v40.sql") !== -1, "debería nombrar la migración");
+      });
+    });
+
+    group("V42 — Tu entrenamiento");
+
+    test("los ejercicios distintos se cuentan por identidad canónica", function(){
+      conPerfil({ registros:[
+        { id:1, exercise:"Gemelos",                       peso:40, date:diasAtras(1) },
+        { id:2, exercise:"Gemelos parado con mancuerna",  peso:42, date:diasAtras(2) },
+        { id:3, exercise:"Press de banca plano",          peso:80, date:diasAtras(3) },
+        { id:4, exercise:"Press de banca con barra",      peso:85, date:diasAtras(4) },
+        { id:5, exercise:"Jalón al pecho",                peso:60, date:diasAtras(5) }
+      ]}, function(){
+        // 5 filas, 3 ejercicios: dos pares resuelven al mismo nombre canónico.
+        assert(A.ejerciciosDistintosCount() === 3, "dio " + A.ejerciciosDistintosCount());
+        var html = A.perfilEntrenamientoHtml();
+        assert(html.indexOf("Ejercicios distintos registrados") !== -1, "falta la etiqueta");
+        assert(html.indexOf(">3</span>") !== -1, "debería mostrar 3");
+      });
+    });
+
+    test("sin registros el contador de ejercicios es 0", function(){
+      conPerfil({}, function(){
+        assert(A.ejerciciosDistintosCount() === 0, "dio " + A.ejerciciosDistintosCount());
+      });
+    });
+
+    test("la composición por origen se calcula con calendarOriginFor", function(){
+      var ents = [
+        { id:1, date:diasAtras(1), routineOrigin:"automatica" },
+        { id:2, date:diasAtras(2), routineOrigin:"automatica" },
+        { id:3, date:diasAtras(3), routineOrigin:"personalizada" },
+        { id:4, date:diasAtras(4), routineOrigin:"enfocada" },
+        { id:5, date:diasAtras(5), isSpecial:true },
+        { id:6, date:diasAtras(6), isManual:true },
+        { id:7, date:diasAtras(7) }
+      ];
+      conPerfil({ entrenos:ents }, function(){
+        var o = A.entrenosPorOrigen();
+        assert(o.total === 7, "total dio " + o.total);
+        var porOrigen = {};
+        o.rows.forEach(function(r){ porOrigen[r.origin] = r.count; });
+        assert(porOrigen.automatica === 2, "automatica dio " + porOrigen.automatica);
+        assert(porOrigen.personalizada === 1 && porOrigen.enfocada === 1, "personalizada/enfocada mal");
+        assert(porOrigen.especial === 1 && porOrigen.manual === 1 && porOrigen.unknown === 1, "especial/manual/unknown mal");
+        // Coincide exactamente con la función del calendario.
+        ents.forEach(function(e, i){
+          assert(A.calendarOriginFor(e) === ["automatica","automatica","personalizada","enfocada","especial","manual","unknown"][i],
+            "calendarOriginFor difiere en el índice " + i);
+        });
+        // Los porcentajes suman 100 (±1 por redondeo) y el orden es el de la leyenda.
+        var suma = o.rows.reduce(function(a,r){ return a + r.pct; }, 0);
+        assert(Math.abs(suma - 100) <= 2, "los porcentajes dieron " + suma);
+        var orden = o.rows.map(function(r){ return r.origin; });
+        var esperado = A.PERFIL_ORIGIN_ORDER.filter(function(x){ return orden.indexOf(x) !== -1; });
+        assert(orden.join(",") === esperado.join(","), "el orden dio " + orden.join(","));
+      });
+    });
+
+    test("un origen sin entrenamientos no aparece en la composición", function(){
+      conPerfil({ entrenos:[{ id:1, date:diasAtras(1), routineOrigin:"automatica" }] }, function(){
+        var o = A.entrenosPorOrigen();
+        assert(o.rows.length === 1 && o.rows[0].origin === "automatica", "dio " + JSON.stringify(o.rows));
+        assert(o.rows[0].pct === 100, "un solo origen debería ser 100%, dio " + o.rows[0].pct);
+      });
+    });
+
+    test("sin entrenamientos la composición muestra un texto, no una barra vacía", function(){
+      conPerfil({}, function(){
+        var html = A.perfilEntrenamientoHtml();
+        assert(html.indexOf("Todavía no hay entrenamientos registrados") !== -1, "debería avisar");
+        assert(html.indexOf("origin-stack") === -1, "no debería dibujar la barra");
+      });
+    });
+
+    group("V42 — lo que Perfil NO muestra");
+
+    test("no aparecen las métricas que los datos actuales no permiten", function(){
+      conPerfil({
+        entrenos:[{ id:1, date:diasAtras(1), setsCompletados:10, setsTotales:12, routineOrigin:"automatica" }],
+        registros:[{ id:1, exercise:"Gemelos", peso:40, date:diasAtras(1), series:"3", reps:"8-10" }],
+        pesoCorporal:[{ id:"a", fecha:diasAtras(1), pesoKg:80, nota:"", createdAt:1, updatedAt:null }]
+      }, function(){
+        var html = A.screenPerfil();
+        [
+          "Récord personal", "Record personal", "récord histórico",
+          "Entrenamientos totales", "Total de entrenamientos",
+          "Volumen", "volumen total",
+          "Tiempo entrenado", "Tiempo total",
+          "Fuerza relativa",
+          "Mapa muscular", "Músculos trabajados"
+        ].forEach(function(t){
+          assert(html.indexOf(t) === -1, "Perfil no debería mostrar: " + t);
+        });
+      });
+    });
+
+    test("Perfil no reincorpora peso_estimado", function(){
+      conPerfil({}, function(){
+        var html = A.screenPerfil();
+        assert(html.indexOf("peso_estimado") === -1 || html.indexOf("peso_estimado NO") !== -1 || html.indexOf("profiles.peso_estimado") !== -1,
+          "solo debería mencionarse en el comentario explicativo");
+        assert(html.indexOf('id="perfil-peso"') === -1, "no debería existir el campo de peso aprox.");
+        assert(html.indexOf("Peso aprox") === -1, "no debería existir la etiqueta Peso aprox.");
+      });
+    });
+
+    group("V42 — configuración y compatibilidad");
+
+    test("la configuración conserva sus cuatro controles y el logout", function(){
+      conPerfil({}, function(){
+        var html = A.perfilConfigHtml();
+        ['id="perfil-name"','id="meta-semanal"','id="perfil-edad"','id="theme-seg"','id="btn-ex-diagnostics"','id="btn-logout"'].forEach(function(sel){
+          assert(html.indexOf(sel) !== -1, "falta " + sel);
+        });
+      });
+    });
+
+    test("la configuración quedó al final del dashboard", function(){
+      conPerfil({}, function(){
+        var html = A.screenPerfil();
+        var iResumen = html.indexOf("Resumen");
+        var iConfig = html.indexOf("Configuración");
+        var iLogout = html.indexOf("btn-logout");
+        assert(iResumen < iConfig, "el Resumen debería ir antes que la Configuración");
+        assert(iConfig < iLogout, "el logout va al final");
+      });
+    });
+
+    test("Registro, Mi peso, Timer y calendario siguen intactos", function(){
+      // Registro conserva su bloque de peso CON los controles de gestión.
+      conPerfil({ pesoCorporal:[{ id:"a", fecha:diasAtras(1), pesoKg:80, nota:"", createdAt:1, updatedAt:null }] }, function(){
+        var reg = A.pesoCorporalBlockHtml();
+        assert(reg.indexOf("btn-peso-nuevo") !== -1, "Registro perdió el botón de alta");
+        assert(reg.indexOf("data-peso-edit") !== -1, "Registro perdió editar");
+        assert(reg.indexOf("data-peso-del") !== -1, "Registro perdió eliminar");
+        assert(reg.indexOf("Historial de peso") !== -1, "Registro perdió el historial");
+      });
+      assert(typeof A.addWorkoutLap === "function" && typeof A.workoutLapRows === "function", "faltan las vueltas del timer");
+      assert(Object.keys(A.CALENDAR_ORIGIN_LABELS).length === 6, "cambiaron las etiquetas del calendario");
+      assert(A.RUTINA_SLOTS.join(",") === "personalizada,automatica,enfocada", "cambiaron los slots de rutina");
+      assert(A.sessionCountRange(1)[1] === 8 && A.sessionCountRange(3)[1] === 7 && A.sessionCountRange(5)[1] === 6,
+        "cambió el tope diario 8/7/6");
+    });
+
+    test("Perfil no agrega consultas: solo lee state", function(){
+      // Si alguna función del dashboard llamara a la base, pedirle el HTML con
+      // el Store "roto" fallaría. Se reemplazan las lecturas por trampas.
+      var S = A.Store;
+      var orig = { lr:S.listRegistros, le:S.listEntrenos, lp:S.listPesoCorporal };
+      var tocado = [];
+      S.listRegistros = function(){ tocado.push("registros"); return Promise.resolve([]); };
+      S.listEntrenos = function(){ tocado.push("entrenos"); return Promise.resolve([]); };
+      S.listPesoCorporal = function(){ tocado.push("peso"); return Promise.resolve([]); };
+      try{
+        conPerfil({ entrenos:[{ id:1, date:diasAtras(1) }], registros:[{ id:1, exercise:"Gemelos", peso:40, date:diasAtras(1) }],
+          pesoCorporal:[{ id:"a", fecha:diasAtras(1), pesoKg:80, nota:"", createdAt:1, updatedAt:null }] }, function(){
+          A.screenPerfil();
+        });
+        assert(tocado.length === 0, "Perfil llamó a la base: " + tocado.join(","));
+      } finally {
+        S.listRegistros = orig.lr; S.listEntrenos = orig.le; S.listPesoCorporal = orig.lp;
+      }
+    });
+
+    test("el estado de scroll de Perfil existe y es propio", function(){
+      var S = A.state;
+      assert("perfilScrollY" in S && "perfilScrollPending" in S, "faltan las claves de scroll de Perfil");
+      assert("perfilWeekOffset" in S && "perfilWeekDetailOpen" in S && "perfilPesoPeriod" in S,
+        "faltan las claves de estado propio de Perfil");
+      // Y no se confunden con las de Rutina/Registro.
+      assert(A.weekScopeKeys("perfil").offset === "perfilWeekOffset", "el scope perfil apunta mal");
+      assert(A.weekScopeKeys("rutina").offset === "weekOffset", "el scope rutina apunta mal");
+      assert(A.weekScopeKeys(undefined).offset === "weekOffset", "sin scope debería ser rutina");
+    });
+
     finish();
   }
 
