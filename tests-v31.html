@@ -3157,6 +3157,476 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "se le agregaron vueltas al timer de descanso");
     });
 
+    /* ---------------- V40 — MI PESO (peso corporal) ----------------
+       Todo lo de acá es contra funciones PURAS o contra state: el harness no
+       habla con Supabase, así que no se inventan datos de la base. Alta,
+       edición y borrado se validan por la forma de la fila que se manda
+       (pesoCorporalRowFor / rowToPesoCorporal) y por el efecto sobre el
+       historial en memoria, que es lo que la pantalla lee. */
+
+    // Fábrica de filas con la misma forma que devuelve Store.rowToPesoCorporal.
+    function pc(fecha, kg, createdAt, nota, id){
+      return { id: id || ("id-"+fecha+"-"+kg+"-"+(createdAt||0)), fecha: fecha, pesoKg: kg,
+               nota: nota || "", createdAt: createdAt || 0, updatedAt: null };
+    }
+    // Corre fn con un historial puesto en state y restaura todo al salir.
+    function conPeso(rows, err, fn){
+      var prevRows = A.state.pesoCorporal, prevErr = A.state.pesoCorporalError, prevPer = A.state.pesoChartPeriod;
+      A.state.pesoCorporal = rows;
+      A.state.pesoCorporalError = err || null;
+      try{ return fn(); }
+      finally{
+        A.state.pesoCorporal = prevRows;
+        A.state.pesoCorporalError = prevErr;
+        A.state.pesoChartPeriod = prevPer;
+      }
+    }
+
+    group("V40 — Mi peso: orden y peso actual");
+
+    test("pesoCorporalSorted ordena por fecha descendente", function(){
+      var r = A.pesoCorporalSorted([pc("2026-01-10",80), pc("2026-03-01",78), pc("2026-02-01",79)]);
+      assert(r.map(function(x){return x.fecha;}).join(",") === "2026-03-01,2026-02-01,2026-01-10",
+        "dio " + r.map(function(x){return x.fecha;}).join(","));
+    });
+
+    test("dos pesajes el MISMO día: el último creado es el actual", function(){
+      // La regla de producto: fecha DESC -> created_at DESC.
+      var temprano = pc("2026-03-01", 80, 1000);
+      var tarde    = pc("2026-03-01", 78, 5000);
+      var r = A.pesoCorporalSorted([temprano, tarde]);
+      assert(r[0] === tarde, "el primero debería ser el creado más tarde");
+      assert(A.pesoResumen([temprano, tarde]).actual.pesoKg === 78,
+        "el peso actual debería ser 78, dio " + A.pesoResumen([temprano, tarde]).actual.pesoKg);
+    });
+
+    test("pesoCorporalAsc deja el más viejo primero, también dentro del mismo día", function(){
+      var temprano = pc("2026-03-01", 80, 1000);
+      var tarde    = pc("2026-03-01", 78, 5000);
+      var r = A.pesoCorporalAsc([tarde, temprano]);
+      assert(r[0] === temprano, "dentro del mismo día el más viejo va primero");
+      var r2 = A.pesoCorporalAsc([pc("2026-03-01",78), pc("2026-01-01",82)]);
+      assert(r2[0].fecha === "2026-01-01", "dio " + r2[0].fecha);
+    });
+
+    test("pesoResumen: actual, inicial y diferencia", function(){
+      var rows = [pc("2026-01-01",82), pc("2026-02-01",80), pc("2026-03-01",78.5)];
+      var s = A.pesoResumen(rows);
+      assert(s.actual.pesoKg === 78.5, "actual dio " + s.actual.pesoKg);
+      assert(s.inicial.pesoKg === 82, "inicial dio " + s.inicial.pesoKg);
+      assert(s.diff === -3.5, "diferencia dio " + s.diff);
+      assert(s.unico === false, "no debería ser único");
+    });
+
+    test("un solo pesaje: actual = inicial, diferencia 0", function(){
+      var s = A.pesoResumen([pc("2026-03-01",78)]);
+      assert(s.actual.pesoKg === 78 && s.inicial.pesoKg === 78, "actual e inicial deberían coincidir");
+      assert(s.diff === 0, "diferencia dio " + s.diff);
+      assert(s.unico === true, "debería marcar único");
+    });
+
+    test("subir de peso da diferencia positiva", function(){
+      var s = A.pesoResumen([pc("2026-01-01",78), pc("2026-03-01",81.2)]);
+      assert(s.diff === 3.2, "dio " + s.diff);
+      assert(A.fmtPesoDiff(s.diff) === "+3.2 kg", "formato dio " + A.fmtPesoDiff(s.diff));
+    });
+
+    test("historial vacío: pesoResumen devuelve null", function(){
+      assert(A.pesoResumen([]) === null, "debería ser null");
+      assert(A.pesoResumen(null) === null, "null también");
+    });
+
+    test("la diferencia usa el historial COMPLETO, no el período del gráfico", function(){
+      // El primer pesaje queda fuera de cualquier ventana corta; igual tiene
+      // que ser el "inicial".
+      var rows = [pc("2020-01-01",95), pc("2026-03-01",78)];
+      var s = A.pesoResumen(rows);
+      assert(s.inicial.fecha === "2020-01-01", "inicial dio " + s.inicial.fecha);
+      assert(s.diff === -17, "dio " + s.diff);
+      var enPeriodo = A.pesoCorporalEnPeriodo(rows, "30d", "2026-03-01");
+      assert(enPeriodo.length === 1, "el período corto debería traer 1, dio " + enPeriodo.length);
+    });
+
+    group("V40 — períodos del gráfico");
+
+    test("hay exactamente 5 períodos, con las claves esperadas", function(){
+      assert(A.PESO_PERIODS.length === 5, "dio " + A.PESO_PERIODS.length);
+      assert(A.PESO_PERIODS.map(function(p){return p.key;}).join(",") === "7d,30d,3m,1a,todo",
+        "dio " + A.PESO_PERIODS.map(function(p){return p.key;}).join(","));
+      assert(A.PESO_PERIODS.map(function(p){return p.label;}).join(" · ") === "7 días · 30 días · 3 meses · 1 año · Todo",
+        "etiquetas dieron " + A.PESO_PERIODS.map(function(p){return p.label;}).join(" · "));
+    });
+
+    test("7 días es una ventana exacta e inclusiva (hoy-6 entra, hoy-7 no)", function(){
+      var hoy = "2026-03-10";
+      var rows = [pc("2026-03-10",78), pc("2026-03-04",79), pc("2026-03-03",80)];
+      var r = A.pesoCorporalEnPeriodo(rows, "7d", hoy);
+      var f = r.map(function(x){return x.fecha;});
+      assert(f.indexOf("2026-03-04") !== -1, "hoy-6 tendría que entrar");
+      assert(f.indexOf("2026-03-03") === -1, "hoy-7 NO tendría que entrar");
+      assert(r.length === 2, "dio " + r.length);
+    });
+
+    test("30 días, 3 meses y 1 año usan 30/90/365 fechas", function(){
+      var hoy = "2026-03-10";
+      var rows = [pc("2026-03-10",78), pc("2026-02-09",79), pc("2025-12-11",80), pc("2025-03-11",81), pc("2024-01-01",95)];
+      assert(A.pesoCorporalEnPeriodo(rows, "30d", hoy).length === 2, "30d dio " + A.pesoCorporalEnPeriodo(rows,"30d",hoy).length);
+      assert(A.pesoCorporalEnPeriodo(rows, "3m",  hoy).length === 3, "3m dio " + A.pesoCorporalEnPeriodo(rows,"3m",hoy).length);
+      assert(A.pesoCorporalEnPeriodo(rows, "1a",  hoy).length === 4, "1a dio " + A.pesoCorporalEnPeriodo(rows,"1a",hoy).length);
+    });
+
+    test("Todo no filtra y devuelve en orden ascendente", function(){
+      var rows = [pc("2026-03-10",78), pc("2020-01-01",95)];
+      var r = A.pesoCorporalEnPeriodo(rows, "todo", "2026-03-10");
+      assert(r.length === 2, "dio " + r.length);
+      assert(r[0].fecha === "2020-01-01", "el primero debería ser el más viejo, dio " + r[0].fecha);
+    });
+
+    test("un período sin pesajes devuelve lista vacía, no error", function(){
+      var r = A.pesoCorporalEnPeriodo([pc("2020-01-01",95)], "7d", "2026-03-10");
+      assert(Array.isArray(r) && r.length === 0, "debería ser [] y dio " + JSON.stringify(r));
+    });
+
+    test("una clave de período desconocida cae en Todo", function(){
+      var rows = [pc("2026-03-10",78), pc("2020-01-01",95)];
+      assert(A.pesoCorporalEnPeriodo(rows, "inventado", "2026-03-10").length === 2, "debería traer todo");
+    });
+
+    test("dateMinusDays cruza mes, año y año bisiesto", function(){
+      assert(A.dateMinusDays("2026-03-01", 1) === "2026-02-28", "dio " + A.dateMinusDays("2026-03-01",1));
+      assert(A.dateMinusDays("2026-01-01", 1) === "2025-12-31", "dio " + A.dateMinusDays("2026-01-01",1));
+      assert(A.dateMinusDays("2024-03-01", 1) === "2024-02-29", "bisiesto dio " + A.dateMinusDays("2024-03-01",1));
+      assert(A.dateMinusDays("2026-03-10", 0) === "2026-03-10", "menos 0 días dio " + A.dateMinusDays("2026-03-10",0));
+    });
+
+    group("V40 — validación y formato");
+
+    test("validarPesoKg respeta el MISMO rango que el CHECK de la base", function(){
+      assert(A.validarPesoKg(0).ok === false, "0 debería fallar");
+      assert(A.validarPesoKg(-5).ok === false, "negativo debería fallar");
+      assert(A.validarPesoKg(500.1).ok === false, "500.1 debería fallar");
+      assert(A.validarPesoKg(500).ok === true, "500 debería pasar");
+      assert(A.validarPesoKg(0.1).ok === true, "0.1 debería pasar");
+    });
+
+    test("validarPesoKg rechaza vacío y texto, con mensaje", function(){
+      var a = A.validarPesoKg("");
+      var b = A.validarPesoKg("abc");
+      assert(a.ok === false && typeof a.error === "string" && a.error.length > 0, "vacío debería dar error con mensaje");
+      assert(b.ok === false && typeof b.error === "string", "texto debería dar error con mensaje");
+    });
+
+    test("validarPesoKg redondea a un decimal y acepta coma", function(){
+      assert(A.validarPesoKg("78,5").value === 78.5, "coma dio " + A.validarPesoKg("78,5").value);
+      assert(A.validarPesoKg(78.46).value === 78.5, "dio " + A.validarPesoKg(78.46).value);
+      assert(A.validarPesoKg(78.44).value === 78.4, "dio " + A.validarPesoKg(78.44).value);
+    });
+
+    test("fmtPesoKg no muestra decimal cuando es cero", function(){
+      assert(A.fmtPesoKg(72) === "72", "dio " + A.fmtPesoKg(72));
+      assert(A.fmtPesoKg(72.5) === "72.5", "dio " + A.fmtPesoKg(72.5));
+      assert(A.fmtPesoKg(72.04) === "72", "dio " + A.fmtPesoKg(72.04));
+      assert(A.fmtPesoKg(null) === "-", "null dio " + A.fmtPesoKg(null));
+    });
+
+    test("fmtPesoDiff pone signo y trata el 0 aparte", function(){
+      assert(A.fmtPesoDiff(1.5) === "+1.5 kg", "dio " + A.fmtPesoDiff(1.5));
+      assert(A.fmtPesoDiff(-1.5) === "-1.5 kg", "dio " + A.fmtPesoDiff(-1.5));
+      assert(A.fmtPesoDiff(0) === "0 kg", "dio " + A.fmtPesoDiff(0));
+      assert(A.fmtPesoDiff(0.01) === "0 kg", "casi cero dio " + A.fmtPesoDiff(0.01));
+    });
+
+    group("V40 — escritura y lectura de la fila");
+
+    test("pesoCorporalRowFor arma la fila con los nombres de columna reales", function(){
+      var row = A.Store.pesoCorporalRowFor("perfil-1", { fecha:"2026-03-01", pesoKg:78.5, nota:"en ayunas", createdAt:1234 });
+      assert(row.profile_id === "perfil-1", "profile_id dio " + row.profile_id);
+      assert(row.fecha === "2026-03-01", "fecha dio " + row.fecha);
+      assert(row.peso_kg === 78.5, "peso_kg dio " + row.peso_kg);
+      assert(row.nota === "en ayunas", "nota dio " + row.nota);
+      assert(row.created_at === 1234, "created_at dio " + row.created_at);
+      // created_at es epoch en MILISEGUNDOS, igual que registros/entrenos.
+      var auto = A.Store.pesoCorporalRowFor("p", { fecha:"2026-03-01", pesoKg:70 });
+      assert(auto.created_at > 1600000000000, "created_at debería ser epoch en ms, dio " + auto.created_at);
+    });
+
+    test("una nota vacía se guarda como null, no como cadena vacía", function(){
+      assert(A.Store.pesoCorporalRowFor("p", { fecha:"2026-03-01", pesoKg:70, nota:"" }).nota === null, "debería ser null");
+      assert(A.Store.pesoCorporalRowFor("p", { fecha:"2026-03-01", pesoKg:70 }).nota === null, "sin nota también");
+    });
+
+    test("la fila de escritura NO lleva updated_at (se escribe solo al editar)", function(){
+      var row = A.Store.pesoCorporalRowFor("p", { fecha:"2026-03-01", pesoKg:70 });
+      assert(!("updated_at" in row), "el alta no debería mandar updated_at");
+    });
+
+    test("rowToPesoCorporal normaliza numeric, nota y updated_at", function(){
+      var r = A.Store.rowToPesoCorporal({ id:"x", fecha:"2026-03-01", peso_kg:"78.5", nota:null, created_at:9, updated_at:null });
+      assert(r.pesoKg === 78.5 && typeof r.pesoKg === "number", "numeric como string debería volver número, dio " + JSON.stringify(r.pesoKg));
+      assert(r.nota === "", "nota null debería leerse como cadena vacía");
+      assert(r.updatedAt === null, "updatedAt debería ser null");
+      var r2 = A.Store.rowToPesoCorporal({ id:"y", fecha:"2026-03-02", peso_kg:80, nota:"hola", created_at:1, updated_at:5 });
+      assert(r2.pesoKg === 80 && r2.nota === "hola" && r2.updatedAt === 5, "lectura directa dio " + JSON.stringify(r2));
+    });
+
+    test("el Store expone las cuatro operaciones y su propio límite de lectura", function(){
+      ["listPesoCorporal","addPesoCorporal","updatePesoCorporal","deletePesoCorporal"].forEach(function(f){
+        assert(typeof A.Store[f] === "function", "falta Store." + f);
+      });
+      // Pedido explícito: el historial de peso NO queda limitado a 300 como
+      // el de ejercicios.
+      assert(A.Store.PESO_CORPORAL_LIMIT > 300, "el límite debería ser mayor que el de registros, dio " + A.Store.PESO_CORPORAL_LIMIT);
+      assert(A.Store.PESO_CORPORAL_LIMIT >= 1000, "dio " + A.Store.PESO_CORPORAL_LIMIT);
+    });
+
+    group("V40 — gráfico");
+
+    test("un solo pesaje: punto centrado y sin NaN", function(){
+      var svg = A.pesoLineChart([pc("2026-03-01",78)], "Todo");
+      assert(svg.indexOf("NaN") === -1, "el SVG trae NaN");
+      assert(svg.indexOf("M150.0") !== -1, "el único punto debería ir al centro (x=150)");
+      assert(svg.indexOf("1 pesaje ") !== -1, "debería decir 1 pesaje en singular");
+    });
+
+    test("todos los pesajes iguales: no divide por cero", function(){
+      var svg = A.pesoLineChart([pc("2026-01-01",80), pc("2026-02-01",80), pc("2026-03-01",80)], "Todo");
+      assert(svg.indexOf("NaN") === -1, "el SVG trae NaN con rango 0");
+      assert(svg.indexOf("Infinity") === -1, "el SVG trae Infinity");
+    });
+
+    test("un círculo por pesaje, y mínimo/máximo correctos", function(){
+      var rows = [pc("2026-01-01",82), pc("2026-02-01",79), pc("2026-03-01",80.5)];
+      var svg = A.pesoLineChart(rows, "3 meses");
+      assert((svg.match(/<circle/g)||[]).length === 3, "debería haber 3 círculos");
+      assert(svg.indexOf("79 kg") !== -1, "falta el mínimo 79");
+      assert(svg.indexOf("82 kg") !== -1, "falta el máximo 82");
+      assert(svg.indexOf("3 pesajes") !== -1, "debería decir 3 pesajes");
+    });
+
+    test("el gráfico de peso corporal es por pesaje, no por máximo semanal", function(){
+      // Dos pesajes de la MISMA semana tienen que dar DOS puntos (si usara
+      // exerciseWeeklyMax darían uno solo).
+      var svg = A.pesoLineChart([pc("2026-03-02",80), pc("2026-03-04",78)], "7 días");
+      assert((svg.match(/<circle/g)||[]).length === 2, "deberían ser 2 puntos en la misma semana");
+    });
+
+    group("V40 — bloque en la pantalla Registro");
+
+    test("sin registros muestra el estado vacío con los textos definidos", function(){
+      conPeso([], null, function(){
+        var html = A.pesoCorporalBlockHtml();
+        assert(html.indexOf("Mi peso") !== -1, "falta el título Mi peso");
+        assert(html.indexOf("Empezá a registrar tu progreso") !== -1, "falta el título del estado vacío");
+        assert(html.indexOf("Tu primer peso será el punto de partida para medir tu evolución.") !== -1, "falta el texto del estado vacío");
+        assert(html.indexOf("Registrar peso") !== -1, "falta el botón Registrar peso");
+        assert(html.indexOf("btn-peso-nuevo") !== -1, "falta el id del botón");
+      });
+    });
+
+    test("con registros muestra actual, inicial, diferencia, períodos e historial", function(){
+      conPeso([pc("2026-01-01",82), pc("2026-03-01",78.5)], null, function(){
+        A.state.pesoChartPeriod = "todo";
+        var html = A.pesoCorporalBlockHtml();
+        assert(html.indexOf("Actual") !== -1, "falta Actual");
+        assert(html.indexOf("Inicial") !== -1, "falta Inicial");
+        assert(html.indexOf("Diferencia") !== -1, "falta Diferencia");
+        assert(html.indexOf("78.5") !== -1, "falta el peso actual");
+        assert(html.indexOf("82") !== -1, "falta el peso inicial");
+        assert(html.indexOf("-3.5 kg") !== -1, "falta la diferencia");
+        A.PESO_PERIODS.forEach(function(p){
+          assert(html.indexOf('data-peso-period="'+p.key+'"') !== -1, "falta el botón de período " + p.key);
+        });
+        assert(html.indexOf("Historial de peso") !== -1, "falta el historial");
+        assert(html.indexOf("data-peso-edit") !== -1, "falta el botón de editar");
+        assert(html.indexOf("data-peso-del") !== -1, "falta el botón de eliminar");
+      });
+    });
+
+    test("el historial se muestra del más reciente al más antiguo", function(){
+      conPeso([pc("2026-01-01",82), pc("2026-03-01",78.5), pc("2026-02-01",80)], null, function(){
+        var html = A.pesoCorporalBlockHtml();
+        var hist = html.slice(html.indexOf("Historial de peso"));
+        var i1 = hist.indexOf("78.5 kg"), i2 = hist.indexOf("80 kg"), i3 = hist.indexOf("82 kg");
+        assert(i1 !== -1 && i2 !== -1 && i3 !== -1, "faltan filas del historial");
+        assert(i1 < i2 && i2 < i3, "el orden debería ser 78.5, 80, 82 (más reciente primero)");
+      });
+    });
+
+    test("si la tabla no está disponible se avisa y no se rompe", function(){
+      conPeso([], "relation \"public.peso_corporal\" does not exist", function(){
+        var html = A.pesoCorporalBlockHtml();
+        assert(html.indexOf("no está disponible todavía") !== -1, "debería avisar que no está disponible");
+        assert(html.indexOf("supabase-migration-v40.sql") !== -1, "debería nombrar la migración");
+        assert(html.indexOf("disabled") !== -1, "el botón debería quedar deshabilitado");
+      });
+    });
+
+    test("un período vacío avisa en vez de dibujar un gráfico vacío", function(){
+      conPeso([pc("2020-01-01",95)], null, function(){
+        A.state.pesoChartPeriod = "7d";
+        var html = A.pesoCorporalBlockHtml();
+        assert(html.indexOf("Sin pesajes en este período") !== -1, "debería avisar que el período está vacío");
+        assert(html.indexOf("<svg class=\"exchart\"") === -1, "no debería dibujar el gráfico");
+      });
+    });
+
+    group("V40 — modal de alta y edición");
+
+    test("el alta abre el modal con fecha de hoy, peso vacío y nota vacía", function(){
+      var D = frame.contentWindow.document;
+      try{
+        A.openPesoCorporalModal(null);
+        var m = D.querySelector(".modal-back .modal");
+        assert(m, "no se abrió el modal");
+        assert(m.querySelector("h3").textContent.indexOf("Registrar peso") !== -1, "título dio " + m.querySelector("h3").textContent);
+        var f = m.querySelector("#peso-fecha"), kg = m.querySelector("#peso-kg"), nota = m.querySelector("#peso-nota");
+        assert(f && kg && nota, "faltan campos en el modal");
+        assert(f.value && f.value.length === 10, "la fecha debería venir cargada, dio " + f.value);
+        assert(kg.value === "", "el peso debería venir vacío, dio " + kg.value);
+        assert(nota.value === "", "la nota debería venir vacía");
+        // No se puede cargar una fecha futura, pero sí anteriores (no hay min).
+        assert(f.getAttribute("max") === f.value, "max debería ser hoy");
+        assert(!f.hasAttribute("min"), "no debería haber mínimo: se permite cargar fechas anteriores");
+      } finally { A.closeModal(); }
+    });
+
+    test("editar precarga fecha, peso y nota del pesaje elegido", function(){
+      var D = frame.contentWindow.document;
+      try{
+        A.openPesoCorporalModal({ id:"z", fecha:"2026-02-10", pesoKg:80.4, nota:"en ayunas", createdAt:2, updatedAt:null });
+        var m = D.querySelector(".modal-back .modal");
+        assert(m.querySelector("h3").textContent.indexOf("Editar pesaje") !== -1, "título dio " + m.querySelector("h3").textContent);
+        assert(m.querySelector("#peso-fecha").value === "2026-02-10", "fecha dio " + m.querySelector("#peso-fecha").value);
+        assert(m.querySelector("#peso-kg").value === "80.4", "peso dio " + m.querySelector("#peso-kg").value);
+        assert(m.querySelector("#peso-nota").value === "en ayunas", "nota dio " + m.querySelector("#peso-nota").value);
+        assert(m.textContent.indexOf("Guardar cambios") !== -1, "debería ofrecer Guardar cambios");
+      } finally { A.closeModal(); }
+    });
+
+    test("el modal rechaza un peso inválido sin escribir nada", function(){
+      var D = frame.contentWindow.document;
+      try{
+        A.openPesoCorporalModal(null);
+        var m = D.querySelector(".modal-back .modal");
+        m.querySelector("#peso-kg").value = "0";
+        m.querySelector('[data-act="save"]').click();
+        var err = m.querySelector("#peso-error");
+        assert(err.style.display !== "none", "debería mostrarse el error");
+        assert(err.textContent.length > 0, "el error debería tener texto");
+        // Y el modal sigue abierto, sin haber llamado a la base.
+        assert(D.querySelector(".modal-back"), "el modal no debería cerrarse con un peso inválido");
+      } finally { A.closeModal(); }
+    });
+
+    test("los botones del historial abren el modal del pesaje correcto", function(){
+      var D = frame.contentWindow.document;
+      var prev = A.state.pesoCorporal, prevP = A.state.pesoChartPeriod;
+      var host = D.createElement("div");
+      try{
+        A.state.pesoCorporal = [
+          { id:"vieja", fecha:"2026-01-05", pesoKg:82,   nota:"",          createdAt:1, updatedAt:null },
+          { id:"nueva", fecha:"2026-03-01", pesoKg:78.5, nota:"la última", createdAt:3, updatedAt:null }
+        ];
+        A.state.pesoChartPeriod = "todo";
+        host.innerHTML = A.pesoCorporalBlockHtml();
+        D.body.appendChild(host);
+        A.mountPesoCorporal(host);
+        // La primera fila del historial es la más reciente.
+        host.querySelector("[data-peso-edit]").click();
+        var m = D.querySelector(".modal-back .modal");
+        assert(m, "no se abrió el modal de edición");
+        assert(m.querySelector("#peso-nota").value === "la última",
+          "abrió el pesaje equivocado, nota dio " + m.querySelector("#peso-nota").value);
+        assert(m.querySelector("#peso-kg").value === "78.5", "peso dio " + m.querySelector("#peso-kg").value);
+      } finally {
+        A.closeModal();
+        host.remove();
+        A.state.pesoCorporal = prev;
+        A.state.pesoChartPeriod = prevP;
+      }
+    });
+
+    test("los botones de período cambian el período y no tocan el historial", function(){
+      var D = frame.contentWindow.document;
+      var prev = A.state.pesoCorporal, prevP = A.state.pesoChartPeriod;
+      var host = D.createElement("div");
+      try{
+        A.state.pesoCorporal = [{ id:"a", fecha:"2026-03-01", pesoKg:78, nota:"", createdAt:1, updatedAt:null }];
+        A.state.pesoChartPeriod = "todo";
+        host.innerHTML = A.pesoCorporalBlockHtml();
+        D.body.appendChild(host);
+        A.mountPesoCorporal(host);
+        var antes = A.state.pesoCorporal.length;
+        host.querySelector('[data-peso-period="7d"]').click();
+        assert(A.state.pesoChartPeriod === "7d", "el período no cambió, dio " + A.state.pesoChartPeriod);
+        assert(A.state.pesoCorporal.length === antes, "cambiar el período no debería tocar el historial");
+      } finally {
+        host.remove();
+        A.state.pesoCorporal = prev;
+        A.state.pesoChartPeriod = prevP;
+      }
+    });
+
+    group("V40 — aislamiento: nada más cambió");
+
+    test("el peso corporal NO vive en registros ni toca su límite", function(){
+      // registros sigue siendo solo de ejercicios: su fila de escritura no
+      // conoce ninguna columna de peso corporal.
+      var row = A.Store.registroRowFor("p", { exercise:"Gemelos", peso:40, date:"2026-03-01" });
+      assert(!("peso_kg" in row) && !("fecha" in row), "registros no debería tener columnas de peso corporal");
+      assert(row.exercise === "Gemelos parado con mancuerna", "registros debería seguir canonicalizando, dio " + row.exercise);
+      assert(row.date === "2026-03-01" && row.peso === 40, "la fila de registros cambió de forma");
+    });
+
+    test("el historial de pesos de ejercicios sigue leyéndose igual", function(){
+      var r = A.Store.rowToRegistro({ id:1, exercise:"Press de banca plano", peso:60, date:"2026-03-01", created_at:5 });
+      assert(r.exercise === "Press de banca con barra", "la canonicalización de lectura cambió, dio " + r.exercise);
+      assert(r.peso === 60 && r.date === "2026-03-01", "la lectura de registros cambió de forma");
+    });
+
+    test("el peso corporal no influye en la generación de rutinas", function(){
+      var prevProfile = A.state.profile;
+      var prevRows = A.state.pesoCorporal;
+      try{
+        A.state.profile = { id:"p", edad:30, sexo:"Masculino" };
+        // Mismo perfil, dos historiales de peso corporal radicalmente
+        // distintos: el tope diario y el prime bump tienen que ser idénticos.
+        A.state.pesoCorporal = [];
+        var bumpSin = A.profileHasPrimeBump();
+        var topeSin = A.sessionCountRange(4)[1];
+        A.state.pesoCorporal = [pc("2026-01-01",50), pc("2026-03-01",140)];
+        assert(A.profileHasPrimeBump() === bumpSin, "el prime bump cambió con el peso corporal");
+        assert(A.sessionCountRange(4)[1] === topeSin, "el tope diario cambió con el peso corporal");
+        // Y el tope sigue siendo el de siempre.
+        assert(A.sessionCountRange(1)[1] === 8 && A.sessionCountRange(3)[1] === 7 && A.sessionCountRange(5)[1] === 6,
+          "el tope 8/7/6 cambió");
+        var dias = A.generateAutoRoutine(4, "Masculino", null);
+        dias.forEach(function(d){
+          assert((d.exercises||[]).length <= 7, "un día superó el tope con peso corporal cargado");
+        });
+      } finally {
+        A.state.profile = prevProfile;
+        A.state.pesoCorporal = prevRows;
+      }
+    });
+
+    test("profiles.peso_estimado dejó de usarse como peso corporal en la UI", function(){
+      // La columna no se borra y el Store la sigue soportando (no se migra
+      // nada), pero la UI ya no la ofrece como campo de peso.
+      assert(typeof A.Store.updateProfile === "function", "updateProfile debería seguir existiendo");
+      var doc = frame.contentWindow.document;
+      var html = doc.documentElement.innerHTML;
+      assert(html.indexOf('id="perfil-peso"') === -1, "el campo de Perfil sigue en el DOM");
+      assert(html.indexOf('id="auth-peso"') === -1, "el campo del alta sigue en el DOM");
+    });
+
+    test("el timer, las vueltas y el calendario siguen intactos", function(){
+      assert(typeof A.addWorkoutLap === "function" && typeof A.workoutLapRows === "function", "faltan las vueltas");
+      assert(typeof A.calendarOriginFor === "function", "falta el calendario");
+      assert(Object.keys(A.CALENDAR_ORIGIN_LABELS).length === 6, "cambiaron las etiquetas de origen del calendario");
+      assert(A.RUTINA_SLOTS.join(",") === "personalizada,automatica,enfocada", "cambiaron los slots de rutina");
+    });
+
     finish();
   }
 

@@ -388,6 +388,12 @@
   .spark-stats .lbl{ font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
   svg.spark{ flex:1; min-width:0; height:44px; width:100%; overflow:visible; }
 
+  /* V40: trío de métricas de "Mi peso" (actual / inicial / diferencia). */
+  .pesostats{ display:flex; gap:8px; text-align:center; }
+  .pesostat{ flex:1 1 0; min-width:0; }
+  .pesostat-val{ font-family:"Barlow Condensed",sans-serif; font-weight:700; font-size:26px; line-height:1.05; color:var(--text); }
+  .pesostat-val small{ font-size:13px; font-weight:600; color:var(--text-muted); }
+
   .loglist{ display:flex; flex-direction:column; gap:8px; }
   .logrow{
     display:flex; align-items:center; justify-content:space-between; gap:10px;
@@ -3426,9 +3432,83 @@
       return !error;
     }
 
+    /* ---------- V40: peso corporal ----------
+       Tabla propia (`peso_corporal`, ver supabase-migration-v40.sql). NO se
+       usa `registros`: esa tabla es el historial de pesos de EJERCICIOS, con
+       su propia canonicalización de identidad, su propio límite de lectura y
+       su propio CSV. Mezclar las dos cosas contaminaría todo eso.
+
+       `profiles.peso_estimado` ya no participa: no se lee, no se escribe y no
+       se sincroniza con esta tabla. `peso_corporal` es la única fuente de
+       verdad del peso corporal. */
+
+    // Límite de lectura propio, separado del de `registros` (300) y del de
+    // `entrenos` (200). Con un pesaje por semana, 1000 filas son ~19 años; con
+    // uno por día, casi 3. Es alto a propósito: el gráfico de "Todo" y el
+    // peso inicial necesitan el historial COMPLETO, no una ventana.
+    const PESO_CORPORAL_LIMIT = 1000;
+
+    function rowToPesoCorporal(r){
+      return {
+        id: r.id,
+        fecha: r.fecha,
+        // numeric llega como número o como string según el serializador; se
+        // normaliza acá, en el único punto de lectura.
+        pesoKg: r.peso_kg==null ? null : parseFloat(r.peso_kg),
+        nota: r.nota||"",
+        createdAt: r.created_at||0,
+        updatedAt: r.updated_at==null ? null : r.updated_at,
+      };
+    }
+
+    // Pura, para poder testear la forma de la fila sin tocar la base.
+    function pesoCorporalRowFor(pid, data){
+      return {
+        profile_id: pid,
+        fecha: data.fecha,
+        peso_kg: data.pesoKg,
+        nota: data.nota ? data.nota : null,
+        created_at: data.createdAt||Date.now(),
+      };
+    }
+
+    async function listPesoCorporal(pid){
+      // Mismo orden que el índice de la migración, y el mismo que define cuál
+      // es el "peso actual": fecha desc, y ante empate de fecha el creado
+      // más tarde primero.
+      const { data, error } = await client().from("peso_corporal").select("*").eq("profile_id", pid)
+        .order("fecha",{ascending:false}).order("created_at",{ascending:false}).limit(PESO_CORPORAL_LIMIT);
+      if(error) throw error;
+      return (data||[]).map(rowToPesoCorporal);
+    }
+
+    async function addPesoCorporal(pid, data){
+      const row = pesoCorporalRowFor(pid, data);
+      const { data: inserted, error } = await client().from("peso_corporal").insert(row).select().single();
+      return { ok: !error, id: inserted && inserted.id, error: error||null };
+    }
+
+    // `updated_at` se escribe acá y en ningún otro lado: es la marca de que
+    // esta fila fue editada después de crearse. `created_at` NUNCA se toca al
+    // editar — si se moviera, un pesaje editado podría pasar a ser "el actual"
+    // de su fecha solo por haberlo corregido.
+    async function updatePesoCorporal(pid, id, data){
+      const row = { fecha: data.fecha, peso_kg: data.pesoKg, nota: data.nota ? data.nota : null, updated_at: Date.now() };
+      const { error } = await client().from("peso_corporal").update(row).eq("id", id).eq("profile_id", pid);
+      return { ok: !error, error: error||null };
+    }
+
+    async function deletePesoCorporal(pid, id){
+      const { error } = await client().from("peso_corporal").delete().eq("id", id).eq("profile_id", pid);
+      return { ok: !error, error: error||null };
+    }
+
     return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro,
       // V34: expuestas para los tests de canonicalizacion (escritura y lectura).
-      registroRowFor, rowToRegistro, updateRegistro, deleteRegistro, listRegistros, listRegistroExerciseNames, addEntreno, listEntrenos, deleteEntreno };
+      registroRowFor, rowToRegistro, updateRegistro, deleteRegistro, listRegistros, listRegistroExerciseNames, addEntreno, listEntrenos, deleteEntreno,
+      // V40: peso corporal. rowToPesoCorporal y pesoCorporalRowFor se exponen
+      // para testear lectura y escritura sin tocar la base.
+      listPesoCorporal, addPesoCorporal, updatePesoCorporal, deletePesoCorporal, rowToPesoCorporal, pesoCorporalRowFor, PESO_CORPORAL_LIMIT };
   })();
 
   function mapAuthError(error){
@@ -3454,6 +3534,9 @@
     rutina:{days:[]},
     registros:[],
     entrenos:[],
+    pesoCorporal:[],          // V40: historial de peso corporal (tabla peso_corporal)
+    pesoCorporalError:null,   // V40: mensaje si la tabla no está disponible (migración v40 sin correr)
+    pesoChartPeriod:"30d",    // V40: período del gráfico de evolución (ver PESO_PERIODS)
     tab:"rutina",
     dayOpen:{},          // which day cards are expanded
     dayEditMode:{},      // which day cards show editar/borrar por ejercicio
@@ -3695,10 +3778,9 @@
           <div class="field"><label>Contraseña</label><input type="password" id="auth-password" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
           <div class="field-row">
             <div class="field"><label>Edad (opcional)</label><input type="number" id="auth-edad" min="10" max="99" placeholder="Ej: 22"></div>
-            <div class="field"><label>Peso aprox. (kg, opcional)</label><input type="number" id="auth-peso" min="20" max="300" step="0.5" placeholder="Ej: 75"></div>
+            <div class="field"><label>Meta semanal (opcional)</label><input type="number" id="auth-meta" min="1" max="7" placeholder="Ej: 4"></div>
           </div>
-          <div class="field"><label>Meta semanal (veces por semana, opcional)</label><input type="number" id="auth-meta" min="1" max="7" placeholder="Ej: 4"></div>
-          <p class="helptext">La edad y el peso son opcionales — nos van a servir más adelante para un asistente de IA personalizado. Podés completarlos ahora o después desde Perfil.</p>
+          <p class="helptext">La edad es opcional — nos va a servir más adelante para un asistente de IA personalizado. Podés completarla ahora o después desde Perfil. El peso corporal se registra en Registro → Mi peso.</p>
           <button class="btn btn-primary btn-block" id="btn-signup">Crear cuenta</button>
         </div>
         <p class="helptext" style="text-align:center">¿Ya tenés cuenta? <a class="linklike" id="link-login">Iniciar sesión</a></p>
@@ -3776,13 +3858,15 @@
       const email = el.querySelector("#auth-email").value.trim();
       const password = el.querySelector("#auth-password").value;
       const edad = parseInt(el.querySelector("#auth-edad").value, 10) || null;
-      const peso = parseFloat(el.querySelector("#auth-peso").value) || null;
       const meta = Math.max(1, Math.min(7, parseInt(el.querySelector("#auth-meta").value, 10) || 3));
       if(!name){ state.authError = "Ingresá tu nombre."; renderAuthScreen(); return; }
       if(!email || !password){ state.authError = "Completá correo y contraseña."; renderAuthScreen(); return; }
       if(password.length<6){ state.authError = "La contraseña tiene que tener al menos 6 caracteres."; renderAuthScreen(); return; }
       btnSignup.disabled = true; btnSignup.textContent = "Creando...";
-      const { data, error } = await Store.signUp(email, password, { name, edad, peso, metaSemanal: meta });
+      // V40: ya no se manda `peso` en la metadata del alta. ensureProfile sigue
+      // leyendo meta.peso (queda null) y la columna peso_estimado se crea en
+      // null, sin borrarse del schema. El peso corporal se carga en Registro.
+      const { data, error } = await Store.signUp(email, password, { name, edad, metaSemanal: meta });
       if(error){
         state.authError = mapAuthError(error);
         renderAuthScreen();
@@ -3854,11 +3938,24 @@
 
   async function loadProfileData(){
     if(!state.profile) return;
-    const [raw, registros, entrenos] = await Promise.all([
+    // V40: el peso corporal se pide con su propio catch, NO dentro del
+    // Promise.all "duro" de abajo. Razón: si la migración v40 todavía no se
+    // corrió, la tabla no existe y la consulta falla; un throw acá haría que
+    // loadProfileData entero reviente, lo que prende state.dbError y manda a
+    // TODA la app a la pantalla de error de conexión. La funcionalidad nueva
+    // no puede tirar abajo la que ya funciona: si no está disponible, queda
+    // en [] y el bloque "Mi peso" muestra el aviso.
+    const pesoPromise = Store.listPesoCorporal(state.profile.id)
+      .then((rows)=> ({ rows: rows||[], error: null }))
+      .catch((e)=> ({ rows: [], error: (e && e.message) ? e.message : "No se pudo leer el peso corporal." }));
+
+    const [raw, registros, entrenos, peso] = await Promise.all([
       Store.getRutina(state.profile.id),
       Store.listRegistros(state.profile.id),
       Store.listEntrenos(state.profile.id),
+      pesoPromise,
     ]);
+
     // Desde v19 se guardan DOS rutinas por cuenta ("personalizada" la que arma
     // el usuario a mano, "automatica" la última que generó el botón de rutina
     // automática) más cuál de las dos está activa en este momento. Si lo que
@@ -3896,6 +3993,9 @@
     state.rutina = slots[state.activeSlot];
     state.registros = registros || [];
     state.entrenos = entrenos || [];
+    // V40
+    state.pesoCorporal = peso.rows;
+    state.pesoCorporalError = peso.error;
     // V28: recuperar el entrenamiento en curso (si el usuario cerró la app o
     // recargó con una sesión activa sin guardar/finalizar). Se guarda dentro
     // del mismo blob `rutinas.data` (ver persistRutina) para no crear una
@@ -6768,6 +6868,329 @@
     doc.save(fname);
   }
 
+  /* ================= V40: MI PESO (peso corporal) =================
+     Todo lo de abajo es peso CORPORAL. No comparte nada con el historial de
+     pesos de ejercicios (`registros`): ni tabla, ni límite de lectura, ni
+     gráfico, ni CSV. La única cosa que comparten es la pantalla donde viven.
+
+     El peso corporal NO vuelve a influir en la generación de rutinas: ninguna
+     de estas funciones es llamada por el generador, por las series, por los
+     descansos ni por el tope diario. `profileHasPrimeBump` sigue siendo solo
+     edad (desde V34). */
+
+  const PESO_PERIODS = [
+    { key:"7d",   label:"7 días",  dias:7 },
+    { key:"30d",  label:"30 días", dias:30 },
+    { key:"3m",   label:"3 meses", dias:90 },
+    { key:"1a",   label:"1 año",   dias:365 },
+    { key:"todo", label:"Todo",    dias:null },
+  ];
+
+  // Orden canónico, el mismo del índice de la migración v40: fecha desc y,
+  // ante empate de fecha, el creado más tarde primero. Es LA definición de
+  // "cuál es el peso actual" — por eso vive en una sola función y todo lo
+  // demás la usa, en vez de repetir el comparador.
+  function pesoCorporalSorted(rows){
+    return (rows||[]).slice().sort((a,b)=>
+      a.fecha===b.fecha ? (b.createdAt||0)-(a.createdAt||0) : (a.fecha<b.fecha ? 1 : -1)
+    );
+  }
+
+  // El mismo criterio al revés. No es sorted().reverse() por un detalle que
+  // importa: invertir el desc dejaría, dentro de un mismo día, el pesaje más
+  // viejo al final. Acá el más viejo va primero, que es lo que el gráfico y el
+  // "peso inicial" necesitan.
+  function pesoCorporalAsc(rows){
+    return (rows||[]).slice().sort((a,b)=>
+      a.fecha===b.fecha ? (a.createdAt||0)-(b.createdAt||0) : (a.fecha<b.fecha ? -1 : 1)
+    );
+  }
+
+  // Resumen de arriba del bloque: peso actual, peso inicial y diferencia.
+  // La diferencia se calcula sobre el historial COMPLETO, no sobre el período
+  // del gráfico: "cuánto cambié desde que empecé" no depende de qué ventana
+  // esté mirando el gráfico en ese momento.
+  function pesoResumen(rows){
+    const desc = pesoCorporalSorted(rows);
+    if(desc.length===0) return null;
+    const actual = desc[0];
+    const inicial = pesoCorporalAsc(rows)[0];
+    return {
+      actual, inicial,
+      // Con un solo registro, actual e inicial son la MISMA fila y la
+      // diferencia es 0 — no es un caso especial, sale solo.
+      diff: +(actual.pesoKg - inicial.pesoKg).toFixed(1),
+      unico: desc.length===1,
+    };
+  }
+
+  function dateMinusDays(ymdStr, dias){
+    const p = String(ymdStr||"").split("-").map(n=>parseInt(n,10));
+    if(p.length!==3 || p.some(isNaN)) return ymdStr;
+    const d = new Date(p[0], p[1]-1, p[2]);
+    d.setDate(d.getDate() - dias);
+    return ymd(d);
+  }
+
+  // Ventana EXACTA e inclusiva: "7 días" son 7 fechas contando hoy, así que el
+  // corte es hoy-6, no hoy-7. "Todo" no filtra nada.
+  // `hoy` es parámetro (no todayStr() adentro) para poder testear períodos con
+  // fechas fijas.
+  function pesoCorporalEnPeriodo(rows, periodKey, hoy){
+    const per = PESO_PERIODS.find(p=>p.key===periodKey) || PESO_PERIODS[PESO_PERIODS.length-1];
+    if(per.dias==null) return pesoCorporalAsc(rows);
+    const desde = dateMinusDays(hoy||todayStr(), per.dias-1);
+    return pesoCorporalAsc(rows).filter(r=> r.fecha >= desde);
+  }
+
+  // Valida lo que escribió el usuario contra el MISMO rango que el CHECK de la
+  // base (0 < peso <= 500) y a un decimal, que es la precisión de numeric(5,1).
+  // Si el cliente dejara pasar algo fuera de rango, el insert fallaría del lado
+  // del servidor: mejor avisarlo acá con un mensaje entendible.
+  function validarPesoKg(raw){
+    const v = parseFloat(String(raw==null?"":raw).replace(",", "."));
+    if(!isFinite(v)) return { ok:false, error:"Escribí un peso." };
+    if(v<=0) return { ok:false, error:"El peso tiene que ser mayor que 0." };
+    if(v>500) return { ok:false, error:"El peso no puede pasar de 500 kg." };
+    return { ok:true, value:+v.toFixed(1) };
+  }
+
+  function fmtPesoKg(n){
+    if(n==null || !isFinite(n)) return "-";
+    return (Math.round(n*10)/10).toFixed(1).replace(/\.0$/, "");
+  }
+
+  function fmtPesoDiff(d){
+    if(d==null || !isFinite(d)) return "-";
+    if(Math.abs(d) < 0.05) return "0 kg";
+    return (d>0 ? "+" : "-") + fmtPesoKg(Math.abs(d)) + " kg";
+  }
+
+  // Gráfico de evolución. Un punto por PESAJE, no por semana: a diferencia del
+  // peso de un ejercicio (donde interesa el máximo semanal, ver
+  // exerciseWeeklyMax), el peso corporal es una medición directa y agregarla
+  // por semana escondería justamente lo que se quiere ver.
+  // Reusa el mismo SVG inline y las clases .exchart que ya existen — no se
+  // agrega ninguna librería.
+  function pesoLineChart(rowsAsc, periodLabel){
+    const w = 300, h = 140, padX = 10, padY = 18;
+    const vals = rowsAsc.map(r=> r.pesoKg);
+    const max = Math.max(...vals);
+    const min = Math.min(...vals);
+    const range = (max-min)||1;
+    const pts = vals.map((val,i)=>{
+      const x = vals.length===1 ? w/2 : (i/(vals.length-1))*(w-padX*2)+padX;
+      const y = h - padY - ((val-min)/range)*(h-padY*2);
+      return [x,y];
+    });
+    const path = pts.map((p,i)=> (i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+    const first = rowsAsc[0], last = rowsAsc[rowsAsc.length-1];
+    return `
+      <div class="exchart-wrap">
+        <svg class="exchart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+          <line x1="0" y1="${h-padY}" x2="${w}" y2="${h-padY}" stroke="var(--border)" stroke-width="1"/>
+          <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          ${pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="var(--accent)"/>`).join("")}
+        </svg>
+        <div class="row between"><span class="helptext">${esc(fmtDate(first.fecha))}</span><span class="helptext">${esc(fmtDate(last.fecha))}</span></div>
+        <div class="row between" style="margin-top:8px">
+          <div><div class="num" style="font-weight:700; font-size:16px">${fmtPesoKg(min)} kg</div><div class="helptext">Mínimo</div></div>
+          <div style="text-align:right"><div class="num" style="font-weight:700; font-size:16px">${fmtPesoKg(max)} kg</div><div class="helptext">Máximo</div></div>
+        </div>
+        <div class="helptext" style="text-align:center; margin-top:6px">${rowsAsc.length} pesaje${rowsAsc.length===1?"":"s"} · ${esc(periodLabel||"")}</div>
+      </div>
+    `;
+  }
+
+  // Bloque "Mi peso" dentro de la pantalla Registro. Devuelve HTML; los
+  // handlers se enganchan en mountPesoCorporal (llamado desde mountRegistro).
+  function pesoCorporalBlockHtml(){
+    const rows = state.pesoCorporal || [];
+    const resumen = pesoResumen(rows);
+
+    // La tabla puede no existir todavía (migración v40 sin correr). No es un
+    // error del usuario ni un bug: se dice qué falta y no se rompe nada.
+    const avisoTabla = state.pesoCorporalError ? `
+      <div class="banner">${icon("info")}<div>
+        <b>El peso corporal no está disponible todavía.</b>
+        <div class="helptext" style="margin-top:2px">Falta ejecutar la migración supabase-migration-v40.sql en Supabase. El resto de la app funciona normalmente.</div>
+      </div></div>
+    ` : "";
+
+    if(state.pesoCorporalError || !resumen){
+      return `
+        <div class="section-title"><h2>Mi peso</h2></div>
+        ${avisoTabla}
+        <div class="card">
+          <div class="empty">
+            ${icon("log")}
+            <h3>Empezá a registrar tu progreso</h3>
+            <p>Tu primer peso será el punto de partida para medir tu evolución.</p>
+            <button class="btn btn-primary" id="btn-peso-nuevo" ${state.pesoCorporalError?"disabled":""}>${icon("plus")} Registrar peso</button>
+          </div>
+        </div>
+      `;
+    }
+
+    const periodKey = PESO_PERIODS.some(p=>p.key===state.pesoChartPeriod) ? state.pesoChartPeriod : "30d";
+    const per = PESO_PERIODS.find(p=>p.key===periodKey);
+    const enPeriodo = pesoCorporalEnPeriodo(rows, periodKey, todayStr());
+    const desc = pesoCorporalSorted(rows);
+
+    const chart = enPeriodo.length===0
+      ? `<p class="helptext" style="text-align:center; padding:18px 0">Sin pesajes en este período.</p>`
+      : pesoLineChart(enPeriodo, per.label);
+
+    const diffColor = resumen.diff > 0 ? "var(--danger)" : (resumen.diff < 0 ? "var(--success)" : "var(--text-muted)");
+
+    return `
+      <div class="section-title"><h2>Mi peso</h2><span class="muted">${desc.length} pesaje${desc.length===1?"":"s"}</span></div>
+      <div class="card stack">
+        <div class="pesostats">
+          <div class="pesostat">
+            <div class="num pesostat-val">${fmtPesoKg(resumen.actual.pesoKg)}<small> kg</small></div>
+            <div class="helptext">Actual · ${esc(fmtDate(resumen.actual.fecha))}</div>
+          </div>
+          <div class="pesostat">
+            <div class="num pesostat-val">${fmtPesoKg(resumen.inicial.pesoKg)}<small> kg</small></div>
+            <div class="helptext">Inicial · ${esc(fmtDate(resumen.inicial.fecha))}</div>
+          </div>
+          <div class="pesostat">
+            <div class="num pesostat-val" style="color:${diffColor}">${fmtPesoDiff(resumen.diff)}</div>
+            <div class="helptext">${resumen.unico ? "Primer pesaje" : "Diferencia"}</div>
+          </div>
+        </div>
+        <div class="segmented" id="peso-period-seg">
+          ${PESO_PERIODS.map(p=>`<button data-peso-period="${p.key}" class="${p.key===periodKey?"active":""}">${esc(p.label)}</button>`).join("")}
+        </div>
+        ${chart}
+        <button class="btn btn-primary btn-block" id="btn-peso-nuevo">${icon("plus")} Registrar peso</button>
+      </div>
+
+      <div class="section-title"><h2>Historial de peso</h2></div>
+      <div class="loglist">
+        ${desc.map(r=>`
+          <div class="logrow">
+            <div>
+              <div class="lex">${esc(fmtDate(r.fecha))}</div>
+              <div class="ldate">${r.nota ? esc(r.nota) : (r.updatedAt ? "editado" : "&#8201;")}</div>
+            </div>
+            <div class="row" style="gap:8px">
+              <div class="lval num">${fmtPesoKg(r.pesoKg)} kg</div>
+              <button class="iconbtn" data-peso-edit="${esc(r.id)}" title="Editar" aria-label="Editar pesaje">${icon("edit")}</button>
+              <button class="iconbtn danger" data-peso-del="${esc(r.id)}" title="Eliminar" aria-label="Eliminar pesaje">${icon("trash")}</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  // Alta y edición comparten el mismo modal: la única diferencia es si se
+  // recibe una fila existente.
+  function openPesoCorporalModal(existing){
+    const esEdicion = !!existing;
+    const m = openModal(`
+      <h3>${esEdicion ? "Editar pesaje" : "Registrar peso"}</h3>
+      <div class="stack" style="margin-top:4px">
+        <div class="field-row">
+          <div class="field">
+            <label>Fecha</label>
+            <input type="date" id="peso-fecha" value="${esc(esEdicion ? existing.fecha : todayStr())}" max="${todayStr()}">
+          </div>
+          <div class="field">
+            <label>Peso (kg)</label>
+            <input type="number" id="peso-kg" step="0.1" min="0" max="500" placeholder="Ej: 78.5" value="${esEdicion ? esc(fmtPesoKg(existing.pesoKg)) : ""}">
+          </div>
+        </div>
+        <div class="field">
+          <label>Nota (opcional)</label>
+          <input type="text" id="peso-nota" maxlength="80" placeholder="Ej: en ayunas" value="${esEdicion ? esc(existing.nota||"") : ""}">
+        </div>
+        <p class="helptext" id="peso-error" style="color:var(--danger); display:none"></p>
+        <p class="helptext">Podés cargar una fecha anterior. Si registrás dos veces el mismo día, el último queda como peso actual.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="save">${esEdicion ? "Guardar cambios" : "Registrar"}</button>
+      </div>
+    `);
+
+    const errEl = m.querySelector("#peso-error");
+    const showErr = (msg)=>{ errEl.textContent = msg; errEl.style.display = ""; };
+
+    m.querySelector('[data-act="cancel"]').onclick = ()=> closeModal();
+    const saveBtn = m.querySelector('[data-act="save"]');
+    saveBtn.onclick = async ()=>{
+      const fecha = m.querySelector("#peso-fecha").value;
+      const v = validarPesoKg(m.querySelector("#peso-kg").value);
+      const nota = m.querySelector("#peso-nota").value.trim();
+      if(!fecha){ showErr("Elegí una fecha."); return; }
+      if(!v.ok){ showErr(v.error); return; }
+      saveBtn.disabled = true;
+      const payload = { fecha, pesoKg: v.value, nota, createdAt: Date.now() };
+      const res = esEdicion
+        ? await Store.updatePesoCorporal(state.profile.id, existing.id, payload)
+        : await Store.addPesoCorporal(state.profile.id, payload);
+      if(!res.ok){
+        saveBtn.disabled = false;
+        showErr("No se pudo guardar. " + ((res.error && res.error.message) || ""));
+        return;
+      }
+      await reloadPesoCorporal();
+      closeModal();
+      showToast(esEdicion ? "Pesaje actualizado" : "Peso registrado");
+      renderScreen();
+    };
+    const kg = m.querySelector("#peso-kg");
+    if(kg) kg.focus();
+  }
+
+  // Relee el historial después de escribir. Mismo catch que loadProfileData:
+  // una escritura que funcionó pero una relectura que falla no debe mandar la
+  // app a la pantalla de error.
+  async function reloadPesoCorporal(){
+    try{
+      state.pesoCorporal = await Store.listPesoCorporal(state.profile.id);
+      state.pesoCorporalError = null;
+    }catch(e){
+      state.pesoCorporalError = (e && e.message) ? e.message : "No se pudo leer el peso corporal.";
+    }
+  }
+
+  function mountPesoCorporal(el){
+    const nuevo = el.querySelector("#btn-peso-nuevo");
+    if(nuevo && !nuevo.disabled) nuevo.onclick = ()=> openPesoCorporalModal(null);
+
+    el.querySelectorAll("[data-peso-period]").forEach(btn=>{
+      btn.onclick = ()=>{ state.pesoChartPeriod = btn.dataset.pesoPeriod; renderScreen(); };
+    });
+
+    const byId = (id)=> (state.pesoCorporal||[]).find(r=> String(r.id)===String(id)) || null;
+
+    el.querySelectorAll("[data-peso-edit]").forEach(btn=>{
+      btn.onclick = ()=>{
+        const row = byId(btn.dataset.pesoEdit);
+        if(row) openPesoCorporalModal(row);
+      };
+    });
+
+    el.querySelectorAll("[data-peso-del]").forEach(btn=>{
+      btn.onclick = async ()=>{
+        const row = byId(btn.dataset.pesoDel);
+        if(!row) return;
+        const ok = await confirmDialog("Eliminar pesaje",
+          "¿Eliminar el pesaje de " + fmtDate(row.fecha) + " (" + fmtPesoKg(row.pesoKg) + " kg)?");
+        if(!ok) return;
+        const res = await Store.deletePesoCorporal(state.profile.id, row.id);
+        if(!res.ok){ showToast("No se pudo eliminar"); return; }
+        await reloadPesoCorporal();
+        showToast("Pesaje eliminado");
+        renderScreen();
+      };
+    });
+  }
+
   function screenRegistro(){
     const names = allExerciseNames();
     const sel = state.exerciseSelForm && (names.includes(state.exerciseSelForm) || state.exerciseSelForm==="__otro__")
@@ -6781,7 +7204,9 @@
     const spark = forExercise ? sparklineFor(historyForSel) : "";
 
     return `
-      <div class="section-title"><h2>Registrar peso</h2></div>
+      ${pesoCorporalBlockHtml()}
+
+      <div class="section-title"><h2>Registrar peso de ejercicio</h2></div>
       <div class="card stack">
         <div class="field">
           <label>Ejercicio</label>
@@ -6903,7 +7328,7 @@
           </div>`;
         }
         return `
-          <div class="section-title"><h2>Historial</h2><span class="muted">${filtered.length} registro${filtered.length===1?"":"s"}</span></div>
+          <div class="section-title"><h2>Historial de ejercicios</h2><span class="muted">${filtered.length} registro${filtered.length===1?"":"s"}</span></div>
           <div class="card stack">
             <div class="field">
               <label>Filtrar por ejercicio</label>
@@ -6964,6 +7389,11 @@
 
   function mountRegistro(){
     const el = document.getElementById("screen");
+
+    // V40: el bloque "Mi peso" vive en esta pantalla pero es independiente —
+    // sus handlers no tocan nada del formulario de peso de ejercicios.
+    mountPesoCorporal(el);
+
     const selEx = el.querySelector("#reg-exercise");
     selEx.onchange = ()=>{
       state.exerciseSelForm = selEx.value;
@@ -7548,17 +7978,16 @@
           <label>Meta semanal (veces por semana)</label>
           <input type="number" id="meta-semanal" min="1" max="7" value="${state.profile.metaSemanal||3}">
         </div>
-        <div class="field-row">
-          <div class="field">
-            <label>Edad</label>
-            <input type="number" id="perfil-edad" min="10" max="99" placeholder="Opcional" value="${state.profile.edad||""}">
-          </div>
-          <div class="field">
-            <label>Peso aprox. (kg)</label>
-            <input type="number" id="perfil-peso" min="20" max="300" step="0.5" placeholder="Opcional" value="${state.profile.peso||""}">
-          </div>
+        <div class="field">
+          <label>Edad</label>
+          <input type="number" id="perfil-edad" min="10" max="99" placeholder="Opcional" value="${state.profile.edad||""}">
         </div>
-        <p class="helptext">La edad y el peso son opcionales — van a servir para el futuro asistente de IA personalizado.</p>
+        <!-- V40: el campo "Peso aprox. (kg)" se retiró de acá. El peso corporal
+             ahora se registra con fecha e historial en Registro → "Mi peso"
+             (tabla peso_corporal). La columna profiles.peso_estimado NO se borró de
+             Supabase y NO se migra: simplemente dejó de usarse en la UI, y no
+             hay sincronización ni cache entre los dos. -->
+        <p class="helptext">La edad es opcional — va a servir para el futuro asistente de IA personalizado. Tu peso corporal se registra en <b>Registro → Mi peso</b>.</p>
       </div>
 
       <div class="section-title" style="margin-top:6px"><h2>Acerca de VodaFit</h2></div>
@@ -7606,12 +8035,6 @@
       const v = edadInput.value ? parseInt(edadInput.value,10) : null;
       state.profile.edad = v;
       await Store.updateProfile(state.profile.id, { edad: v });
-    };
-    const pesoInput = el.querySelector("#perfil-peso");
-    pesoInput.onchange = async ()=>{
-      const v = pesoInput.value ? parseFloat(pesoInput.value) : null;
-      state.profile.peso = v;
-      await Store.updateProfile(state.profile.id, { peso: v });
     };
     const diagBtn = el.querySelector("#btn-ex-diagnostics");
     if(diagBtn) diagBtn.onclick = ()=> openExerciseDiagnosticsModal();
@@ -7732,6 +8155,11 @@
     exerciseWeeklyMax, sessionProgress, sessionDay, reorderDayExercisesByGroup,
     // v37 — vueltas del cronómetro de entrenamiento
     workoutClock, addWorkoutLap, clearWorkoutLaps, workoutLapRows, workoutLapsBlockHtml,
+    // V40: Mi peso. Todo lo expuesto acá es puro (no toca la base) salvo
+    // pesoCorporalBlockHtml, que solo lee state.
+    PESO_PERIODS, pesoCorporalSorted, pesoCorporalAsc, pesoResumen, pesoCorporalEnPeriodo,
+    dateMinusDays, validarPesoKg, fmtPesoKg, fmtPesoDiff, pesoLineChart, pesoCorporalBlockHtml,
+    openPesoCorporalModal, mountPesoCorporal, closeModal,
     currentWorkoutElapsed, fmtElapsed, workoutClockHtml, persistWorkoutClock,
     // v30
     calendarOriginFor, calendarOriginsFor, CALENDAR_ORIGIN_LABELS,
