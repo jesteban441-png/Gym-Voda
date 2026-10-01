@@ -3373,9 +3373,29 @@
       return !error;
     }
 
+    /* ---------- V41: ventanas de lectura del historial ----------
+       Antes estos dos números estaban escritos a mano dentro de su consulta
+       (300 en registros, 200 en entrenos). El problema no era el valor sino
+       que cualquier métrica calculada sobre lo cargado quedaba silenciosamente
+       acotada a esa ventana: un "récord personal" era en realidad el máximo de
+       los últimos 300 registros, y un total de entrenamientos se tapaba en 200
+       sin avisar. La auditoría previa al dashboard de Perfil lo detectó.
+
+       Ahora son constantes con nombre, exportadas, para que un test pueda
+       fijar el valor en vez de confiar en que nadie lo cambie de nuevo.
+       Quedan las tres fuentes en 1000, el mismo valor que ya usaba
+       peso_corporal desde V40.
+
+       NO es paginación ni son consultas agregadas: es solo una ventana más
+       grande. Si el historial de alguien supera las 1000 filas, el recorte
+       vuelve a existir — ese caso se resuelve cuando aparezca, con paginación
+       o con count/max del lado del servidor. */
+    const REGISTROS_LIMIT = 1000;
+    const ENTRENOS_LIMIT = 1000;
+
     async function listRegistros(pid){
       const { data, error } = await client().from("registros").select("*").eq("profile_id", pid)
-        .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(300);
+        .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(REGISTROS_LIMIT);
       if(error) throw error;
       return (data||[]).map(rowToRegistro);
     }
@@ -3385,9 +3405,10 @@
     // para el diagnóstico de identidad: lo que hay que ver ahí es exactamente
     // lo que está guardado en la base, no la versión ya resuelta.
     //
-    // No reusa listRegistros porque esa tiene `limit(300)` para la pantalla de
-    // Registro, y el diagnóstico necesita mirar TODO el historial. Trae una
-    // sola columna, así el costo de pedir más filas es bajo.
+    // No reusa listRegistros porque esa tiene su propia ventana de lectura
+    // (REGISTROS_LIMIT) para la pantalla de Registro, y el diagnóstico necesita
+    // mirar TODO el historial. Trae una sola columna, así el costo de pedir más
+    // filas es bajo. V41: este límite de 5000 queda como estaba, a propósito.
     async function listRegistroExerciseNames(pid){
       const { data, error } = await client().from("registros").select("exercise").eq("profile_id", pid).limit(5000);
       if(error) throw error;
@@ -3422,7 +3443,7 @@
 
     async function listEntrenos(pid){
       const { data, error } = await client().from("entrenos").select("*").eq("profile_id", pid)
-        .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(200);
+        .order("date",{ascending:false}).order("created_at",{ascending:false}).limit(ENTRENOS_LIMIT);
       if(error) throw error;
       return (data||[]).map(rowToEntreno);
     }
@@ -3508,7 +3529,9 @@
       registroRowFor, rowToRegistro, updateRegistro, deleteRegistro, listRegistros, listRegistroExerciseNames, addEntreno, listEntrenos, deleteEntreno,
       // V40: peso corporal. rowToPesoCorporal y pesoCorporalRowFor se exponen
       // para testear lectura y escritura sin tocar la base.
-      listPesoCorporal, addPesoCorporal, updatePesoCorporal, deletePesoCorporal, rowToPesoCorporal, pesoCorporalRowFor, PESO_CORPORAL_LIMIT };
+      listPesoCorporal, addPesoCorporal, updatePesoCorporal, deletePesoCorporal, rowToPesoCorporal, pesoCorporalRowFor, PESO_CORPORAL_LIMIT,
+      // V41: expuestas para que los tests fijen la ventana de lectura.
+      REGISTROS_LIMIT, ENTRENOS_LIMIT };
   })();
 
   function mapAuthError(error){

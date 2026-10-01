@@ -3627,6 +3627,108 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(A.RUTINA_SLOTS.join(",") === "personalizada,automatica,enfocada", "cambiaron los slots de rutina");
     });
 
+    /* ---------------- V41 — VENTANA DE LECTURA DEL HISTORIAL ----------------
+       Los límites dejaron de estar escritos a mano dentro de cada consulta y
+       pasaron a ser constantes exportadas, justamente para que estos tests
+       puedan fijar el valor. */
+
+    group("V41 — ventana de lectura del historial");
+
+    test("registros lee con límite 1000", function(){
+      assert(A.Store.REGISTROS_LIMIT === 1000, "dio " + A.Store.REGISTROS_LIMIT);
+    });
+
+    test("entrenos lee con límite 1000", function(){
+      assert(A.Store.ENTRENOS_LIMIT === 1000, "dio " + A.Store.ENTRENOS_LIMIT);
+    });
+
+    test("peso_corporal sigue en 1000", function(){
+      assert(A.Store.PESO_CORPORAL_LIMIT === 1000, "dio " + A.Store.PESO_CORPORAL_LIMIT);
+    });
+
+    test("las tres ventanas quedaron alineadas", function(){
+      var l = [A.Store.REGISTROS_LIMIT, A.Store.ENTRENOS_LIMIT, A.Store.PESO_CORPORAL_LIMIT];
+      assert(l[0] === l[1] && l[1] === l[2], "deberían ser iguales, dieron " + l.join("/"));
+      // Y son MÁS GRANDES que los valores viejos: es el punto del cambio.
+      assert(A.Store.REGISTROS_LIMIT > 300, "registros debería superar el viejo 300");
+      assert(A.Store.ENTRENOS_LIMIT > 200, "entrenos debería superar el viejo 200");
+    });
+
+    test("los límites son enteros positivos, no cadenas", function(){
+      ["REGISTROS_LIMIT","ENTRENOS_LIMIT","PESO_CORPORAL_LIMIT"].forEach(function(k){
+        var v = A.Store[k];
+        assert(typeof v === "number" && isFinite(v) && v > 0 && v === Math.floor(v),
+          k + " debería ser un entero positivo, dio " + JSON.stringify(v));
+      });
+    });
+
+    test("el diagnóstico de identidad NO cambió su propia ventana de 5000", function(){
+      // listRegistroExerciseNames mira TODO el historial con una sola columna;
+      // su límite es aparte y V41 no lo tocó. Se comprueba contra el fuente
+      // porque es un valor interno de esa consulta, no una constante expuesta.
+      var src = frame.contentWindow.document.documentElement.innerHTML;
+      assert(/from\("registros"\)\.select\("exercise"\)\.eq\("profile_id", pid\)\.limit\(5000\)/.test(src),
+        "cambió el límite del diagnóstico de identidad");
+    });
+
+    test("no quedó ningún límite viejo escrito a mano en las lecturas", function(){
+      var src = frame.contentWindow.document.documentElement.innerHTML;
+      assert(src.indexOf(".limit(300)") === -1, "sigue habiendo un limit(300)");
+      assert(src.indexOf(".limit(200)") === -1, "sigue habiendo un limit(200)");
+    });
+
+    test("las funciones de lectura siguen existiendo y devolviendo promesas", function(){
+      ["listRegistros","listEntrenos","listPesoCorporal","listRegistroExerciseNames"].forEach(function(f){
+        assert(typeof A.Store[f] === "function", "falta Store." + f);
+      });
+    });
+
+    test("las funciones de lectura no cambiaron de forma", function(){
+      // Lo que importa no es el límite sino que el mapeo de filas siga igual:
+      // es lo que consume toda la app.
+      var reg = A.Store.rowToRegistro({ id:1, exercise:"Gemelos", peso:40, date:"2026-03-01", created_at:7 });
+      assert(reg.exercise === "Gemelos parado con mancuerna", "registros dejó de canonicalizar, dio " + reg.exercise);
+      assert(reg.peso === 40 && reg.date === "2026-03-01" && reg.createdAt === 7, "cambió la forma de registros");
+      var pc = A.Store.rowToPesoCorporal({ id:"x", fecha:"2026-03-01", peso_kg:"78.5", nota:null, created_at:9, updated_at:null });
+      assert(pc.pesoKg === 78.5 && pc.nota === "" && pc.updatedAt === null, "cambió la forma de peso_corporal");
+    });
+
+    test("la carga general sigue en pie: state tiene las cuatro fuentes", function(){
+      ["registros","entrenos","pesoCorporal","rutina"].forEach(function(k){
+        assert(k in A.state, "falta state." + k);
+      });
+      assert(Array.isArray(A.state.registros), "state.registros debería ser un arreglo");
+      assert(Array.isArray(A.state.entrenos), "state.entrenos debería ser un arreglo");
+      assert(Array.isArray(A.state.pesoCorporal), "state.pesoCorporal debería ser un arreglo");
+    });
+
+    test("las métricas que leen el historial no se rompen con el arreglo vacío", function(){
+      // No se puede probar un historial de 1000 filas sin base, pero sí que
+      // las funciones que van a consumir la ventana más grande siguen siendo
+      // puras y tolerantes.
+      var r = A.computeRacha([], 3);
+      assert(r.goal === 3 && r.thisWeekCount === 0 && r.streak === 0, "computeRacha con [] dio " + JSON.stringify(r));
+      assert(A.pesoResumen([]) === null, "pesoResumen con [] debería ser null");
+      assert(A.filterHistory([]).length === 0, "filterHistory con [] debería dar []");
+    });
+
+    test("computeRacha aguanta un historial grande sin perder cuentas", function(){
+      // 1000 entrenamientos sintéticos, uno por día hacia atrás: la ventana
+      // nueva permite justo este volumen, así que conviene saber que la
+      // función que lo consume no se degrada ni devuelve NaN.
+      var ents = [];
+      var d = new Date();
+      for(var i=0;i<1000;i++){
+        var dd = new Date(d.getFullYear(), d.getMonth(), d.getDate()-i);
+        ents.push({ date: dd.getFullYear()+"-"+String(dd.getMonth()+1).padStart(2,"0")+"-"+String(dd.getDate()).padStart(2,"0") });
+      }
+      var r = A.computeRacha(ents, 3);
+      assert(isFinite(r.thisWeekCount) && r.thisWeekCount > 0, "thisWeekCount dio " + r.thisWeekCount);
+      assert(isFinite(r.streak) && r.streak > 0, "streak dio " + r.streak);
+      // El tope de seguridad de la función (104 semanas) sigue conteniendo el bucle.
+      assert(r.streak <= 104, "la racha no debería pasar de 104, dio " + r.streak);
+    });
+
     finish();
   }
 
