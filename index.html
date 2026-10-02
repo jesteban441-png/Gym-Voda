@@ -392,6 +392,19 @@
      los colores de origen del calendario (.cal-origin-bar/.cal-legend-dot),
      así que agrega lo mínimo: la fila de identidad, la barra apilada de
      origen y una fila de etiqueta+número. */
+  /* V43: Mapa muscular. Reusa .anat-fig (las dos siluetas), .logrow,
+     .pesostats y .segmented; agrega solo la caja del cuerpo, la barra de
+     escala y el punto de color de cada fila. */
+  .mapa-body{ max-width:340px; margin:0 auto; }
+  .mapa-body .anat-fig{ gap:6px; }
+  .mapa-escala{ margin-top:10px; }
+  .mapa-escala-barra{ display:flex; gap:2px; height:8px; border-radius:999px; overflow:hidden; }
+  .mapa-escala-barra > span{ flex:1 1 0; }
+  .mapa-escala-lbl{ display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-top:4px; }
+  .mapa-dot{ width:10px; height:10px; border-radius:50%; flex:none; }
+  .mapa-fila{ cursor:pointer; }
+  .mapa-fila:active{ transform:scale(.99); }
+
   .perfil-id{ display:flex; align-items:center; gap:12px; }
   /* El Resumen es el titular de la pantalla: sus tres números van por encima
      del resto. No se baja .racha-count porque esa tarjeta es compartida con
@@ -3588,6 +3601,11 @@
     perfilPesoPeriod:"30d",
     perfilScrollY:null,        // V42: scroll de Perfil, para restaurarlo al volver
     perfilScrollPending:false,
+    // V43: Mapa muscular. Pantalla propia (no es una pestaña de la barra),
+    // con su período y su sector seleccionado. Claves aparte: no comparten
+    // nada con los períodos de Registro ni de Perfil.
+    mapaPeriodo:"30d",
+    mapaRegion:null,
     tab:"rutina",
     dayOpen:{},          // which day cards are expanded
     dayEditMode:{},      // which day cards show editar/borrar por ejercicio
@@ -3737,6 +3755,14 @@
 
     if(state.tab==="exdetail" && state.exDetail){
       renderExerciseDetail();
+      return;
+    }
+
+    // V43: el Mapa muscular es una pantalla a pantalla completa con su propia
+    // topbar, igual que el explorador y la ficha de ejercicio. No se agrega a
+    // la barra inferior (ya tiene 5 botones); se entra desde Perfil.
+    if(state.tab==="mapa"){
+      renderMuscleMap();
       return;
     }
 
@@ -8036,6 +8062,538 @@
     sec("AMBIGUAS", diag.ambiguas, it=> `${it.nombre}  (clave: ${it.key})  [${it.count}]`);
     return L.join("\n");
   }
+  /* ================= V43: MAPA MUSCULAR =================
+     Mide actividad muscular REGISTRADA por sector anatómico, en una ventana
+     móvil de 7 / 30 / 90 días.
+
+     Fuente única: `registros`. `entrenos` NO se usa para reconstruir qué
+     ejercicios se hicieron — no guarda la lista, y los caminos por day_id,
+     day_nombre, rutinas.data o sesionActiva se descartaron en la auditoría
+     previa porque no son fiables (los ids de día se regeneran y day_nombre es
+     texto libre). Consecuencia asumida y dicha en pantalla: el mapa muestra lo
+     que el usuario REGISTRÓ, no todo lo que entrenó.
+
+     Capa propia sobre MUSCLE_MAP. No lo modifica, y no toca REGION_SUBGROUP ni
+     LEG_FOCUS_TO_SUBGROUP10: el mapa trabaja con las 26 REGIONES anatómicas
+     directamente, sin volver a agruparlas en los 10/11 subgrupos. Pecho
+     superior, medio e inferior son tres sectores independientes con su propio
+     puntaje y su propio color. */
+
+  const MAPA_PERIODS = [
+    { key:"7d",  label:"7 días",  dias:7  },
+    { key:"30d", label:"30 días", dias:30 },
+    { key:"90d", label:"90 días", dias:90 },
+  ];
+
+  // Las 26 regiones anatómicas, en el orden en que se listan abajo del mapa.
+  // Sale de REGION_VIEW (tabla derivada que ya existía), así que no hay una
+  // segunda lista de regiones que mantener sincronizada.
+  const MAPA_REGIONS = Object.keys(REGION_VIEW);
+
+  // Escala visual: 5 puntos/semana es el tope del color. El valor interno NO se
+  // trunca; solo la representación.
+  const MAPA_VISUAL_MAX = 5;
+  // Piso visual para que un sector con actividad mínima (0,25 puntos) se
+  // distinga de uno sin actividad. Sin esto, 0,25/5 = 5% de mezcla con el
+  // acento queda indistinguible del músculo apagado, y el resumen diría
+  // "Músculos entrenados: 9" con nueve sectores que se ven en gris.
+  // El cero sigue siendo cero: regionFillCss(0) devuelve var(--muscle-off).
+  const MAPA_VISUAL_FLOOR = 0.12;
+
+  // Escalera de puntos por sector y por día, según cuántos ejercicios DISTINTOS
+  // de ese día involucran al sector. Índice 0 = primer ejercicio.
+  const MAPA_PUNTOS_PRINCIPAL = [1, 0.5, 0.25];
+  const MAPA_PUNTOS_SECUNDARIO = [0.5, 0.25, 0.25];
+  // Del tercer ejercicio en adelante el valor se mantiene (0,25 es el mínimo).
+  function mapaPuntos(rol, indiceEnElDia){
+    const tabla = rol==="principal" ? MAPA_PUNTOS_PRINCIPAL : MAPA_PUNTOS_SECUNDARIO;
+    return tabla[Math.min(indiceEnElDia, tabla.length-1)];
+  }
+
+  // Peso de las series según el rol del sector en ese ejercicio.
+  const MAPA_SERIES_PESO = { principal: 1, secundaria: 0.5 };
+
+  // Fecha válida = formato YYYY-MM-DD **y** fecha real del calendario.
+  // El chequeo del formato solo no alcanza: "2026-13-45" pasa el patrón y,
+  // comparada como string, resulta mayor que hoy, así que se contaba como
+  // "futura" en vez de "inválida". La especificación pide descartar los
+  // registros sin fecha válida, y el mes 13 no es una fecha.
+  function esFechaValida(s){
+    if(typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const [y, m, d] = s.split("-").map(Number);
+    if(m < 1 || m > 12 || d < 1) return false;
+    // Se reconstruye la fecha y se comprueba que no haya desbordado de mes
+    // (por ejemplo 31 de febrero, que Date corre al 2 o 3 de marzo).
+    const dt = new Date(y, m-1, d);
+    return dt.getFullYear() === y && dt.getMonth() === m-1 && dt.getDate() === d;
+  }
+
+  // Cuántas series representa UNA fila de `registros`.
+  //
+  // Hay dos formas de cargar y la fila tiene forma distinta en cada una:
+  //   * registro por-serie desde dentro de una sesión -> una fila POR serie,
+  //     con set_number. Esa fila es exactamente 1 serie.
+  //   * formulario clásico de Registro -> una fila por ejercicio, con el campo
+  //     `series` indicando cuántas fueron ("3").
+  // Sin esta distinción, cinco filas por-serie con series:"1" darían 5 y una
+  // sola fila con series:"5" daría 5 también, pero cinco filas por-serie con
+  // series:"5" (que no pasa) darían 25. Se resuelve mirando set_number.
+  // Si el campo viene vacío o no es un número, la fila vale 1: es un esfuerzo
+  // registrado, no cero.
+  function mapaSeriesDeFila(r){
+    if(r && r.setNumber != null) return 1;
+    const n = parseInt((r && r.series) || "", 10);
+    return (isFinite(n) && n > 0) ? n : 1;
+  }
+
+  // Rol de cada región dentro de UN ejercicio: la de intensidad máxima es
+  // principal, el resto secundarias. La intensidad NO multiplica el puntaje;
+  // solo decide el rol.
+  //
+  // Empates en el máximo: hoy no existe ninguno (auditado sobre los 100
+  // ejercicios mapeados). Si apareciera uno, TODAS las regiones empatadas en el
+  // máximo quedan como principal. Es determinista, estable y no requiere tocar
+  // los datos de MUSCLE_MAP.
+  function mapaRolesDeEjercicio(nombreCanonico){
+    const info = MUSCLE_MAP[nombreCanonico];
+    if(!info || !info.t || !info.t.length) return null;
+    let max = -Infinity;
+    info.t.forEach(([, i])=>{ if(i > max) max = i; });
+    return info.t.map(([region, i])=> ({ region, rol: i === max ? "principal" : "secundaria" }));
+  }
+
+  function mapaFechaMenosDias(ymdStr, dias){
+    const p = String(ymdStr||"").split("-").map(n=>parseInt(n,10));
+    if(p.length!==3 || p.some(isNaN)) return ymdStr;
+    const d = new Date(p[0], p[1]-1, p[2]);
+    d.setDate(d.getDate() - dias);
+    return ymd(d);
+  }
+
+  // Desempate aleatorio entre candidatos ya empatados. Aislado en una función
+  // para poder inyectar un azar fijo en los tests.
+  function mapaPickAleatorio(lista, rnd){
+    const r = typeof rnd === "function" ? rnd : Math.random;
+    return lista[Math.floor(r() * lista.length) % lista.length];
+  }
+
+  // Elige el ejercicio "popular" de un conjunto: más DÍAS distintos, luego más
+  // series, luego azar entre los empatados. La cantidad de filas no participa.
+  function mapaEjercicioPopular(mapaPorEjercicio, rnd){
+    const items = Object.keys(mapaPorEjercicio).map(n=> mapaPorEjercicio[n]);
+    if(!items.length) return null;
+    let mejores = [items[0]];
+    for(let i=1;i<items.length;i++){
+      const c = items[i], m = mejores[0];
+      if(c.dias > m.dias || (c.dias === m.dias && c.series > m.series)) mejores = [c];
+      else if(c.dias === m.dias && c.series === m.series) mejores.push(c);
+    }
+    return mejores.length === 1 ? mejores[0] : mapaPickAleatorio(mejores, rnd);
+  }
+
+  /* ---------- MOTOR DE CÁLCULO ----------
+     Puro: sin DOM, sin `state`, sin Supabase, sin efectos. Un solo motor
+     parametrizado por `dias` — no hay una versión por período.
+     `rnd` es opcional y solo se usa para los desempates que la especificación
+     define como aleatorios; con él, la función es totalmente determinista. */
+  function muscleMapStats(registros, hoy, dias, rnd){
+    const hasta = esFechaValida(hoy) ? hoy : todayStr();
+    const nDias = (isFinite(dias) && dias > 0) ? Math.floor(dias) : 30;
+    const desde = mapaFechaMenosDias(hasta, nDias - 1);
+    const semanas = nDias / 7;
+
+    const ignorados = { sinFecha:0, futuros:0, fueraDeVentana:0, sinMapa:0 };
+
+    // Paso 1 — deduplicar por (fecha + ejercicio canónico). Las filas de series
+    // del mismo ejercicio en el mismo día son UNA aparición para los puntos,
+    // pero sus series se suman para la frecuencia.
+    const porDia = new Map(); // fecha -> Map(canon -> {series, pesos:[]})
+    let registrosEnVentana = 0;
+
+    (registros||[]).forEach(r=>{
+      if(!r || !esFechaValida(r.date)){ ignorados.sinFecha++; return; }
+      if(r.date > hasta){ ignorados.futuros++; return; }
+      if(r.date < desde){ ignorados.fueraDeVentana++; return; }
+      const canon = canonicalExerciseName(r.exercise);
+      if(!canon || !MUSCLE_MAP[canon]){ ignorados.sinMapa++; return; }
+      registrosEnVentana++;
+      if(!porDia.has(r.date)) porDia.set(r.date, new Map());
+      const delDia = porDia.get(r.date);
+      if(!delDia.has(canon)) delDia.set(canon, { nombre:canon, series:0, pesos:[] });
+      const e = delDia.get(canon);
+      e.series += mapaSeriesDeFila(r);
+      const p = parseFloat(r.peso);
+      if(isFinite(p) && p > 0) e.pesos.push(p);
+    });
+
+    // Acumuladores por región.
+    const acc = {};
+    MAPA_REGIONS.forEach(region=>{
+      acc[region] = { region, puntos:0, seriesPonderadas:0, dias:new Set(), ejercicios:{} };
+    });
+    // Acumulador global de ejercicios (para el "más popular" del resumen).
+    const globalEj = {};
+    const diasConActividad = new Set();
+
+    // Paso 2 — por día, repartir puntos por sector.
+    porDia.forEach((delDia, fecha)=>{
+      const ejercicios = Array.from(delDia.values());
+      if(!ejercicios.length) return;
+      diasConActividad.add(fecha);
+
+      // Qué sectores toca cada ejercicio y con qué rol.
+      const conRoles = ejercicios.map(e=>({ ...e, roles: mapaRolesDeEjercicio(e.nombre) || [] }));
+
+      // Por sector, la lista de ejercicios del día que lo involucran.
+      const porRegion = {};
+      conRoles.forEach(e=>{
+        e.roles.forEach(({region, rol})=>{
+          if(!acc[region]) return; // región del arte que no esté en REGION_VIEW
+          (porRegion[region] = porRegion[region]||[]).push({ nombre:e.nombre, rol, series:e.series, pesos:e.pesos });
+        });
+      });
+
+      Object.keys(porRegion).forEach(region=>{
+        const lista = porRegion[region];
+        // ORDEN DETERMINISTA, independiente de cómo venían los registros: los
+        // principales ocupan los primeros lugares de la escalera y, dentro de
+        // cada rol, se ordena por nombre canónico.
+        //
+        // Hace falta fijarlo porque la escalera NO es conmutativa cuando el día
+        // mezcla roles: con un principal y un secundario, principal-primero da
+        // 1,00 + 0,25 = 1,25 y secundario-primero daría 0,50 + 0,50 = 1,00. La
+        // especificación define la escalera pero no el caso mixto; se elige
+        // principal primero porque es el ejercicio que apunta al sector.
+        lista.sort((a,b)=>{
+          if(a.rol !== b.rol) return a.rol === "principal" ? -1 : 1;
+          return a.nombre < b.nombre ? -1 : (a.nombre > b.nombre ? 1 : 0);
+        });
+
+        const A = acc[region];
+        A.dias.add(fecha);
+        lista.forEach((e, idx)=>{
+          A.puntos += mapaPuntos(e.rol, idx);
+          A.seriesPonderadas += e.series * MAPA_SERIES_PESO[e.rol];
+          const ej = A.ejercicios[e.nombre] || (A.ejercicios[e.nombre] = { nombre:e.nombre, dias:0, series:0, pesos:[], rol:e.rol });
+          ej.dias += 1;
+          ej.series += e.series;
+          e.pesos.forEach(p=> ej.pesos.push(p));
+          // El rol se guarda del último visto; es el mismo siempre para un
+          // ejercicio dado, porque sale de MUSCLE_MAP y no del día.
+          ej.rol = e.rol;
+        });
+      });
+
+      // Acumulado global por ejercicio: días distintos y series.
+      ejercicios.forEach(e=>{
+        const g = globalEj[e.nombre] || (globalEj[e.nombre] = { nombre:e.nombre, dias:0, series:0 });
+        g.dias += 1;
+        g.series += e.series;
+      });
+    });
+
+    // Paso 3 — derivar por región.
+    const regiones = {};
+    MAPA_REGIONS.forEach(region=>{
+      const A = acc[region];
+      const puntosSemana = A.puntos / semanas;
+      const popular = mapaEjercicioPopular(A.ejercicios, rnd);
+      // Peso récord: SOLO dentro del ejercicio popular y SOLO del período.
+      let pesoRecord = null;
+      if(popular && popular.pesos && popular.pesos.length) pesoRecord = Math.max(...popular.pesos);
+      regiones[region] = {
+        region,
+        label: MUSCLE_LABELS[region] || region,
+        vista: REGION_VIEW[region] || null,
+        puntos: A.puntos,
+        puntosSemana,
+        // El valor interno NO se trunca; `visual` es solo para el color.
+        visual: Math.min(puntosSemana, MAPA_VISUAL_MAX),
+        intensidad: A.puntos > 0
+          ? Math.max(MAPA_VISUAL_FLOOR, Math.min(puntosSemana, MAPA_VISUAL_MAX) / MAPA_VISUAL_MAX)
+          : 0,
+        seriesPonderadas: A.seriesPonderadas,
+        seriesSemana: A.seriesPonderadas / semanas,
+        dias: A.dias.size,
+        ejercicios: Object.keys(A.ejercicios).map(n=>{
+          const e = A.ejercicios[n];
+          return { nombre:e.nombre, dias:e.dias, series:e.series, rol:e.rol,
+                   maxPeso: e.pesos.length ? Math.max(...e.pesos) : null };
+        }).sort((a,b)=> b.dias - a.dias || b.series - a.series || (a.nombre < b.nombre ? -1 : 1)),
+        popular: popular ? { nombre:popular.nombre, dias:popular.dias, series:popular.series } : null,
+        pesoRecord,
+      };
+    });
+
+    // Paso 4 — resumen general.
+    const activas = MAPA_REGIONS.filter(r=> regiones[r].puntos > 0);
+
+    // Sector más trabajado: mayor puntuación semanal; empate -> mayor puntaje
+    // real sin redondear (es el mismo número, así que no agrega nada y se pasa
+    // al siguiente criterio) -> mayor frecuencia ponderada de series -> azar.
+    let sectorTop = null;
+    if(activas.length){
+      let mejores = [regiones[activas[0]]];
+      for(let i=1;i<activas.length;i++){
+        const c = regiones[activas[i]], m = mejores[0];
+        if(c.puntosSemana > m.puntosSemana) mejores = [c];
+        else if(c.puntosSemana === m.puntosSemana){
+          if(c.seriesSemana > m.seriesSemana) mejores = [c];
+          else if(c.seriesSemana === m.seriesSemana) mejores.push(c);
+        }
+      }
+      sectorTop = mejores.length === 1 ? mejores[0] : mapaPickAleatorio(mejores, rnd);
+    }
+
+    return {
+      dias: nDias, desde, hasta, semanas,
+      regiones,
+      resumen: {
+        // Cuenta SECTORES anatómicos individuales con cualquier actividad
+        // (0,25 puntos ya cuenta). No se reagrupa por pecho/espalda/piernas.
+        musculosEntrenados: activas.length,
+        // DEFINICIÓN, para que quede documentada y sea consistente: días
+        // distintos del período con al menos un ejercicio mapeado registrado,
+        // divididos por las semanas del período. No es una métrica fisiológica
+        // ni pretende serlo: es "cuántos días por semana registraste trabajo
+        // muscular".
+        frecuenciaDiasSemana: diasConActividad.size / semanas,
+        diasConActividad: diasConActividad.size,
+        sectorTop: sectorTop ? { region:sectorTop.region, label:sectorTop.label, puntosSemana:sectorTop.puntosSemana } : null,
+        ejercicioPopular: mapaEjercicioPopular(globalEj, rnd),
+      },
+      sinDatos: registrosEnVentana === 0,
+      registrosEnVentana,
+      ignorados,
+    };
+  }
+
+  /* ---------- PRESENTACIÓN ----------
+     El componente recibe el objeto del motor y dibuja. No lee `state`, no
+     calcula fechas, no interpreta MUSCLE_MAP y no decide principal/secundario.
+     Las dos únicas excepciones son los wrappers screenMuscleMap/renderMuscleMap
+     de más abajo, que son los que leen `state` y llaman al motor. */
+
+  // Un decimal con coma, como en la especificación de esta pantalla.
+  function fmtMapaNum(n){
+    if(n == null || !isFinite(n)) return "-";
+    return (Math.round(n*10)/10).toFixed(1).replace(".", ",");
+  }
+
+  function muscleMapBodyHtml(stats){
+    // Mismo contrato que ya usa la ficha de ejercicio: [{region,intensity}].
+    // Cada una de las 26 regiones lleva SU intensidad, sin agrupar por grupo.
+    const targets = MAPA_REGIONS.map(r=> ({ region:r, intensity: stats.regiones[r].intensidad }));
+    return bodyDiagramSvg(ANAT_VIEWS, targets);
+  }
+
+  function muscleMapScaleHtml(){
+    // Escala continua, monocroma. Sin semáforo y sin etiquetas de juicio.
+    const pasos = [0,1,2,3,4,5];
+    return `
+      <div class="mapa-escala">
+        <div class="mapa-escala-barra" aria-hidden="true">
+          ${pasos.map(p=>`<span style="background:${regionFillCss(p===0 ? 0 : Math.max(MAPA_VISUAL_FLOOR, p/MAPA_VISUAL_MAX))}"></span>`).join("")}
+        </div>
+        <div class="mapa-escala-lbl"><span>0</span><span>puntos / semana</span><span>5+</span></div>
+      </div>
+    `;
+  }
+
+  function muscleMapResumenHtml(stats){
+    const r = stats.resumen;
+    return `
+      <div class="card stack">
+        <div class="statline">
+          <span class="helptext" style="font-size:13px; color:var(--text)">Músculos entrenados</span>
+          <span class="num">${r.musculosEntrenados}<small style="font-size:12px; color:var(--text-muted)"> / ${MAPA_REGIONS.length}</small></span>
+        </div>
+        <div class="statline">
+          <span class="helptext" style="font-size:13px; color:var(--text)">Frecuencia promedio</span>
+          <span class="num">${fmtMapaNum(r.frecuenciaDiasSemana)}<small style="font-size:12px; color:var(--text-muted)"> días/sem</small></span>
+        </div>
+        <div class="statline">
+          <span class="helptext" style="font-size:13px; color:var(--text)">Sector más trabajado</span>
+          <span style="font-weight:600; font-size:13px; text-align:right">${r.sectorTop ? esc(r.sectorTop.label) : "-"}</span>
+        </div>
+        <div class="statline">
+          <span class="helptext" style="font-size:13px; color:var(--text)">Ejercicio más popular</span>
+          <span style="font-weight:600; font-size:13px; text-align:right">${r.ejercicioPopular ? esc(r.ejercicioPopular.nombre) : "-"}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function muscleMapRegionDetailHtml(stats, region){
+    const d = stats.regiones[region];
+    if(!d) return "";
+    return `
+      <div class="card stack" id="mapa-detalle">
+        <div class="row between">
+          <h3 style="font-size:16px; text-transform:none; letter-spacing:0; font-family:'Work Sans'">${esc(d.label)}</h3>
+          <span class="iconbtn" id="btn-mapa-cerrar-detalle" title="Volver al resumen">${icon("back")}</span>
+        </div>
+        <div class="pesostats">
+          <div class="pesostat">
+            <div class="num pesostat-val">${fmtMapaNum(d.puntosSemana)}</div>
+            <div class="helptext">puntos / semana</div>
+          </div>
+          <div class="pesostat">
+            <div class="num pesostat-val">${fmtMapaNum(d.seriesSemana)}</div>
+            <div class="helptext">series / semana</div>
+          </div>
+          <div class="pesostat">
+            <div class="num pesostat-val">${d.dias}</div>
+            <div class="helptext">día${d.dias===1?"":"s"} del período</div>
+          </div>
+        </div>
+        ${d.popular ? `
+          <div class="statline">
+            <span class="helptext" style="font-size:13px; color:var(--text)">Ejercicio más popular</span>
+            <span style="font-weight:600; font-size:13px; text-align:right">${esc(d.popular.nombre)}</span>
+          </div>
+          <div class="statline">
+            <span class="helptext" style="font-size:13px; color:var(--text)">Peso récord</span>
+            <span class="num">${d.pesoRecord != null ? esc(fmtPesoKg(d.pesoRecord)) + " kg" : `<span style="font-size:13px; font-family:'Work Sans'; color:var(--text-muted)">Sin datos</span>`}</span>
+          </div>
+          <p class="helptext">El récord es el máximo de <b>${esc(d.popular.nombre)}</b> dentro de estos ${stats.dias} días, no el histórico.</p>
+        ` : `<p class="helptext">Sin actividad registrada en este sector durante el período.</p>`}
+      </div>
+    `;
+  }
+
+  function muscleMapListHtml(stats){
+    const activas = MAPA_REGIONS.map(r=> stats.regiones[r]).filter(d=> d.puntos > 0)
+      .sort((a,b)=> b.puntosSemana - a.puntosSemana || (a.label < b.label ? -1 : 1));
+    const inactivas = MAPA_REGIONS.map(r=> stats.regiones[r]).filter(d=> d.puntos === 0);
+    const fila = (d)=> `
+      <div class="logrow mapa-fila" data-mapa-region="${esc(d.region)}">
+        <div class="row" style="gap:8px; min-width:0">
+          <i class="mapa-dot" style="background:${regionFillCss(d.intensidad)}"></i>
+          <div style="min-width:0">
+            <div class="lex">${esc(d.label)}</div>
+            <div class="ldate">${d.dias} día${d.dias===1?"":"s"}${d.puntos>0?` · ${fmtMapaNum(d.seriesSemana)} series/sem`:""}</div>
+          </div>
+        </div>
+        <div class="lval num">${fmtMapaNum(d.puntosSemana)}</div>
+      </div>`;
+    return `
+      <div class="section-title"><h2>Sectores</h2><span class="muted">puntos / semana</span></div>
+      <div class="loglist">
+        ${activas.map(fila).join("")}
+        ${inactivas.length ? `<p class="helptext" style="margin-top:4px">Sin actividad registrada: ${inactivas.map(d=>esc(d.label)).join(" · ")}</p>` : ""}
+      </div>
+    `;
+  }
+
+  function muscleMapHtml(stats, periodKey, regionSel, contexto){
+    const per = MAPA_PERIODS.find(p=>p.key===periodKey) || MAPA_PERIODS[1];
+    return `
+      <div class="segmented" style="margin-bottom:2px">
+        ${MAPA_PERIODS.map(p=>`<button data-mapa-period="${p.key}" class="${p.key===periodKey?"active":""}">${esc(p.label)}</button>`).join("")}
+      </div>
+      <p class="helptext" style="text-align:center">${esc(fmtDate(stats.desde))} al ${esc(fmtDate(stats.hasta))}</p>
+
+      <div class="card">
+        <div class="mapa-body">${muscleMapBodyHtml(stats)}</div>
+        ${muscleMapScaleHtml()}
+        <p class="helptext" style="text-align:center; margin-top:8px">Tocá un sector para ver su detalle.</p>
+      </div>
+
+      ${regionSel ? muscleMapRegionDetailHtml(stats, regionSel) : muscleMapResumenHtml(stats)}
+
+      ${stats.sinDatos ? `
+        <div class="card">
+          <div class="empty">
+            ${icon("log")}
+            <h3>Sin actividad registrada</h3>
+            <p>El mapa se arma con los pesos que cargás en Registro. En estos ${stats.dias} días todavía no hay registros.</p>
+          </div>
+        </div>
+      ` : muscleMapListHtml(stats)}
+
+      <p class="helptext">${esc(contexto||"")}</p>
+    `;
+  }
+
+  // Texto que explica qué NO está en el mapa. Es la pieza que evita que el
+  // usuario lea "sector apagado" como "no lo entrené": si finalizó
+  // entrenamientos sin cargar pesos, esos no pueden aparecer.
+  function muscleMapContextoTexto(stats){
+    const ents = (state.entrenos||[]).filter(e=> e.date >= stats.desde && e.date <= stats.hasta);
+    const diasConRegistro = stats.resumen.diasConActividad;
+    const diasConEntreno = new Set(ents.map(e=>e.date)).size;
+    const sinRegistro = Math.max(0, diasConEntreno - diasConRegistro);
+    let t = "El mapa se arma con los ejercicios que registrás en Registro.";
+    if(sinRegistro > 0){
+      t += ` En este período tuviste ${sinRegistro} día${sinRegistro===1?"":"s"} con entrenamiento registrado pero sin pesos cargados, que no figuran acá.`;
+    }
+    if(stats.ignorados.sinMapa > 0){
+      t += ` ${stats.ignorados.sinMapa} registro${stats.ignorados.sinMapa===1?"":"s"} del período no tiene${stats.ignorados.sinMapa===1?"":"n"} músculo asignado (cardio o ejercicios propios) y no pinta${stats.ignorados.sinMapa===1?"":"n"} ninguna región.`;
+    }
+    return t;
+  }
+
+  // Wrapper: es el ÚNICO punto que lee `state` y llama al motor.
+  function screenMuscleMap(){
+    const periodKey = MAPA_PERIODS.some(p=>p.key===state.mapaPeriodo) ? state.mapaPeriodo : "30d";
+    const per = MAPA_PERIODS.find(p=>p.key===periodKey);
+    const stats = muscleMapStats(state.registros||[], todayStr(), per.dias);
+    const regionSel = (state.mapaRegion && stats.regiones[state.mapaRegion]) ? state.mapaRegion : null;
+    return muscleMapHtml(stats, periodKey, regionSel, muscleMapContextoTexto(stats));
+  }
+
+  function renderMuscleMap(){
+    app.classList.remove("app-wide");
+    app.innerHTML = `
+      <div class="topbar">
+        <span class="iconbtn" id="btn-mapa-back">${icon("back")}</span>
+        <h1 style="font-size:18px; flex:1; text-align:center">Mapa muscular</h1>
+        <span style="width:30px"></span>
+      </div>
+      <main><div class="screen" id="screen"></div></main>
+    `;
+    document.getElementById("btn-mapa-back").onclick = ()=>{
+      if(state.mapaRegion){ state.mapaRegion = null; renderMuscleMap(); return; }
+      state.tab = "perfil";
+      state.perfilScrollPending = true;
+      render();
+    };
+    document.getElementById("screen").innerHTML = screenMuscleMap();
+    mountMuscleMap();
+  }
+
+  function mountMuscleMap(){
+    const el = document.getElementById("screen");
+    if(!el) return;
+
+    el.querySelectorAll("[data-mapa-period]").forEach(btn=>{
+      btn.onclick = ()=>{ state.mapaPeriodo = btn.dataset.mapaPeriod; renderMuscleMap(); };
+    });
+
+    el.querySelectorAll("[data-mapa-region]").forEach(row=>{
+      row.style.cursor = "pointer";
+      row.onclick = ()=>{ state.mapaRegion = row.dataset.mapaRegion; renderMuscleMap(); };
+    });
+
+    const cerrar = el.querySelector("#btn-mapa-cerrar-detalle");
+    if(cerrar) cerrar.onclick = ()=>{ state.mapaRegion = null; renderMuscleMap(); };
+
+    // Clicks sobre el SVG. Los `data-region` ya los pone anatViewSvg; acá solo
+    // se les engancha el handler. `base` y `head` no son músculos.
+    el.querySelectorAll(".mapa-body [data-region]").forEach(node=>{
+      const region = node.getAttribute("data-region");
+      if(region === "base" || region === "head") return;
+      if(!MAPA_REGIONS.includes(region)) return;
+      node.style.cursor = "pointer";
+      node.setAttribute("tabindex", "0");
+      node.setAttribute("role", "button");
+      node.setAttribute("aria-label", MUSCLE_LABELS[region] || region);
+      node.onclick = ()=>{ state.mapaRegion = region; renderMuscleMap(); };
+      node.onkeydown = (e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); state.mapaRegion = region; renderMuscleMap(); } };
+    });
+  }
+
   /* ================= V42: PERFIL COMO DASHBOARD =================
      Perfil es LECTURA de progreso. Todo lo de acá lee `state` y no hace una
      sola consulta nueva: las cuatro fuentes (profile, entrenos, registros,
@@ -8239,6 +8797,11 @@
         ${composicion}
         ${slotLabel ? `<p class="helptext">Rutina activa: <b>${esc(slotLabel)}</b></p>` : ""}
       </div>
+
+      <div class="card stack">
+        <p class="helptext">Qué sectores anatómicos tuvieron actividad registrada en los últimos 7, 30 o 90 días.</p>
+        <button class="btn btn-outline btn-block" id="btn-perfil-mapa">Mapa muscular</button>
+      </div>
     `;
   }
 
@@ -8320,6 +8883,16 @@
     // El peso se GESTIONA en Registro; acá solo se manda para allá.
     const irPeso = el.querySelector("#btn-perfil-ir-peso");
     if(irPeso) irPeso.onclick = ()=> setTab("registro");
+
+    // V43: Mapa muscular. Se guarda el scroll de Perfil antes de salir, igual
+    // que hace setTab, para volver al mismo lugar.
+    const irMapa = el.querySelector("#btn-perfil-mapa");
+    if(irMapa) irMapa.onclick = ()=>{
+      state.perfilScrollY = window.scrollY;
+      state.mapaRegion = null;
+      state.tab = "mapa";
+      render();
+    };
 
     // Perfil es largo: al volver se recupera la posición donde estaba. Solo la
     // primera vez que se entra (perfilScrollPending), para no pelearle el
@@ -8486,6 +9059,13 @@
     PESO_PERIODS, pesoCorporalSorted, pesoCorporalAsc, pesoResumen, pesoCorporalEnPeriodo,
     dateMinusDays, validarPesoKg, fmtPesoKg, fmtPesoDiff, pesoLineChart, pesoCorporalBlockHtml,
     openPesoCorporalModal, mountPesoCorporal, closeModal,
+    // V43: Mapa muscular. muscleMapStats es el motor PURO (sin DOM, sin state,
+    // sin Supabase); el resto es presentación y los wrappers que leen state.
+    muscleMapStats, MAPA_PERIODS, MAPA_REGIONS, MAPA_VISUAL_MAX, MAPA_VISUAL_FLOOR,
+    MAPA_PUNTOS_PRINCIPAL, MAPA_PUNTOS_SECUNDARIO, mapaPuntos, mapaSeriesDeFila,
+    mapaRolesDeEjercicio, mapaEjercicioPopular, mapaFechaMenosDias, fmtMapaNum,
+    muscleMapHtml, muscleMapBodyHtml, muscleMapResumenHtml, muscleMapRegionDetailHtml,
+    muscleMapListHtml, screenMuscleMap, renderMuscleMap, mountMuscleMap, muscleMapContextoTexto,
     // V42: dashboard de Perfil. Todo lee state, ninguna consulta nueva.
     screenPerfil, mountPerfil, perfilCuentaHtml, perfilResumenHtml, perfilPesoHtml,
     perfilEntrenamientoHtml, perfilConfigHtml, primerDatoFecha, ejerciciosDistintosCount,

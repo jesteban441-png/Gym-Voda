@@ -4090,10 +4090,16 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
           "Volumen", "volumen total",
           "Tiempo entrenado", "Tiempo total",
           "Fuerza relativa",
-          "Mapa muscular", "Músculos trabajados"
+          // V43: "Mapa muscular" salió de esta lista. El mapa dejó de estar
+          // postergado y existe como PANTALLA propia (tab "mapa"), a la que
+          // Perfil solo linkea con un botón. Lo que este test sigue cuidando
+          // es que Perfil no muestre métricas musculares inline.
+          "Músculos trabajados", "Sector más trabajado", "puntos / semana"
         ].forEach(function(t){
           assert(html.indexOf(t) === -1, "Perfil no debería mostrar: " + t);
         });
+        // El botón al mapa sí tiene que estar, y ser solo un acceso.
+        assert(html.indexOf('id="btn-perfil-mapa"') !== -1, "falta el acceso al mapa muscular");
       });
     });
 
@@ -4320,6 +4326,546 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(/return cached \|\| fetchPromise;/.test(SW_SRC), "se perdió el cache-first de los assets");
       // Y los POST siguen saliendo antes que todo.
       assert(/if \(event\.request\.method !== "GET"\) return;/.test(SW_SRC), "se perdió el corte por método");
+    });
+
+    /* ---------------- V43 — MAPA MUSCULAR ----------------
+       `muscleMapStats` es pura, así que todo se prueba con registros
+       sintéticos y una fecha fija. Los desempates aleatorios se vuelven
+       deterministas inyectando `rnd`. Los ejercicios usados son REALES del
+       catálogo: así los tests fallan si alguien cambia MUSCLE_MAP. */
+
+    var MM_HOY = "2026-10-01";
+    function mmReg(ej, fecha, series, peso, setN){
+      return { id: ej+fecha+(setN||"")+Math.random(), exercise: ej, date: fecha,
+               peso: peso==null ? "" : String(peso),
+               series: series==null ? "" : String(series),
+               reps:"10", nota:"", createdAt:1,
+               setNumber: setN==null ? null : setN };
+    }
+    // Fecha a k días antes de MM_HOY.
+    function mmDia(k){
+      var x = new Date(2026, 9, 1-k);
+      return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0");
+    }
+    function mmStats(rows, dias, rnd){
+      return A.muscleMapStats(rows, MM_HOY, dias || 7, rnd || function(){ return 0; });
+    }
+
+    group("V43 — Mapa muscular: puntuación");
+
+    test("un ejercicio principal en un día da 1 punto", function(){
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)]);
+      assert(s.regiones["chest-mid"].puntos === 1, "dio " + s.regiones["chest-mid"].puntos);
+    });
+
+    test("un ejercicio secundario da 0,5 puntos", function(){
+      // En "Press de banca con barra", shoulder-front es secundaria (0.35).
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)]);
+      assert(s.regiones["shoulder-front"].puntos === 0.5, "dio " + s.regiones["shoulder-front"].puntos);
+      // Y el rol se derivó de MUSCLE_MAP, no se fijó a mano.
+      var roles = A.mapaRolesDeEjercicio("Press de banca con barra");
+      assert(roles.filter(function(r){ return r.rol==="principal"; }).length === 1, "debería haber un solo principal");
+      assert(roles.some(function(r){ return r.region==="chest-mid" && r.rol==="principal"; }), "chest-mid debería ser principal");
+    });
+
+    test("dos ejercicios principales del mismo sector dan 1 + 0,5 = 1,5", function(){
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80), mmReg("Pec Fly", MM_HOY, 3, 40)]);
+      assert(s.regiones["chest-mid"].puntos === 1.5, "dio " + s.regiones["chest-mid"].puntos);
+    });
+
+    test("cuatro ejercicios principales dan 1 + 0,5 + 0,25 + 0,25 = 2", function(){
+      var s = mmStats([
+        mmReg("Press de banca con barra", MM_HOY, 3, 80),
+        mmReg("Pec Fly", MM_HOY, 3, 40),
+        mmReg("Aperturas de pecho con mancuernas en banco plano", MM_HOY, 3, 20),
+        mmReg("Press de pecho en polea", MM_HOY, 3, 30)
+      ]);
+      assert(s.regiones["chest-mid"].puntos === 2, "dio " + s.regiones["chest-mid"].puntos);
+    });
+
+    test("seis ejercicios secundarios dan 0,5 + 0,25×5 = 1,75", function(){
+      var s = mmStats([
+        mmReg("Press de banca con barra", MM_HOY, 3, 80),
+        mmReg("Flexiones de brazo", MM_HOY, 3),
+        mmReg("Press de banca inclinado con barra", MM_HOY, 3, 70),
+        mmReg("Press de banca inclinado con mancuernas", MM_HOY, 3, 30),
+        mmReg("Press de pecho en polea", MM_HOY, 3, 30),
+        mmReg("Fondos inclinado", MM_HOY, 3)
+      ]);
+      assert(s.regiones["shoulder-front"].puntos === 1.75, "dio " + s.regiones["shoulder-front"].puntos);
+    });
+
+    test("0,25 es el piso: el décimo ejercicio del día sigue sumando 0,25", function(){
+      assert(A.mapaPuntos("principal", 0) === 1, "slot 0 principal");
+      assert(A.mapaPuntos("principal", 1) === 0.5, "slot 1 principal");
+      assert(A.mapaPuntos("principal", 2) === 0.25, "slot 2 principal");
+      assert(A.mapaPuntos("principal", 9) === 0.25, "slot 9 principal");
+      assert(A.mapaPuntos("secundaria", 0) === 0.5, "slot 0 secundaria");
+      assert(A.mapaPuntos("secundaria", 1) === 0.25, "slot 1 secundaria");
+      assert(A.mapaPuntos("secundaria", 9) === 0.25, "slot 9 secundaria");
+    });
+
+    test("la intensidad de MUSCLE_MAP decide el rol, NO multiplica el puntaje", function(){
+      // shoulder-front vale 0.35 en press de banca y 0.4 en press inclinado:
+      // los dos son secundarios y los dos aportan lo mismo en el primer slot.
+      var a = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)]).regiones["shoulder-front"].puntos;
+      var b = mmStats([mmReg("Press de banca inclinado con barra", MM_HOY, 3, 70)]).regiones["shoulder-front"].puntos;
+      assert(a === 0.5 && b === 0.5, "dieron " + a + " y " + b);
+    });
+
+    test("un ejercicio reparte puntos a su principal Y a sus secundarios", function(){
+      // Peso muerto con barra: glutes 1 (principal), hamstrings 0.8,
+      // lower-back 0.5, traps 0.25 (secundarios).
+      var s = mmStats([mmReg("Peso muerto con barra", MM_HOY, 4, 120)]);
+      assert(s.regiones["glutes"].puntos === 1, "glúteos dio " + s.regiones["glutes"].puntos);
+      ["hamstrings","lower-back","traps"].forEach(function(r){
+        assert(s.regiones[r].puntos === 0.5, r + " dio " + s.regiones[r].puntos);
+      });
+      // Y un sector que el ejercicio no toca queda en 0.
+      assert(s.regiones["chest-mid"].puntos === 0, "pecho medio debería quedar en 0");
+    });
+
+    test("el orden de los registros no cambia la puntuación, ni con roles mezclados", function(){
+      var a = mmReg("Press de banca con barra", MM_HOY, 3, 80);
+      var b = mmReg("Pec Fly", MM_HOY, 3, 40);
+      var c = mmReg("Press de pecho en polea", MM_HOY, 3, 30);
+      var v = [mmStats([a,b,c]), mmStats([c,a,b]), mmStats([b,c,a])]
+        .map(function(s){ return s.regiones["chest-mid"].puntos; });
+      assert(v[0] === v[1] && v[1] === v[2] && v[0] === 1.75, "dieron " + v.join("/"));
+      // Mixto real: shoulder-front es principal en el press militar y
+      // secundaria en el press de banca. La regla documentada pone los
+      // principales primero, así que da 1 + 0,25 en los dos órdenes.
+      var p = mmReg("Press militar con barra", MM_HOY, 3, 40);
+      var m1 = mmStats([p, a]).regiones["shoulder-front"].puntos;
+      var m2 = mmStats([a, p]).regiones["shoulder-front"].puntos;
+      assert(m1 === 1.25 && m2 === 1.25, "mixto dio " + m1 + " y " + m2);
+    });
+
+    group("V43 — Mapa muscular: series vs ejercicios");
+
+    test("cinco filas del mismo ejercicio son UN ejercicio para los puntos", function(){
+      var rows = [1,2,3,4,5].map(function(i){ return mmReg("Press de banca con barra", MM_HOY, 1, 80, i); });
+      var r = mmStats(rows).regiones["chest-mid"];
+      assert(r.puntos === 1, "puntos dio " + r.puntos);
+      assert(r.dias === 1, "días dio " + r.dias);
+    });
+
+    test("esas cinco filas SÍ son cinco series para la frecuencia", function(){
+      var rows = [1,2,3,4,5].map(function(i){ return mmReg("Press de banca con barra", MM_HOY, 1, 80, i); });
+      var r = mmStats(rows).regiones["chest-mid"];
+      assert(r.seriesPonderadas === 5, "series dio " + r.seriesPonderadas);
+    });
+
+    test("una sola fila con series:\"5\" también son cinco series", function(){
+      // Las dos formas de cargar tienen que dar lo mismo: por-serie (con
+      // set_number) y el formulario clásico (una fila con el conteo).
+      var r = mmStats([mmReg("Press de banca con barra", MM_HOY, 5, 80)]).regiones["chest-mid"];
+      assert(r.puntos === 1, "puntos dio " + r.puntos);
+      assert(r.seriesPonderadas === 5, "series dio " + r.seriesPonderadas);
+      assert(A.mapaSeriesDeFila({ series:"5", setNumber:null }) === 5, "fila clásica");
+      assert(A.mapaSeriesDeFila({ series:"5", setNumber:3 }) === 1, "fila por-serie vale 1");
+      assert(A.mapaSeriesDeFila({ series:"", setNumber:null }) === 1, "sin series vale 1");
+    });
+
+    test("las series secundarias pesan la mitad", function(){
+      // Press banca: 4 series, pecho medio principal -> 4.
+      // Press inclinado: 3 series, pecho medio... es principal de chest-upper,
+      // así que se usa shoulder-front, donde los dos son secundarios.
+      var r = mmStats([mmReg("Press de banca con barra", MM_HOY, 4, 80)]).regiones["shoulder-front"];
+      assert(r.seriesPonderadas === 2, "4 series secundarias deberían pesar 2, dio " + r.seriesPonderadas);
+      var p = mmStats([mmReg("Press de banca con barra", MM_HOY, 4, 80)]).regiones["chest-mid"];
+      assert(p.seriesPonderadas === 4, "4 series principales deberían pesar 4, dio " + p.seriesPonderadas);
+    });
+
+    group("V43 — Mapa muscular: ejercicio popular y peso récord");
+
+    test("el popular se decide por DÍAS distintos, no por cantidad de filas", function(){
+      var rows = [];
+      [0,1,2].forEach(function(k){ rows.push(mmReg("Press de banca con barra", mmDia(k), 3, 80)); });
+      for(var i=1;i<=12;i++) rows.push(mmReg("Pec Fly", mmDia(0), 1, 40, i));
+      var r = mmStats(rows).regiones["chest-mid"];
+      assert(r.popular.nombre === "Press de banca con barra", "dio " + r.popular.nombre);
+      assert(r.popular.dias === 3, "días dio " + r.popular.dias);
+      // El otro tiene MÁS filas y más series, y pierde igual.
+      var otro = r.ejercicios.filter(function(e){ return e.nombre === "Pec Fly"; })[0];
+      assert(otro.dias === 1 && otro.series === 12, "control de la prueba inválido");
+    });
+
+    test("empate de días: gana el de más series", function(){
+      var rows = [];
+      [0,1].forEach(function(k){
+        rows.push(mmReg("Press de banca con barra", mmDia(k), 3, 80));
+        rows.push(mmReg("Pec Fly", mmDia(k), 5, 40));
+      });
+      var p = mmStats(rows).regiones["chest-mid"].popular;
+      assert(p.nombre === "Pec Fly", "dio " + p.nombre);
+      assert(p.dias === 2 && p.series === 10, "dio " + JSON.stringify(p));
+    });
+
+    test("empate completo: desempate aleatorio entre los empatados", function(){
+      var rows = [];
+      [0,1].forEach(function(k){
+        rows.push(mmReg("Press de banca con barra", mmDia(k), 3, 80));
+        rows.push(mmReg("Pec Fly", mmDia(k), 3, 40));
+      });
+      var a = mmStats(rows, 7, function(){ return 0; }).regiones["chest-mid"].popular.nombre;
+      var b = mmStats(rows, 7, function(){ return 0.99; }).regiones["chest-mid"].popular.nombre;
+      // Los dos son candidatos válidos y el azar elige distinto en cada punta.
+      ["Press de banca con barra","Pec Fly"].forEach(function(n){
+        assert([a,b].indexOf(n) !== -1, "el azar debería poder elegir " + n + "; dio " + a + " y " + b);
+      });
+      assert(a !== b, "con los dos extremos del azar debería elegir distinto");
+    });
+
+    test("el peso récord sale SOLO del ejercicio popular y SOLO del período", function(){
+      var rows = [];
+      [0,1,2].forEach(function(k){ rows.push(mmReg("Press de banca con barra", mmDia(k), 3, 90)); });
+      rows.push(mmReg("Pec Fly", mmDia(0), 3, 200));      // más pesado, pero no es el popular
+      rows.push(mmReg("Press de banca con barra", mmDia(40), 3, 150)); // fuera de la ventana
+      var r = mmStats(rows, 7).regiones["chest-mid"];
+      assert(r.popular.nombre === "Press de banca con barra", "popular dio " + r.popular.nombre);
+      assert(r.pesoRecord === 90, "récord dio " + r.pesoRecord + " (no debería ser 200 ni 150)");
+    });
+
+    test("sin pesos válidos el récord es null, no 0", function(){
+      var r = mmStats([mmReg("Plancha", MM_HOY, 3, null)]).regiones["abs"];
+      assert(r.popular && r.popular.nombre === "Plancha", "popular dio " + JSON.stringify(r.popular));
+      assert(r.pesoRecord === null, "debería ser null y dio " + r.pesoRecord);
+      // Y la UI lo muestra como "Sin datos", no como 0 kg.
+      var html = A.muscleMapRegionDetailHtml(mmStats([mmReg("Plancha", MM_HOY, 3, null)]), "abs");
+      assert(html.indexOf("Sin datos") !== -1, "debería decir Sin datos");
+      assert(html.indexOf("0 kg") === -1, "no debería mostrar 0 kg");
+    });
+
+    group("V43 — Mapa muscular: períodos y escala");
+
+    test("los tres períodos son 7, 30 y 90 días móviles", function(){
+      assert(A.MAPA_PERIODS.map(function(p){ return p.dias; }).join(",") === "7,30,90", "dio " + A.MAPA_PERIODS.map(function(p){return p.dias;}).join(","));
+      // Ventana inclusiva: 7 días son 7 fechas contando hoy.
+      var s = mmStats([], 7);
+      assert(s.hasta === MM_HOY, "hasta dio " + s.hasta);
+      assert(s.desde === A.mapaFechaMenosDias(MM_HOY, 6), "desde dio " + s.desde);
+      assert(mmStats([],30).desde === A.mapaFechaMenosDias(MM_HOY, 29), "30 días mal");
+      assert(mmStats([],90).desde === A.mapaFechaMenosDias(MM_HOY, 89), "90 días mal");
+    });
+
+    test("conversión a promedio semanal en 30 días", function(){
+      var uno = [mmReg("Press de banca con barra", MM_HOY, 3, 80)];
+      var r = mmStats(uno, 30).regiones["chest-mid"];
+      assert(r.puntos === 1, "puntos dio " + r.puntos);
+      assert(Math.abs(r.puntosSemana - 1/(30/7)) < 1e-12, "semanal dio " + r.puntosSemana + ", esperado " + (1/(30/7)));
+    });
+
+    test("conversión a promedio semanal en 90 días", function(){
+      var uno = [mmReg("Press de banca con barra", MM_HOY, 3, 80)];
+      var r = mmStats(uno, 90).regiones["chest-mid"];
+      assert(Math.abs(r.puntosSemana - 1/(90/7)) < 1e-12, "semanal dio " + r.puntosSemana + ", esperado " + (1/(90/7)));
+      // Se usa el número real de días, no semanas redondeadas.
+      assert(mmStats([],90).semanas === 90/7, "semanas dio " + mmStats([],90).semanas);
+    });
+
+    test("las series también se normalizan por semana", function(){
+      var r = mmStats([mmReg("Press de banca con barra", MM_HOY, 4, 80)], 30).regiones["chest-mid"];
+      assert(r.seriesPonderadas === 4, "ponderadas dio " + r.seriesPonderadas);
+      assert(Math.abs(r.seriesSemana - 4/(30/7)) < 1e-12, "semanal dio " + r.seriesSemana);
+    });
+
+    test("un valor mayor que 5 se conserva internamente y solo el color se limita", function(){
+      var rows = [];
+      for(var k=0;k<7;k++){
+        ["Press de banca con barra","Pec Fly","Aperturas de pecho con mancuernas en banco plano","Press de pecho en polea"]
+          .forEach(function(e){ rows.push(mmReg(e, mmDia(k), 3, 50)); });
+      }
+      var r = mmStats(rows, 7).regiones["chest-mid"];
+      assert(r.puntosSemana > 5, "el valor interno debería pasar de 5, dio " + r.puntosSemana);
+      assert(r.puntos === 14, "7 días × 2 puntos = 14, dio " + r.puntos);
+      assert(r.visual === A.MAPA_VISUAL_MAX, "el visual debería quedar en " + A.MAPA_VISUAL_MAX + ", dio " + r.visual);
+      assert(r.intensidad === 1, "la intensidad debería saturar en 1, dio " + r.intensidad);
+    });
+
+    test("la escala es continua y el 0 no lleva color", function(){
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7);
+      // 1 punto/semana -> 1/5 con piso: intermedio, ni 0 ni saturado.
+      var i = s.regiones["chest-mid"].intensidad;
+      assert(i > 0 && i < 1, "debería ser intermedia, dio " + i);
+      // Un sector sin actividad va a 0 exacto -> regionFillCss(0) = músculo apagado.
+      assert(s.regiones["calves-gastro"].intensidad === 0, "sin actividad debería ser 0");
+      assert(A.regionFillCss(0).indexOf("muscle-off") !== -1, "el 0 debería usar el músculo apagado");
+      // Y el mínimo con actividad se distingue del cero.
+      var min = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 90).regiones["chest-mid"];
+      assert(min.puntos > 0 && min.intensidad >= A.MAPA_VISUAL_FLOOR, "el piso visual no se aplicó, dio " + min.intensidad);
+    });
+
+    group("V43 — Mapa muscular: resumen general");
+
+    test("Músculos entrenados cuenta SECTORES, y 0,25 puntos ya cuenta", function(){
+      // Press de banca toca 2 sectores: chest-mid (principal) y shoulder-front.
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)]);
+      assert(s.resumen.musculosEntrenados === 2, "dio " + s.resumen.musculosEntrenados);
+      // Un sector con el mínimo posible también cuenta.
+      var rows = [
+        mmReg("Press de banca con barra", MM_HOY, 3, 80),
+        mmReg("Flexiones de brazo", MM_HOY, 3),
+        mmReg("Press de pecho en polea", MM_HOY, 3, 30)
+      ];
+      var s2 = mmStats(rows);
+      assert(s2.regiones["shoulder-front"].puntos === 1, "control: shoulder-front debería dar 1");
+      assert(s2.resumen.musculosEntrenados === 2, "dio " + s2.resumen.musculosEntrenados);
+      // No se reagrupa por pecho/espalda/piernas: el total posible son 26.
+      assert(A.MAPA_REGIONS.length === 26, "deberían ser 26 sectores, son " + A.MAPA_REGIONS.length);
+    });
+
+    test("la frecuencia promedio son días con actividad por semana", function(){
+      var rows = [mmDia(0), mmDia(2), mmDia(4)].map(function(f){ return mmReg("Press de banca con barra", f, 3, 80); });
+      var s = mmStats(rows, 7);
+      assert(s.resumen.diasConActividad === 3, "días dio " + s.resumen.diasConActividad);
+      assert(s.resumen.frecuenciaDiasSemana === 3, "en 7 días, 3 días = 3/semana, dio " + s.resumen.frecuenciaDiasSemana);
+      var s30 = mmStats(rows, 30);
+      assert(Math.abs(s30.resumen.frecuenciaDiasSemana - 3/(30/7)) < 1e-12, "en 30 días dio " + s30.resumen.frecuenciaDiasSemana);
+      // Dos ejercicios el mismo día siguen siendo UN día.
+      var mismo = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80), mmReg("Pec Fly", MM_HOY, 3, 40)], 7);
+      assert(mismo.resumen.diasConActividad === 1, "dio " + mismo.resumen.diasConActividad);
+    });
+
+    test("el sector más trabajado sale de la puntuación semanal", function(){
+      var rows = [
+        mmReg("Press de banca con barra", MM_HOY, 3, 80),
+        mmReg("Pec Fly", MM_HOY, 3, 40),
+        mmReg("Aperturas de pecho con mancuernas en banco plano", MM_HOY, 3, 20)
+      ];
+      var s = mmStats(rows, 7);
+      assert(s.resumen.sectorTop.region === "chest-mid", "dio " + s.resumen.sectorTop.region);
+      assert(s.resumen.sectorTop.puntosSemana === s.regiones["chest-mid"].puntosSemana, "el valor no coincide");
+      // Y es el máximo real de todos los sectores.
+      var max = Math.max.apply(null, A.MAPA_REGIONS.map(function(r){ return s.regiones[r].puntosSemana; }));
+      assert(s.resumen.sectorTop.puntosSemana === max, "no es el máximo");
+    });
+
+    test("el ejercicio más popular del resumen usa el mismo criterio de días", function(){
+      var rows = [];
+      [0,1,2].forEach(function(k){ rows.push(mmReg("Dominadas", mmDia(k), 3, 0)); });
+      for(var i=1;i<=9;i++) rows.push(mmReg("Press de banca con barra", mmDia(0), 1, 80, i));
+      var s = mmStats(rows, 7);
+      assert(s.resumen.ejercicioPopular.nombre === "Dominadas", "dio " + s.resumen.ejercicioPopular.nombre);
+      assert(s.resumen.ejercicioPopular.dias === 3, "días dio " + s.resumen.ejercicioPopular.dias);
+    });
+
+    group("V43 — Mapa muscular: datos inválidos y bordes");
+
+    test("un registro con fecha futura no cuenta", function(){
+      var s = mmStats([mmReg("Press de banca con barra", "2026-12-01", 3, 80)], 7);
+      assert(s.regiones["chest-mid"].puntos === 0, "no debería sumar");
+      assert(s.ignorados.futuros === 1, "debería contarse como futuro, dio " + s.ignorados.futuros);
+      assert(s.sinDatos === true, "debería quedar sin datos");
+    });
+
+    test("registros sin fecha válida no rompen ni cuentan", function(){
+      var s = mmStats([
+        mmReg("Press de banca con barra", "", 3, 80),
+        { id:1, exercise:"Press de banca con barra", date:null, peso:"80", series:"3" },
+        { id:2, exercise:"Press de banca con barra", date:"2026-13-45", peso:"80", series:"3" },
+        mmReg("Press de banca con barra", MM_HOY, 3, 80)
+      ], 7);
+      assert(s.ignorados.sinFecha === 3, "deberían ignorarse 3, dio " + s.ignorados.sinFecha);
+      assert(s.regiones["chest-mid"].puntos === 1, "el válido debería contar, dio " + s.regiones["chest-mid"].puntos);
+    });
+
+    test("un alias histórico se resuelve por canonicalización", function(){
+      var s = mmStats([mmReg("Gemelos", MM_HOY, 3, 40)], 7);
+      assert(s.regiones["calves-gastro"].puntos === 1, "debería pintar gemelo, dio " + s.regiones["calves-gastro"].puntos);
+      assert(s.regiones["calves-gastro"].popular.nombre === "Gemelos parado con mancuerna",
+        "debería usar el nombre canónico, dio " + s.regiones["calves-gastro"].popular.nombre);
+      // Un retirado también sigue resolviendo.
+      var retirado = Array.from(A.EXERCISES_RETIRED)[0];
+      var s2 = mmStats([mmReg(retirado, MM_HOY, 3, 40)], 7);
+      assert(s2.registrosEnVentana === 1, "un retirado debería seguir contando (" + retirado + ")");
+    });
+
+    test("el cardio no pinta ninguna región", function(){
+      var cardio = ["Cinta (caminar/correr)","Bicicleta fija","Elíptico","Máquina de remo","Escaladora",
+                    "Salto de soga","Burpees","Kettlebell swing","Battle rope","Trineo (sled)"];
+      var s = mmStats(cardio.map(function(e){ return mmReg(e, MM_HOY, 3); }), 7);
+      assert(s.resumen.musculosEntrenados === 0, "no debería pintar nada, dio " + s.resumen.musculosEntrenados);
+      assert(s.ignorados.sinMapa === 10, "deberían ignorarse los 10, dio " + s.ignorados.sinMapa);
+      assert(s.sinDatos === true, "debería quedar sin datos");
+      A.MAPA_REGIONS.forEach(function(r){
+        assert(s.regiones[r].puntos === 0, r + " no debería tener puntos");
+      });
+      // Y no se inventa ningún músculo para ellos.
+      cardio.forEach(function(e){ assert(!A.MUSCLE_MAP[e], e + " no debería tener MUSCLE_MAP"); });
+    });
+
+    test("un ejercicio escrito a mano que no existe no cuenta ni rompe", function(){
+      var s = mmStats([mmReg("Ejercicio inventado por el usuario", MM_HOY, 3, 50)], 7);
+      assert(s.ignorados.sinMapa === 1, "debería ignorarse, dio " + s.ignorados.sinMapa);
+      assert(s.resumen.musculosEntrenados === 0, "no debería pintar nada");
+    });
+
+    test("sin registros devuelve un estado vacío completo", function(){
+      var s = mmStats([], 7);
+      assert(s.sinDatos === true, "debería ser sinDatos");
+      assert(s.registrosEnVentana === 0, "dio " + s.registrosEnVentana);
+      assert(s.resumen.musculosEntrenados === 0, "dio " + s.resumen.musculosEntrenados);
+      assert(s.resumen.sectorTop === null, "sectorTop debería ser null");
+      assert(s.resumen.ejercicioPopular === null, "ejercicioPopular debería ser null");
+      assert(s.resumen.frecuenciaDiasSemana === 0, "frecuencia debería ser 0");
+      // Las 26 regiones existen igual, en 0.
+      assert(Object.keys(s.regiones).length === 26, "deberían estar las 26 regiones");
+      A.MAPA_REGIONS.forEach(function(r){
+        assert(s.regiones[r].puntos === 0 && s.regiones[r].popular === null && s.regiones[r].pesoRecord === null,
+          r + " debería estar vacío");
+      });
+    });
+
+    test("el motor es puro: no toca los registros que recibe", function(){
+      var rows = [mmReg("Press de banca con barra", MM_HOY, 3, 80)];
+      var antes = JSON.stringify(rows);
+      mmStats(rows, 30);
+      assert(JSON.stringify(rows) === antes, "el motor modificó los registros de entrada");
+    });
+
+    test("el motor es determinista con el mismo azar inyectado", function(){
+      var rows = [];
+      [0,1,2].forEach(function(k){
+        rows.push(mmReg("Press de banca con barra", mmDia(k), 3, 80));
+        rows.push(mmReg("Pec Fly", mmDia(k), 3, 40));
+      });
+      var a = JSON.stringify(mmStats(rows, 30, function(){ return 0; }));
+      var b = JSON.stringify(mmStats(rows, 30, function(){ return 0; }));
+      assert(a === b, "dos corridas con el mismo azar deberían dar lo mismo");
+    });
+
+    group("V43 — Mapa muscular: presentación");
+
+    test("el cuerpo se pinta con las 26 regiones, cada una con su color", function(){
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7);
+      var html = A.muscleMapBodyHtml(s);
+      // Las dos siluetas.
+      assert((html.match(/<svg/g)||[]).length === 2, "deberían ser dos vistas");
+      assert(html.indexOf('data-view="front"') !== -1 && html.indexOf('data-view="back"') !== -1, "faltan las vistas");
+      // Pecho medio activo, pecho superior e inferior apagados: los tres
+      // sectores del pecho se pintan por separado.
+      assert(/data-region="chest-mid" fill="color-mix/.test(html), "pecho medio debería ir con color");
+      assert(/data-region="chest-upper" fill="var\(--muscle-off\)"/.test(html), "pecho superior debería ir apagado");
+      assert(/data-region="chest-lower" fill="var\(--muscle-off\)"/.test(html), "pecho inferior debería ir apagado");
+      // base y head nunca son músculo.
+      assert(/data-region="base" fill="var\(--muscle-base\)"/.test(html), "la silueta base cambió");
+    });
+
+    test("cada sector del pecho mantiene su propio puntaje", function(){
+      var s = mmStats([
+        mmReg("Press de banca con barra", MM_HOY, 3, 80),          // chest-mid
+        mmReg("Press de banca inclinado con barra", MM_HOY, 3, 70) // chest-upper
+      ], 7);
+      assert(s.regiones["chest-mid"].puntos === 1, "medio dio " + s.regiones["chest-mid"].puntos);
+      assert(s.regiones["chest-upper"].puntos === 1, "superior dio " + s.regiones["chest-upper"].puntos);
+      assert(s.regiones["chest-lower"].puntos === 0, "inferior dio " + s.regiones["chest-lower"].puntos);
+      // No se promedian ni se unifican.
+      assert(s.regiones["chest-mid"].intensidad === s.regiones["chest-upper"].intensidad, "mismo puntaje, misma intensidad");
+      assert(s.regiones["chest-lower"].intensidad === 0, "el inferior no debería heredar color");
+    });
+
+    test("el resumen muestra las cuatro métricas", function(){
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7);
+      var html = A.muscleMapResumenHtml(s);
+      ["Músculos entrenados","Frecuencia promedio","Sector más trabajado","Ejercicio más popular"].forEach(function(t){
+        assert(html.indexOf(t) !== -1, "falta " + t);
+      });
+    });
+
+    test("el detalle de sector muestra puntos, series, popular y récord", function(){
+      var rows = [];
+      [0,1].forEach(function(k){ rows.push(mmReg("Press de banca con barra", mmDia(k), 4, 90)); });
+      var s = mmStats(rows, 7);
+      var html = A.muscleMapRegionDetailHtml(s, "chest-mid");
+      assert(html.indexOf("puntos / semana") !== -1, "faltan los puntos");
+      assert(html.indexOf("series / semana") !== -1, "faltan las series");
+      assert(html.indexOf("Ejercicio más popular") !== -1, "falta el popular");
+      assert(html.indexOf("Peso récord") !== -1, "falta el récord");
+      assert(html.indexOf("90 kg") !== -1, "el récord debería ser 90 kg");
+      assert(html.indexOf("pecho medio") !== -1, "falta la etiqueta del sector");
+    });
+
+    test("la pantalla no juzga: sin semáforo y sin frases evaluativas", function(){
+      var rows = [mmReg("Press de banca con barra", MM_HOY, 3, 80)];
+      var s = mmStats(rows, 7);
+      var html = A.muscleMapHtml(s, "7d", null, "contexto");
+      ["descuidado","te falta","equilibrado","insuficiente","deberías","mal entrenado","bien entrenado"].forEach(function(t){
+        assert(html.toLowerCase().indexOf(t) === -1, "no debería aparecer: " + t);
+      });
+      // Ni rojo ni verde: la escala usa el acento de la marca.
+      assert(html.indexOf("--danger") === -1, "no debería usar el color de peligro");
+      assert(html.indexOf("--success") === -1, "no debería usar el color de éxito");
+      assert(html.indexOf("--accent") !== -1, "debería usar el acento de Voda Fit");
+    });
+
+    test("el mapa avisa que mide lo registrado, no todo lo entrenado", function(){
+      var prev = A.state.entrenos;
+      try{
+        A.state.entrenos = [{ id:1, date:mmDia(1) }, { id:2, date:mmDia(2) }];
+        var s = mmStats([], 7);
+        var t = A.muscleMapContextoTexto(s);
+        assert(t.indexOf("registrás en Registro") !== -1, "debería explicar de dónde salen los datos");
+        assert(/2 días con entrenamiento registrado pero sin pesos cargados/.test(t),
+          "debería contar los entrenamientos sin registros, dio: " + t);
+      } finally { A.state.entrenos = prev; }
+    });
+
+    test("las 26 regiones salen de REGION_VIEW, sin una segunda lista", function(){
+      assert(A.MAPA_REGIONS.join(",") === Object.keys(A.REGION_VIEW).join(","), "MAPA_REGIONS debería ser REGION_VIEW");
+      // Y todas están dibujadas en el arte.
+      var html = A.muscleMapBodyHtml(mmStats([], 7));
+      A.MAPA_REGIONS.forEach(function(r){
+        assert(html.indexOf('data-region="'+r+'"') !== -1, "la región " + r + " no está en el SVG");
+      });
+    });
+
+    group("V43 — Mapa muscular: no se tocó nada existente");
+
+    test("MUSCLE_MAP y las clasificaciones existentes siguen igual", function(){
+      // Los números de la auditoría, como candado.
+      var act = A.EXERCISES.filter(function(n){ return !A.isRetiredExercise(n); });
+      assert(act.length === 110, "activos dio " + act.length);
+      assert(act.filter(function(n){ return A.MUSCLE_MAP[n]; }).length === 100, "con MUSCLE_MAP dio " + act.filter(function(n){ return A.MUSCLE_MAP[n]; }).length);
+      assert(Object.keys(A.REGION_VIEW).length === 26, "regiones dio " + Object.keys(A.REGION_VIEW).length);
+      assert(A.EXERCISES_RETIRED.size === 12, "retirados dio " + A.EXERCISES_RETIRED.size);
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 41, "aliases dio " + Object.keys(A.EXERCISE_ALIASES).length);
+      // La clasificación de los 10/11 subgrupos no cambió.
+      assert(A.exercisePrimarySubgroup("Press de banca con barra") === "pecho", "cambió el subgrupo principal");
+      assert(A.exerciseSubgroup10("Peso muerto con barra") === "gluteos", "cambió el subgrupo10");
+      assert(A.exerciseSubgroup10("Aductores en máquina") === null, "cambió el caso de aductores");
+    });
+
+    test("el generador, el tope diario y el calendario siguen intactos", function(){
+      assert(A.sessionCountRange(1)[1] === 8 && A.sessionCountRange(3)[1] === 7 && A.sessionCountRange(5)[1] === 6, "cambió el tope 8/7/6");
+      assert(A.RUTINA_SLOTS.join(",") === "personalizada,automatica,enfocada", "cambiaron los slots");
+      assert(Object.keys(A.CALENDAR_ORIGIN_LABELS).length === 6, "cambiaron los orígenes del calendario");
+      assert(A.SPECIAL_SUBGROUPS.length === 10, "cambiaron los subgrupos de Día Especial");
+    });
+
+    test("el diagrama corporal sigue funcionando para la ficha de ejercicio", function(){
+      // Mismo contrato de siempre: lista de {region,intensity}.
+      var m = A.muscleTargets("Press de banca con barra");
+      assert(m && m.list && m.list.length, "muscleTargets se rompió");
+      var html = A.bodyDiagramSvg(A.viewsForRegions(m.list), m.list);
+      assert(html.indexOf("<svg") !== -1 && /data-region="chest-mid" fill="color-mix/.test(html), "bodyDiagramSvg se rompió");
+      // Y acepta igual el formato de pares.
+      var html2 = A.bodyDiagramSvg(["front"], [["chest-mid", 1]]);
+      assert(/data-region="chest-mid" fill="color-mix/.test(html2), "bodyDiagramSvg con pares se rompió");
+    });
+
+    test("el mapa no usa entrenos para reconstruir ejercicios", function(){
+      // Con entrenos lleno y registros vacío, el mapa tiene que quedar vacío.
+      var prev = A.state.entrenos;
+      try{
+        A.state.entrenos = [
+          { id:1, date:mmDia(0), dayId:"x", dayNombre:"Día 1 — Empuje (pecho/hombro/tríceps)", setsCompletados:20, setsTotales:20 },
+          { id:2, date:mmDia(1), dayId:"y", dayNombre:"Piernas", setsCompletados:18, setsTotales:18 }
+        ];
+        var s = mmStats([], 7);
+        assert(s.sinDatos === true, "no debería inferir nada desde entrenos");
+        assert(s.resumen.musculosEntrenados === 0, "dio " + s.resumen.musculosEntrenados);
+      } finally { A.state.entrenos = prev; }
     });
 
     finish();
