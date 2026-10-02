@@ -8093,21 +8093,59 @@
   // Escala visual: 5 puntos/semana es el tope del color. El valor interno NO se
   // trunca; solo la representación.
   const MAPA_VISUAL_MAX = 5;
-  // Piso visual para que un sector con actividad mínima (0,25 puntos) se
-  // distinga de uno sin actividad. Sin esto, 0,25/5 = 5% de mezcla con el
-  // acento queda indistinguible del músculo apagado, y el resumen diría
-  // "Músculos entrenados: 9" con nueve sectores que se ven en gris.
-  // El cero sigue siendo cero: regionFillCss(0) devuelve var(--muscle-off).
-  const MAPA_VISUAL_FLOOR = 0.12;
+  // Tinte mínimo con el que se dibuja un sector que TIENE actividad. Hace
+  // falta porque 0,25 puntos/semana son 5% de mezcla con el acento, que es
+  // indistinguible del músculo apagado: el resumen diría "Músculos
+  // entrenados: 9" con nueve sectores que se ven en gris.
+  //
+  // NO es un piso sobre el valor. Un piso (max(0,12, v/5)) achataba todo lo
+  // que estuviera por debajo de 0,6 puntos a un mismo color, y eso rompía la
+  // escala conceptual: 0,25 y 0,5 se veían igual. Lo que se hace en cambio es
+  // mapear el rango con una recta: el valor normalizado 0..1 se lleva a
+  // MAPA_TINTE_MIN..1. Así la escala sigue siendo CONTINUA y ESTRICTAMENTE
+  // CRECIENTE — cada valor distinto tiene un color distinto — y 0 sigue
+  // siendo 0 (regionFillCss(0) devuelve var(--muscle-off)).
+  const MAPA_TINTE_MIN = 0.12;
+
+  // Color de un sector a partir de sus puntos/semana. Es la única fórmula
+  // de color del mapa: la usan las siluetas, la barra de escala y los puntos
+  // de la lista, así que las tres no pueden discrepar.
+  function mapaIntensidad(puntosSemana){
+    if(!(puntosSemana > 0)) return 0;
+    const t = Math.min(puntosSemana, MAPA_VISUAL_MAX) / MAPA_VISUAL_MAX;
+    return MAPA_TINTE_MIN + (1 - MAPA_TINTE_MIN) * t;
+  }
 
   // Escalera de puntos por sector y por día, según cuántos ejercicios DISTINTOS
   // de ese día involucran al sector. Índice 0 = primer ejercicio.
   const MAPA_PUNTOS_PRINCIPAL = [1, 0.5, 0.25];
   const MAPA_PUNTOS_SECUNDARIO = [0.5, 0.25, 0.25];
-  // Del tercer ejercicio en adelante el valor se mantiene (0,25 es el mínimo).
+  // Valor del slot `indice` DENTRO DE SU PROPIO ROL. Del tercer ejercicio en
+  // adelante el valor se mantiene (0,25 es el mínimo).
   function mapaPuntos(rol, indiceEnElDia){
     const tabla = rol==="principal" ? MAPA_PUNTOS_PRINCIPAL : MAPA_PUNTOS_SECUNDARIO;
     return tabla[Math.min(indiceEnElDia, tabla.length-1)];
+  }
+
+  // Total de un rol en un día, a partir de CU[A]NTOS ejercicios de ese rol
+  // tocaron el sector. Es la suma de la escalera del rol, y por lo tanto una
+  // función pura de un número: no hay orden del que pueda depender.
+  //
+  // Cada rol lleva SU PROPIA escalera y los dos totales se suman. Esto es lo
+  // que elimina la dependencia del orden en el caso mixto: antes la escalera
+  // era una sola secuencia compartida, y entonces un principal y un
+  // secundario daban 1,25 o 1,00 según cuál ocupara el primer slot. Había
+  // que inventar una regla de desempate. Ahora el sector recibe "un estímulo
+  // principal (1,00) más un estímulo secundario (0,50)" = 1,50, sin que
+  // exista ningún orden en el cálculo.
+  //
+  // Los cinco ejemplos de la especificación quedan IGUALES, porque todos son
+  // homogéneos: 1 principal = 1; 1 secundario = 0,5; 2 principales = 1,5;
+  // 4 principales = 2; 6 secundarios = 1,75.
+  function mapaPuntosDeRol(rol, cantidad){
+    let total = 0;
+    for(let i=0;i<cantidad;i++) total += mapaPuntos(rol, i);
+    return total;
   }
 
   // Peso de las series según el rol del sector en ese ejercicio.
@@ -8255,24 +8293,17 @@
 
       Object.keys(porRegion).forEach(region=>{
         const lista = porRegion[region];
-        // ORDEN DETERMINISTA, independiente de cómo venían los registros: los
-        // principales ocupan los primeros lugares de la escalera y, dentro de
-        // cada rol, se ordena por nombre canónico.
-        //
-        // Hace falta fijarlo porque la escalera NO es conmutativa cuando el día
-        // mezcla roles: con un principal y un secundario, principal-primero da
-        // 1,00 + 0,25 = 1,25 y secundario-primero daría 0,50 + 0,50 = 1,00. La
-        // especificación define la escalera pero no el caso mixto; se elige
-        // principal primero porque es el ejercicio que apunta al sector.
-        lista.sort((a,b)=>{
-          if(a.rol !== b.rol) return a.rol === "principal" ? -1 : 1;
-          return a.nombre < b.nombre ? -1 : (a.nombre > b.nombre ? 1 : 0);
-        });
-
+        // Los puntos del día salen de CONTAR cuántos ejercicios de cada rol
+        // tocaron el sector, no de recorrer una lista. El orden de los
+        // registros no entra en el cálculo en ningún momento: no hace falta
+        // ordenar nada ni elegir qué rol va primero (ver mapaPuntosDeRol).
         const A = acc[region];
         A.dias.add(fecha);
-        lista.forEach((e, idx)=>{
-          A.puntos += mapaPuntos(e.rol, idx);
+        let nPrincipal = 0, nSecundaria = 0;
+        lista.forEach(e=>{ if(e.rol === "principal") nPrincipal++; else nSecundaria++; });
+        A.puntos += mapaPuntosDeRol("principal", nPrincipal) + mapaPuntosDeRol("secundaria", nSecundaria);
+
+        lista.forEach(e=>{
           A.seriesPonderadas += e.series * MAPA_SERIES_PESO[e.rol];
           const ej = A.ejercicios[e.nombre] || (A.ejercicios[e.nombre] = { nombre:e.nombre, dias:0, series:0, pesos:[], rol:e.rol });
           ej.dias += 1;
@@ -8309,9 +8340,7 @@
         puntosSemana,
         // El valor interno NO se trunca; `visual` es solo para el color.
         visual: Math.min(puntosSemana, MAPA_VISUAL_MAX),
-        intensidad: A.puntos > 0
-          ? Math.max(MAPA_VISUAL_FLOOR, Math.min(puntosSemana, MAPA_VISUAL_MAX) / MAPA_VISUAL_MAX)
-          : 0,
+        intensidad: mapaIntensidad(puntosSemana),
         seriesPonderadas: A.seriesPonderadas,
         seriesSemana: A.seriesPonderadas / semanas,
         dias: A.dias.size,
@@ -8389,11 +8418,13 @@
 
   function muscleMapScaleHtml(){
     // Escala continua, monocroma. Sin semáforo y sin etiquetas de juicio.
+    // Misma fórmula que las siluetas (mapaIntensidad), así que la barra es
+    // una muestra real de la escala y no una aproximación dibujada aparte.
     const pasos = [0,1,2,3,4,5];
     return `
       <div class="mapa-escala">
         <div class="mapa-escala-barra" aria-hidden="true">
-          ${pasos.map(p=>`<span style="background:${regionFillCss(p===0 ? 0 : Math.max(MAPA_VISUAL_FLOOR, p/MAPA_VISUAL_MAX))}"></span>`).join("")}
+          ${pasos.map(p=>`<span style="background:${regionFillCss(mapaIntensidad(p))}"></span>`).join("")}
         </div>
         <div class="mapa-escala-lbl"><span>0</span><span>puntos / semana</span><span>5+</span></div>
       </div>
@@ -9061,8 +9092,9 @@
     openPesoCorporalModal, mountPesoCorporal, closeModal,
     // V43: Mapa muscular. muscleMapStats es el motor PURO (sin DOM, sin state,
     // sin Supabase); el resto es presentación y los wrappers que leen state.
-    muscleMapStats, MAPA_PERIODS, MAPA_REGIONS, MAPA_VISUAL_MAX, MAPA_VISUAL_FLOOR,
-    MAPA_PUNTOS_PRINCIPAL, MAPA_PUNTOS_SECUNDARIO, mapaPuntos, mapaSeriesDeFila,
+    muscleMapStats, MAPA_PERIODS, MAPA_REGIONS, MAPA_VISUAL_MAX, MAPA_TINTE_MIN,
+    MAPA_PUNTOS_PRINCIPAL, MAPA_PUNTOS_SECUNDARIO, mapaPuntos, mapaPuntosDeRol,
+    mapaIntensidad, mapaSeriesDeFila,
     mapaRolesDeEjercicio, mapaEjercicioPopular, mapaFechaMenosDias, fmtMapaNum,
     muscleMapHtml, muscleMapBodyHtml, muscleMapResumenHtml, muscleMapRegionDetailHtml,
     muscleMapListHtml, screenMuscleMap, renderMuscleMap, mountMuscleMap, muscleMapContextoTexto,

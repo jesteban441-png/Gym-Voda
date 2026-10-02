@@ -4433,12 +4433,13 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         .map(function(s){ return s.regiones["chest-mid"].puntos; });
       assert(v[0] === v[1] && v[1] === v[2] && v[0] === 1.75, "dieron " + v.join("/"));
       // Mixto real: shoulder-front es principal en el press militar y
-      // secundaria en el press de banca. La regla documentada pone los
-      // principales primero, así que da 1 + 0,25 en los dos órdenes.
+      // secundaria en el press de banca. Cada rol lleva su propia escalera y
+      // los dos totales se suman: 1,00 + 0,50 = 1,50, sin que el orden entre
+      // en el cálculo.
       var p = mmReg("Press militar con barra", MM_HOY, 3, 40);
       var m1 = mmStats([p, a]).regiones["shoulder-front"].puntos;
       var m2 = mmStats([a, p]).regiones["shoulder-front"].puntos;
-      assert(m1 === 1.25 && m2 === 1.25, "mixto dio " + m1 + " y " + m2);
+      assert(m1 === 1.5 && m2 === 1.5, "mixto dio " + m1 + " y " + m2);
     });
 
     group("V43 — Mapa muscular: series vs ejercicios");
@@ -4591,9 +4592,10 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // Un sector sin actividad va a 0 exacto -> regionFillCss(0) = músculo apagado.
       assert(s.regiones["calves-gastro"].intensidad === 0, "sin actividad debería ser 0");
       assert(A.regionFillCss(0).indexOf("muscle-off") !== -1, "el 0 debería usar el músculo apagado");
-      // Y el mínimo con actividad se distingue del cero.
+      // Y el mínimo con actividad se distingue del cero, sin achatarse.
       var min = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 90).regiones["chest-mid"];
-      assert(min.puntos > 0 && min.intensidad >= A.MAPA_VISUAL_FLOOR, "el piso visual no se aplicó, dio " + min.intensidad);
+      assert(min.puntos > 0 && min.intensidad > A.MAPA_TINTE_MIN, "el tinte mínimo no se aplicó, dio " + min.intensidad);
+      assert(min.intensidad < 0.2, "un valor chico no debería subir tanto, dio " + min.intensidad);
     });
 
     group("V43 — Mapa muscular: resumen general");
@@ -4818,6 +4820,119 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       A.MAPA_REGIONS.forEach(function(r){
         assert(html.indexOf('data-region="'+r+'"') !== -1, "la región " + r + " no está en el SVG");
       });
+    });
+
+    group("V43 — Mapa muscular: independencia del orden y escala");
+
+    test("la puntuación es una función de CU[A]NTOS ejercicios de cada rol, sin orden", function(){
+      // La escalera de cada rol, aislada.
+      assert(A.mapaPuntosDeRol("principal", 0) === 0, "0 principales");
+      assert(A.mapaPuntosDeRol("principal", 1) === 1, "1 principal");
+      assert(A.mapaPuntosDeRol("principal", 2) === 1.5, "2 principales");
+      assert(A.mapaPuntosDeRol("principal", 3) === 1.75, "3 principales");
+      assert(A.mapaPuntosDeRol("principal", 4) === 2, "4 principales");
+      assert(A.mapaPuntosDeRol("secundaria", 0) === 0, "0 secundarias");
+      assert(A.mapaPuntosDeRol("secundaria", 1) === 0.5, "1 secundaria");
+      assert(A.mapaPuntosDeRol("secundaria", 6) === 1.75, "6 secundarias");
+      // Y el total mixto es la suma de las dos, sin regla de desempate.
+      assert(A.mapaPuntosDeRol("principal",1) + A.mapaPuntosDeRol("secundaria",1) === 1.5, "1P + 1S");
+      assert(A.mapaPuntosDeRol("principal",2) + A.mapaPuntosDeRol("secundaria",3) === 1.5 + 1, "2P + 3S");
+    });
+
+    test("TODAS las permutaciones del mismo día dan el mismo puntaje", function(){
+      // Cuatro ejercicios que tocan chest-mid: dos principales y dos
+      // secundarios (los secundarios lo tocan vía otra región... se usa
+      // shoulder-front, que mezcla roles de verdad).
+      var ejs = [
+        mmReg("Press militar con barra", MM_HOY, 3, 40),            // shoulder-front PRINCIPAL
+        mmReg("Press de hombros con mancuernas", MM_HOY, 3, 20),    // shoulder-front PRINCIPAL
+        mmReg("Press de banca con barra", MM_HOY, 3, 80),           // shoulder-front secundaria
+        mmReg("Press de banca inclinado con barra", MM_HOY, 3, 70)  // shoulder-front secundaria
+      ];
+      // Las 24 permutaciones.
+      var perms = [];
+      (function permutar(resto, acc){
+        if(!resto.length){ perms.push(acc); return; }
+        for(var i=0;i<resto.length;i++){
+          permutar(resto.slice(0,i).concat(resto.slice(i+1)), acc.concat([resto[i]]));
+        }
+      })(ejs, []);
+      assert(perms.length === 24, "deberían ser 24 permutaciones, son " + perms.length);
+      var valores = perms.map(function(p){ return mmStats(p).regiones["shoulder-front"].puntos; });
+      var unicos = valores.filter(function(v,i){ return valores.indexOf(v) === i; });
+      assert(unicos.length === 1, "las 24 permutaciones deberían dar el mismo valor, dieron " + unicos.join("/"));
+      // 2 principales (1,5) + 2 secundarias (0,75) = 2,25.
+      assert(valores[0] === 2.25, "dio " + valores[0]);
+    });
+
+    test("el orden tampoco afecta a los sectores de un día mixto completo", function(){
+      var ejs = [
+        mmReg("Peso muerto con barra", MM_HOY, 4, 120),
+        mmReg("Sentadilla con barra", MM_HOY, 4, 100),
+        mmReg("Press de banca con barra", MM_HOY, 4, 85),
+        mmReg("Press militar con barra", MM_HOY, 3, 40),
+        mmReg("Dominadas", MM_HOY, 4, 0)
+      ];
+      var base = mmStats(ejs);
+      // Diez órdenes distintos barajados con un azar fijo.
+      for(var k=0;k<10;k++){
+        var copia = ejs.slice();
+        for(var i=copia.length-1;i>0;i--){
+          var j = (i*7 + k*3) % (i+1);
+          var tmp = copia[i]; copia[i] = copia[j]; copia[j] = tmp;
+        }
+        var otro = mmStats(copia);
+        A.MAPA_REGIONS.forEach(function(r){
+          assert(otro.regiones[r].puntos === base.regiones[r].puntos,
+            "el orden cambió " + r + ": " + base.regiones[r].puntos + " vs " + otro.regiones[r].puntos);
+        });
+      }
+    });
+
+    test("la escala es estrictamente creciente en 0 / 0,25 / 1 / 2 / 3 / 4 / 5 / >5", function(){
+      var valores = [0, 0.25, 1, 2, 3, 4, 5, 7.5];
+      var ints = valores.map(function(v){ return A.mapaIntensidad(v); });
+      // 0 es exactamente 0: sin color.
+      assert(ints[0] === 0, "el 0 debería ser 0, dio " + ints[0]);
+      // Estrictamente creciente hasta 5.
+      for(var i=1;i<6;i++){
+        assert(ints[i] > ints[i-1], "debería crecer de " + valores[i-1] + " a " + valores[i] + ": " + ints[i-1] + " -> " + ints[i]);
+      }
+      assert(ints[6] === 1, "5 puntos deberían saturar en 1, dio " + ints[6]);
+      // Por encima de 5 el color NO sigue creciendo.
+      assert(ints[7] === ints[6], ">5 debería dar el mismo color que 5, dio " + ints[7]);
+      // El mínimo con actividad se ve, y no achata al siguiente.
+      assert(ints[1] >= A.MAPA_TINTE_MIN, "0,25 debería llegar al tinte mínimo, dio " + ints[1]);
+      assert(ints[2] > ints[1] + 0.1, "1 debería separarse claramente de 0,25: " + ints[1] + " vs " + ints[2]);
+    });
+
+    test("la rampa es proporcional: la escala conceptual se mantiene", function(){
+      // Con el tinte mínimo descontado, el color es LINEAL en el valor.
+      var piso = A.MAPA_TINTE_MIN, rango = 1 - piso;
+      [0.25, 1, 2, 3, 4, 5].forEach(function(v){
+        var esperado = piso + rango * (v / A.MAPA_VISUAL_MAX);
+        assert(Math.abs(A.mapaIntensidad(v) - esperado) < 1e-12,
+          v + " puntos: esperado " + esperado + ", dio " + A.mapaIntensidad(v));
+      });
+      // Y el punto medio de la escala cae en el medio del rango de color.
+      var medio = A.mapaIntensidad(2.5);
+      assert(Math.abs(medio - (piso + rango*0.5)) < 1e-12, "2,5 debería caer al medio, dio " + medio);
+    });
+
+    test("los tres lugares que pintan color usan la misma fórmula", function(){
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7);
+      var d = s.regiones["chest-mid"];
+      assert(d.intensidad === A.mapaIntensidad(d.puntosSemana), "la región no usa mapaIntensidad");
+      // La silueta pinta con regionFillCss(esa intensidad).
+      var body = A.muscleMapBodyHtml(s);
+      assert(body.indexOf('data-region="chest-mid" fill="' + A.regionFillCss(d.intensidad) + '"') !== -1,
+        "la silueta no usa la misma intensidad");
+      // La barra de escala toma muestras de la misma función.
+      var escala = A.muscleMapHtml(s, "7d", null, "");
+      assert(escala.indexOf(A.regionFillCss(A.mapaIntensidad(5))) !== -1, "la barra no usa mapaIntensidad");
+      // Y el punto de la fila de la lista, también.
+      var lista = A.muscleMapListHtml(s);
+      assert(lista.indexOf(A.regionFillCss(d.intensidad)) !== -1, "la fila no usa la misma intensidad");
     });
 
     group("V43 — Mapa muscular: no se tocó nada existente");
