@@ -4176,6 +4176,152 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(A.weekScopeKeys(undefined).offset === "weekOffset", "sin scope debería ser rutina");
     });
 
+    /* ---------------- V40.1 — SERVICE WORKER: SUPABASE FUERA DEL CACHÉ ----
+       El harness no puede instalar un Service Worker, pero sí puede traer
+       sw.js y probar su lógica de verdad: se extrae el predicado del fuente y
+       se lo ejecuta contra una tabla de URLs reales. No es un test de texto,
+       es el mismo código corriendo. Los invariantes que no son función (la
+       versión de caché, el orden del corte, el precache) sí se comprueban
+       sobre el fuente, que es donde viven. */
+
+    group("V40.1 — Service Worker: Supabase fuera del caché");
+
+    // sw.js se trae una sola vez, de forma síncrona, para no volver asíncrono
+    // todo el harness por un archivo de 3 KB del mismo origen.
+    var SW_SRC = (function(){
+      try{
+        var x = new XMLHttpRequest();
+        x.open("GET", "sw.js?test=" + Date.now(), false);
+        x.send(null);
+        return x.status === 200 ? x.responseText : null;
+      }catch(e){ return null; }
+    })();
+
+    // El predicado, extraído del fuente y convertido en función ejecutable.
+    var isSupabaseUrl = (function(){
+      if(!SW_SRC) return null;
+      var m = SW_SRC.match(/function isSupabaseUrl\(url\)\s*\{[\s\S]*?\n\}/);
+      if(!m) return null;
+      try{ return new Function("return (" + m[0] + ")")(); }
+      catch(e){ return null; }
+    })();
+
+    test("sw.js se pudo leer y expone el predicado isSupabaseUrl", function(){
+      assert(SW_SRC, "no se pudo traer sw.js (¿servidor estático?)");
+      assert(typeof isSupabaseUrl === "function", "no se pudo extraer isSupabaseUrl de sw.js");
+    });
+
+    test("el predicado excluye REST, Auth y Storage de Supabase", function(){
+      [
+        "https://wfuxtbxrjkjtdumgylrt.supabase.co/rest/v1/peso_corporal?select=*",
+        "https://wfuxtbxrjkjtdumgylrt.supabase.co/rest/v1/registros?select=id",
+        "https://wfuxtbxrjkjtdumgylrt.supabase.co/rest/v1/entrenos?select=*&limit=1000",
+        "https://wfuxtbxrjkjtdumgylrt.supabase.co/auth/v1/user",
+        "https://wfuxtbxrjkjtdumgylrt.supabase.co/auth/v1/token?grant_type=password",
+        "https://wfuxtbxrjkjtdumgylrt.supabase.co/storage/v1/bucket",
+        "https://wfuxtbxrjkjtdumgylrt.supabase.co/storage/v1/object/progreso/x.jpg",
+        "https://otro-proyecto.supabase.co/rest/v1/cualquier_cosa"
+      ].forEach(function(u){
+        assert(isSupabaseUrl(new URL(u)) === true, "debería excluirse: " + u);
+      });
+    });
+
+    test("una URL firmada de Storage también queda excluida", function(){
+      // Es el caso que motiva el arreglo: el token hace que cada URL sea
+      // distinta, así que se acumularían entradas que nunca se reutilizan, con
+      // bytes privados adentro.
+      var u = "https://wfuxtbxrjkjtdumgylrt.supabase.co/storage/v1/object/sign/progreso/" +
+              "abc/frente.jpg?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.firmado";
+      assert(isSupabaseUrl(new URL(u)) === true, "la URL firmada debería excluirse");
+    });
+
+    test("los assets propios de Voda Fit NO quedan excluidos", function(){
+      var origen = location.origin;
+      ["/", "/index.html", "/manifest.json", "/icon-192.png", "/icon-512.png",
+       "/icon-512-maskable.png", "/apple-touch-icon.png", "/favicon-32.png"].forEach(function(p){
+        assert(isSupabaseUrl(new URL(origen + p)) === false, "NO debería excluirse: " + p);
+      });
+    });
+
+    test("las fuentes de Google siguen con la estrategia de siempre", function(){
+      // Son assets estáticos cross-origin: el pedido era excluir Supabase, no
+      // cambiar el comportamiento del resto.
+      ["https://fonts.googleapis.com/css2?family=Barlow+Condensed",
+       "https://fonts.gstatic.com/s/worksans/v24/QGYsz_wNahGAdqQ43Rh_fKDp.woff2",
+       "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"].forEach(function(u){
+        assert(isSupabaseUrl(new URL(u)) === false, "NO debería excluirse: " + u);
+      });
+    });
+
+    test("el predicado no se deja engañar por un host parecido", function(){
+      // Compara el host completo, no un `indexOf`.
+      ["https://supabase.co.atacante.com/rest/v1/x",
+       "https://notsupabase.com/rest/v1/x",
+       "https://example.com/?u=https://proyecto.supabase.co/rest/v1/x"].forEach(function(u){
+        assert(isSupabaseUrl(new URL(u)) === false, "NO debería excluirse: " + u);
+      });
+      // Y el host pelado sí.
+      assert(isSupabaseUrl(new URL("https://supabase.co/rest/v1/x")) === true, "el host pelado debería excluirse");
+    });
+
+    test("la exclusión está por ORIGEN, no por una lista de endpoints", function(){
+      assert(/hostname/.test(SW_SRC), "el predicado debería mirar el hostname");
+      assert(!/rest\/v1["']/.test(SW_SRC), "no debería haber una lista de endpoints en el código");
+    });
+
+    test("el corte sale ANTES de tocar el Cache Storage", function(){
+      var iCorte = SW_SRC.indexOf("if (isSupabaseUrl(new URL(event.request.url))) return;");
+      assert(iCorte !== -1, "falta el corte en el fetch handler");
+      var iFetchHandler = SW_SRC.indexOf('self.addEventListener("fetch"');
+      assert(iFetchHandler !== -1 && iCorte > iFetchHandler, "el corte debería estar dentro del fetch handler");
+      // Ni caches.match ni cache.put pueden aparecer antes del corte.
+      var antes = SW_SRC.slice(iFetchHandler, iCorte);
+      assert(antes.indexOf("caches.match") === -1, "hay un caches.match antes del corte");
+      assert(antes.indexOf("cache.put") === -1, "hay un cache.put antes del corte");
+      // Y sale antes de la rama de navegación, así que un GET de Supabase no
+      // puede confundirse con una navegación.
+      var iNav = SW_SRC.indexOf("const isNavigation");
+      assert(iNav !== -1 && iCorte < iNav, "el corte debería ir antes de la rama de navegación");
+    });
+
+    test("NO se agregó una estrategia de caché propia para Supabase", function(){
+      // El corte es un `return` seco: nada de respondWith para esas URLs.
+      var m = SW_SRC.match(/if \(isSupabaseUrl\(new URL\(event\.request\.url\)\)\) ([^\n]*)/);
+      assert(m, "no se encontró el corte");
+      assert(m[1].trim() === "return;", "el corte debería ser un return seco, dio: " + m[1]);
+    });
+
+    test("la versión de caché subió a v7 y la anterior ya no aparece", function(){
+      assert(/const CACHE = "gymapp-v7";/.test(SW_SRC), "CACHE debería ser gymapp-v7");
+      assert(!/const CACHE = "gymapp-v6";/.test(SW_SRC), "no debería quedar la v6 como activa");
+    });
+
+    test("el activate sigue borrando las cachés viejas (es lo que evacúa la v6)", function(){
+      assert(/caches\.keys\(\)/.test(SW_SRC), "falta el barrido de cachés");
+      assert(/filter\(\(k\) => k !== CACHE\)/.test(SW_SRC), "falta el filtro por nombre distinto del actual");
+      assert(/caches\.delete\(k\)/.test(SW_SRC), "falta el borrado");
+      assert(/self\.clients\.claim\(\)/.test(SW_SRC), "falta clients.claim");
+      assert(/self\.skipWaiting\(\)/.test(SW_SRC), "falta skipWaiting: el SW nuevo no tomaría el control");
+    });
+
+    test("el precache de los assets estáticos quedó intacto", function(){
+      ["./", "./index.html", "./manifest.json", "./apple-touch-icon.png",
+       "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"].forEach(function(a){
+        assert(SW_SRC.indexOf('"' + a + '"') !== -1, "falta en ASSETS: " + a);
+      });
+      assert(/cache: "reload"/.test(SW_SRC), "se perdió el fetch con cache:reload del precache (V38.1)");
+    });
+
+    test("la estrategia de los assets propios no cambió", function(){
+      // Navegación: red primero con no-store y caída a la copia guardada.
+      assert(/fetch\(event\.request, \{ cache: "no-store" \}\)/.test(SW_SRC), "se perdió el no-store de la navegación");
+      assert(/caches\.match\("\.\/index\.html"\)/.test(SW_SRC), "se perdió la caída a index.html sin conexión");
+      // Resto: cache-first con refresco en segundo plano.
+      assert(/return cached \|\| fetchPromise;/.test(SW_SRC), "se perdió el cache-first de los assets");
+      // Y los POST siguen saliendo antes que todo.
+      assert(/if \(event\.request\.method !== "GET"\) return;/.test(SW_SRC), "se perdió el corte por método");
+    });
+
     finish();
   }
 
