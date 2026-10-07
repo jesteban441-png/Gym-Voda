@@ -268,6 +268,9 @@
   .ac-item{ padding:10px 12px; font-size:14px; cursor:pointer; }
   .ac-item + .ac-item{ border-top:1px solid var(--border); }
   .ac-item:hover, .ac-item:active{ background:var(--surface-2); }
+  /* 2B: "Ver X más..." no es un ejercicio, es una acción. Se distingue para
+     que nadie crea que está eligiendo un ejercicio llamado así. */
+  .ac-more{ color:var(--accent); font-weight:600; }
 
   .empty{
     display:flex; flex-direction:column; align-items:center; text-align:center;
@@ -741,32 +744,31 @@
     "Press de banca declinado","Press de banca plano en Smith","Press de banca inclinado en Smith",
     "Press de banca declinado en Smith",
     // Espalda
-    "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
+    "Dominadas","Dominadas supinas","Jalón al pecho",
     "Remo con barra","Remo con mancuerna unilateral","Remo en polea baja","Remo en máquina",
     "Remo en máquina agarre ancho","Remo en máquina unilateral","Remo en T","Remo en TRX","Remo en Hammer",
-    "Jalón agarre supino","Jalón agarre ancho","Jalón agarre neutro",
+    "Jalón agarre supino","Jalón agarre neutro",
     "Peso muerto con barra","Peso muerto rumano con barra","Peso muerto sumo con barra","Peso muerto con mancuernas","Hiperextensiones","Face Pull","Pullover",
     // Piernas
     "Sentadilla con barra","Sentadilla frontal","Sentadilla búlgara","Sentadilla Sumo","Sentadilla Hack","Sentadilla Smith",
     "Prensa inclinada","Extensión de piernas","Isquio acostado","Isquio sentado",
-    "Zancadas","Estocadas con mancuerna","Hip thrust","Hip thrust en máquina","Puente de glúteos","Puente de glúteo con barra",
-    "Puente de glúteo a una pierna","Patada de glúteo en el piso","Patada lateral a cuatro patas","Elevación lateral de pierna",
+    "Estocadas con mancuerna","Hip thrust con barra","Hip thrust en máquina","Puente de glúteos",
     "Peso muerto rumano con mancuernas","Peso muerto sumo con mancuernas",
     "Gemelos en máquina","Gemelos parado con mancuerna","Gemelos sentado en máquina",
     "Gemelos en prensa","Abductores en máquina",
-    "Aductores en máquina","Step Up","Peso muerto piernas rígidas",
+    "Aductores en máquina","Step Up",
     // Hombros
     "Press militar con barra","Press de hombros con mancuernas","Press militar con mancuernas sentado",
     "Press de hombros en máquina","Arnold press","Press tras nuca con barra",
     "Vuelos laterales con mancuerna","Elevación lateral en máquina","Elevación lateral en polea",
     "Vuelos frontales","Vuelos pájaro","Pec Fly invertido",
-    "Remo al mentón","Encogimientos de hombros",
+    "Remo al mentón",
     "Encogimientos con mancuernas","Encogimientos con barra","Encogimientos en máquina",
     // Brazos
     "Curl con barra","Curl con mancuernas","Curl con mancuernas alternado","Curl con mancuernas banco inclinado",
     "Curl martillo","Curl concentrado",
     "Curl en polea","Curl en polea unilateral","Curl Scott (predicador)","Press francés","Extensión de tríceps en polea",
-    "Extensión de tríceps en polea con barra","Extensión tríceps polea agarre prono",
+    "Extensión de tríceps en polea con barra",
     "Fondos de tríceps en banco","Patada de tríceps","Extensión de tríceps con mancuerna",
     "Press cerrado",
     "Curl de muñeca","Curl de muñeca inverso",
@@ -806,7 +808,6 @@
     "Dominadas": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.4]] },
     "Dominadas supinas": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.3]] },
     "Jalón al pecho": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.3]] },
-    "Jalón tras nuca": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.3]] },
     "Remo con barra": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.6],["lower-back",0.3]] },
     "Remo con mancuerna unilateral": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.5]] },
     "Remo en polea baja": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.6]] },
@@ -835,7 +836,6 @@
     "Pullover": { diagram:"back-upper", t:[["lats",1],["triceps-long",0.25]] },
     // V31 §11: variantes de jalón y remo que la biblioteca definitiva exige.
     "Jalón agarre supino": { diagram:"back-upper", t:[["lats",1],["biceps-long",0.45],["rhomboids",0.35]] },
-    "Jalón agarre ancho": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.45],["shoulder-rear",0.3]] },
     "Jalón agarre neutro": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.4],["biceps-long",0.35]] },
     "Remo en máquina unilateral": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.55]] },
     "Remo en Hammer": { diagram:"back-upper", t:[["lats",1],["rhomboids",0.6]] },
@@ -858,18 +858,12 @@
     "Extensión de piernas": { diagram:"front-leg", t:[["quads-front",1],["quads-inner",0.8],["quads-outer",0.7]] },
     "Isquio acostado": { diagram:"back-leg", t:[["hamstrings",1]] },
     "Isquio sentado": { diagram:"back-leg", t:[["hamstrings",1]] },
-    "Zancadas": { diagram:"front-leg", t:[["quads-front",1],["quads-outer",0.6],["adductors",0.3]] },
     // V31: Estocadas y Step Up pasan a principal Glúteos, con cuádriceps
     // secundario (§9).
     "Estocadas con mancuerna": { diagram:"front-leg", t:[["glutes",1],["quads-front",0.7],["quads-outer",0.5]] },
-    "Hip thrust": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.4]] },
+    "Hip thrust con barra": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.4]] },
     "Hip thrust en máquina": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.4]] },
     "Puente de glúteos": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.3]] },
-    "Puente de glúteo con barra": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.35]] },
-    "Puente de glúteo a una pierna": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.4]] },
-    "Patada de glúteo en el piso": { diagram:"back-leg", t:[["glutes",1],["hamstrings",0.2]] },
-    "Patada lateral a cuatro patas": { diagram:"back-leg", t:[["glutes",1]] },
-    "Elevación lateral de pierna": { diagram:"back-leg", t:[["glutes",1]] },
     "Gemelos en máquina": { diagram:"back-leg", t:[["calves-gastro",1],["calves-soleus",0.5]] },
     "Gemelos parado con mancuerna": { diagram:"back-leg", t:[["calves-gastro",1],["calves-soleus",0.5]] },
     "Gemelos sentado en máquina": { diagram:"back-leg", t:[["calves-soleus",1],["calves-gastro",0.5]] },
@@ -877,7 +871,6 @@
     "Abductores en máquina": { diagram:"back-leg", t:[["glutes",1]] },
     "Aductores en máquina": { diagram:"front-leg", t:[["adductors",1]] },
     "Step Up": { diagram:"front-leg", t:[["glutes",1],["quads-front",0.7],["quads-outer",0.45]] },
-    "Peso muerto piernas rígidas": { diagram:"back-leg", t:[["hamstrings",1],["glutes",0.4]] },
     // Hombros
     "Press militar con barra": { diagram:"front-upper", t:[["shoulder-front",1],["shoulder-lateral",0.5]] },
     "Press de hombros con mancuernas": { diagram:"front-upper", t:[["shoulder-front",1],["shoulder-lateral",0.6]] },
@@ -901,7 +894,6 @@
     "Encogimientos con mancuernas": { diagram:"back-upper", t:[["traps",1],["rhomboids",0.3]] },
     "Encogimientos con barra": { diagram:"back-upper", t:[["traps",1],["rhomboids",0.3]] },
     "Encogimientos en máquina": { diagram:"back-upper", t:[["traps",1],["rhomboids",0.25]] },
-    "Encogimientos de hombros": { diagram:"back-upper", t:[["traps",1]] },
     // Brazos
     "Curl con barra": { diagram:"front-upper", t:[["biceps-short",1],["biceps-long",0.8]] },
     "Curl con mancuernas": { diagram:"front-upper", t:[["biceps-long",1],["biceps-short",0.8]] },
@@ -915,7 +907,6 @@
     "Press francés": { diagram:"back-upper", t:[["triceps-long",1],["triceps-lateral",0.5],["triceps-medial",0.4]] },
     "Extensión de tríceps en polea": { diagram:"back-upper", t:[["triceps-lateral",1],["triceps-long",0.5],["triceps-medial",0.4]] },
     "Extensión de tríceps en polea con barra": { diagram:"back-upper", t:[["triceps-lateral",1],["triceps-medial",0.6],["triceps-long",0.4]] },
-    "Extensión tríceps polea agarre prono": { diagram:"back-upper", t:[["triceps-long",1],["triceps-medial",0.6],["triceps-lateral",0.4]] },
     "Fondos de tríceps en banco": { diagram:"back-upper", t:[["triceps-lateral",0.9],["triceps-long",0.8],["triceps-medial",0.5]] },
     "Patada de tríceps": { diagram:"back-upper", t:[["triceps-long",0.9],["triceps-medial",0.7],["triceps-lateral",0.4]] },
     "Extensión de tríceps con mancuerna": { diagram:"back-upper", t:[["triceps-long",1],["triceps-lateral",0.5],["triceps-medial",0.4]] },
@@ -1075,41 +1066,29 @@
     "Pec deck inverso": "Pec Fly invertido",
     "Extensión de tríceps en polea c/barra": "Extensión de tríceps en polea con barra",
     "Extensión de tríceps en polea ag/Neutro": "Extensión de tríceps en polea",
-    // V35.1: este alias apuntaba a "Extensión tríceps polea agarre prono", que
-    // está RETIRADO — la cadena resolvía pero terminaba en un ejercicio que el
-    // generador ya no ofrece. Ahora apunta directo al activo, igual que la
-    // consolidación de abajo.
+    // V35.1: este alias apuntaba a un ejercicio intermedio que el generador no
+    // ofrecía; se repuntó directo al activo. 2B borró ese intermedio.
     "Extensión de tríceps en polea ag/Prono": "Extensión de tríceps en polea con barra",
     "Curl con mancuernas inclinado": "Curl con mancuernas banco inclinado",
     "Press militar maquina": "Press de hombros en máquina",
 
-    // ---- V35.3: "Jalón agarre ancho" y "Jalón al pecho" son la misma identidad.
-    // Mismo equipamiento (Polea), mismo patrón (traccion-vertical) y el MISMO
-    // link de MuscleWiki (machine-pulldown): la diferencia era de nomenclatura
-    // ("al pecho" describe el recorrido, "agarre ancho" el agarre), no dos
-    // progresiones distintas. A diferencia de los otros aliases, el nombre viejo
-    // era un ejercicio ACTIVO, así que además se agrega a EXERCISES_RETIRED —
-    // sin eso quedaban dos entradas activas canonicalizando al mismo ejercicio,
-    // con dos filas en la Biblioteca abriendo la misma ficha.
+    // ---- 2B: acá vivían los tres aliases cuya CLAVE era un ejercicio
+    // retirado: "Jalón agarre ancho", "Encogimientos de hombros" y
+    // "Extensión tríceps polea agarre prono". Existían para que el historial
+    // viejo encontrara su reemplazo activo — o sea, compatibilidad histórica,
+    // que es exactamente lo que 2B decidió no mantener. Se borraron junto con
+    // sus ejercicios.
     //
-    // "Jalón tras nuca" NO entra acá: es un recorrido distinto, se retiró por
-    // riesgo de hombro y sigue siendo una identidad histórica independiente.
-    "Jalón agarre ancho": "Jalón al pecho",
-
-    // ---- V35.1: retirados de V31 que SÍ tienen un equivalente activo.
-    // Salen de la auditoría de identidad de los 11 retirados. De esos 11, solo
-    // estos dos tenían equivalencia respaldada por evidencia convergente; los
-    // otros nueve quedan deliberadamente SIN alias (ver EXERCISES_RETIRED).
+    // Costo conocido, dejado a revisión: eran además TRES SINÓNIMOS DE
+    // BÚSQUEDA útiles. "Encogimientos de hombros" es el nombre genérico más
+    // natural en español y hoy escribirlo ya no sugiere nada. Si se quieren
+    // recuperar, alcanza con volver a agregarlos como aliases PUROS (clave que
+    // no es un ejercicio del catálogo — el caso normal de los otros 38), sin
+    // resucitar ninguna entrada de catálogo.
     //
-    // Mismo equipamiento (Mancuernas), mismo link de MuscleWiki
-    // (dumbbell-shrug), mismo músculo principal (traps). V31 lo retiró porque
-    // ya existían las tres variantes específicas; esta es la que le corresponde.
-    "Encogimientos de hombros": "Encogimientos con mancuernas",
-    // Mismo equipamiento (Polea), mismo link de MuscleWiki (cable-bar-pushdown),
-    // misma posición y ejecución. La diferencia de énfasis en MUSCLE_MAP
-    // (cabeza larga vs lateral) no alcanza por sí sola para justificar una
-    // identidad histórica separada — decisión explícita de producto.
-    "Extensión tríceps polea agarre prono": "Extensión de tríceps en polea con barra",
+    // De los 38 que quedan, el de pushdown merece su nota: la diferencia de
+    // énfasis en MUSCLE_MAP (cabeza larga vs lateral) no alcanzaba por sí sola
+    // para justificar una identidad separada — decisión explícita de producto.
   };
   // Devuelve el nombre canónico de un ejercicio (el mismo nombre si ya lo es).
   // Se usa al LEER datos guardados (historial, registros, rutinas persistidas),
@@ -1270,49 +1249,32 @@
     };
   }
 
-  // ---- Ejercicios retirados del pool activo.
-  // NO se borran: siguen en MUSCLE_MAP/EXERCISE_* para que el historial, las
-  // estadísticas, el CSV y el PDF los sigan mostrando con su ficha completa.
-  // Lo único que cambia es que el generador automático ya no los ofrece y no
-  // aparecen en la biblioteca/explorador como opción nueva.
-  const EXERCISES_RETIRED = new Set([
-    // V31 §8 — Piernas retiradas
-    "Hip thrust",                      // genérico: queda "Hip thrust en máquina"
-    "Puente de glúteo con barra",
-    "Puente de glúteo a una pierna",
-    "Patada de glúteo en el piso",
-    "Patada lateral a cuatro patas",
-    "Elevación lateral de pierna",
-    "Peso muerto piernas rígidas",
-    "Zancadas",                        // queda "Estocadas con mancuerna"
-    // V31 §11 — Espalda
-    "Jalón tras nuca",
-    // V35.3 — "Jalón agarre ancho" se unifica con "Jalón al pecho" (ver el
-    // alias). Sale del pool activo y de la Biblioteca para que haya UNA sola
-    // identidad activa, pero sigue en MUSCLE_MAP y en EXERCISES: el historial
-    // viejo conserva su ficha y se agrupa bajo el canónico. Esto baja el conteo
-    // del Explorador para Espalda de 16 a 15.
-    "Jalón agarre ancho",
-    // V31 §12 — Hombros: ya existen las tres variantes específicas
-    "Encogimientos de hombros",
-    // V31 §13 — Brazos: consolidación de pushdowns ya decidida
-    "Extensión tríceps polea agarre prono",
-  ]);
-  // V35.1: se chequea el nombre CRUDO además del canónico, y el orden importa.
+  // ---- CATÁLOGO OFICIAL ACTIVO (Etapa 2B).
   //
-  // Los cuatro llamadores (armSubfocusPool, legFocusPools, subgroupPools,
-  // muscleGroupPools) recorren las claves de MUSCLE_MAP, que incluyen a los
-  // retirados. Desde que un retirado tiene alias hacia un ejercicio ACTIVO
-  // ("Encogimientos de hombros" y "Extensión tríceps polea agarre prono"), su
-  // nombre canónico ya NO está en EXERCISES_RETIRED — así que mirar solo el
-  // canónico lo devolvía al pool activo y a la biblioteca. Verificado: sin esta
-  // línea, Hombros pasaba de 17 a 18 y Brazos de 18 a 19.
+  // Hasta V43 existía una categoría "retirados": doce ejercicios que seguían
+  // en EXERCISES y en MUSCLE_MAP, filtrados en cada consumidor por
+  // un filtro en cada consumidor, para que el historial conservara su ficha.
   //
-  // Chequear el crudo primero mantiene el comportamiento de siempre para los
-  // otros nueve retirados (que no tienen alias) y para cualquier alias viejo
-  // cuyo TARGET siga retirado.
-  function isRetiredExercise(name){
-    return EXERCISES_RETIRED.has(name) || EXERCISES_RETIRED.has(canonicalExerciseName(name));
+  // 2B elimina esa categoría. La app está en etapa de prueba y no hay
+  // historial que preservar, así que los retirados se borraron de verdad de
+  // todas las tablas en vez de quedar escondidos detrás de un filtro. Once se
+  // eliminaron; "Hip thrust" se renombró a "Hip thrust con barra" y volvió al
+  // catálogo (ver §2 de 2B).
+  //
+  // Consecuencia de diseño: EXERCISES ahora contiene EXACTAMENTE el catálogo
+  // oficial activo. No hay nada que filtrar, y por eso no queda ningún
+  // if(isRetired...) en los pools. Si alguna vez hay que retirar otro
+  // ejercicio, se borra de las tablas — no se agrega un filtro nuevo.
+  //
+  // activeExercises() existe igual, como ÚNICA puerta de entrada al catálogo
+  // oficial, por dos razones:
+  //   1. deja un solo lugar donde cambiar la definición de "oficial activo";
+  //   2. marca explícitamente la frontera con los ejercicios PERSONALIZADOS
+  //      del usuario (§7 de 2B), que viven fuera de EXERCISES y que nunca
+  //      deben entrar al generador automático ni a las sugerencias del
+  //      catálogo oficial.
+  function activeExercises(){
+    return EXERCISES;
   }
 
   // ---- Patrón de movimiento (V31 §3 y §10).
@@ -1330,7 +1292,8 @@
     "Peso muerto con barra":"bisagra", "Peso muerto con mancuernas":"bisagra",
     "Peso muerto rumano con barra":"bisagra", "Peso muerto rumano con mancuernas":"bisagra",
     "Peso muerto sumo con barra":"bisagra-sumo", "Peso muerto sumo con mancuernas":"bisagra-sumo",
-    "Hip thrust en máquina":"extension-cadera", "Puente de glúteos":"extension-cadera",
+    "Hip thrust con barra":"extension-cadera", "Hip thrust en máquina":"extension-cadera",
+    "Puente de glúteos":"extension-cadera",
     "Patada de glúteo en máquina":"extension-cadera", "Patada de glúteo en polea":"extension-cadera",
     "Abductores en máquina":"abduccion",
     "Isquio sentado":"flexion-rodilla", "Isquio acostado":"flexion-rodilla",
@@ -1340,7 +1303,7 @@
     // --- Espalda (§11) ---
     "Dominadas":"traccion-vertical", "Dominadas supinas":"traccion-vertical",
     "Jalón al pecho":"traccion-vertical", "Jalón agarre supino":"traccion-vertical",
-    "Jalón agarre ancho":"traccion-vertical", "Jalón agarre neutro":"traccion-vertical",
+    "Jalón agarre neutro":"traccion-vertical",
     "Remo con barra":"traccion-horizontal", "Remo con mancuerna unilateral":"traccion-horizontal",
     "Remo en polea baja":"traccion-horizontal", "Remo en máquina":"traccion-horizontal",
     "Remo en máquina unilateral":"traccion-horizontal", "Remo en máquina agarre ancho":"traccion-horizontal",
@@ -1523,7 +1486,6 @@
   // Pool activo de un sub-foco de brazo (biceps / triceps / antebrazo).
   function armSubfocusPool(subfocus, riskyExclude){
     return Object.keys(MUSCLE_MAP).filter(n=>{
-      if(isRetiredExercise(n)) return false;
       if(riskyExclude && riskyExclude.has(n)) return false;
       return exerciseArmSubfocus(n)===subfocus;
     });
@@ -1579,7 +1541,6 @@
     const pools = { quads:[], glutes:[], hamstrings:[], calves:[], adductors:[] };
     Object.keys(MUSCLE_MAP).forEach(name=>{
       if(excludeSet && excludeSet.has(name)) return;
-      if(isRetiredExercise(name)) return; // V31 §8: fuera del pool activo, pero sigue en MUSCLE_MAP para el historial
       const f = exerciseLegFocus(name);
       if(f && pools[f]) pools[f].push(name);
     });
@@ -1628,7 +1589,6 @@
     const pools = {};
     Object.keys(MUSCLE_MAP).forEach(name=>{
       if(excludeSet && excludeSet.has(name)) return;
-      if(isRetiredExercise(name)) return; // V31 §8
       const sg = exercisePrimarySubgroup(name);
       if(!sg) return;
       (pools[sg] = pools[sg]||[]).push(name);
@@ -1640,14 +1600,12 @@
     if(!excludeSet) _subgroupPoolsCache = pools;
     return pools;
   }
-  // V31: la biblioteca/explorador muestra solo ejercicios ACTIVOS. Los
-  // retirados siguen existiendo en MUSCLE_MAP (ficha, historial, PDF, CSV),
-  // simplemente ya no se ofrecen como opción nueva.
+  // 2B: las claves de MUSCLE_MAP son todas de ejercicios oficiales activos
+  // (los retirados se borraron), así que no hay nada que filtrar acá.
   function muscleGroupPools(){
     const pools = {};
     MUSCLE_GROUPS.forEach(g=>pools[g]=[]);
     Object.keys(MUSCLE_MAP).forEach(name=>{
-      if(isRetiredExercise(name)) return;
       const g = exerciseMuscleGroup(name);
       if(g) pools[g].push(name);
     });
@@ -1707,7 +1665,6 @@
     "Dominadas": ["Arrancá desde brazos completamente extendidos (dead hang).", "Llevá el pecho hacia la barra, no solo la barbilla.", "Bajá controlado, no te dejes caer."],
     "Dominadas supinas": ["Agarre en supinación (palmas hacia vos), más angosto.", "Subí llevando el pecho a la barra.", "Bajá completo antes de la siguiente repetición."],
     "Jalón al pecho": ["Agarre un poco más ancho que los hombros.", "Llevá la barra hacia la parte alta del pecho, no la nuca.", "Sacá pecho y llevá los codos hacia abajo y atrás."],
-    "Jalón tras nuca": ["Cuidado con la movilidad de hombro — si molesta, hacelo al pecho.", "Bajá la barra apenas detrás de la cabeza, sin forzar el cuello.", "Movimiento lento y controlado."],
     "Remo con barra": ["Torso inclinado ~45°, espalda recta (no redondeada).", "Llevá la barra hacia el abdomen bajo, codos pegados al cuerpo.", "Apretá los omóplatos arriba antes de bajar."],
     "Remo con mancuerna unilateral": ["Apoyá rodilla y mano en el banco para estabilizarte.", "Llevá el codo hacia atrás y arriba, pegado al torso.", "No gires el torso para levantar más peso."],
     // V36.1: estos cuatro no tenían enlace de MuscleWiki NI consejos, así que
@@ -1738,16 +1695,10 @@
     "Extensión de piernas": ["Espalda apoyada contra el respaldo.", "Subí hasta casi extender la pierna, sin trabar la rodilla.", "Bajá controlado, sin dejar caer el peso."],
     "Isquio acostado": ["Cadera pegada al banco durante todo el movimiento.", "Flexioná llevando el talón hacia el glúteo.", "Bajá controlado, sin soltar de golpe."],
     "Isquio sentado": ["Espalda apoyada, ajustá el rodillo justo arriba del tobillo.", "Flexioná apretando isquios, sin ayudarte con impulso.", "Volvé despacio a la posición inicial."],
-    "Zancadas": ["Paso largo, bajá hasta que la rodilla trasera casi toque el piso.", "Rodilla delantera alineada con el pie, sin irse hacia adelante.", "Empujá con el talón de adelante para volver."],
     "Estocadas con mancuerna": ["Mismo movimiento que la zancada, con mancuernas a los costados.", "Torso erguido durante todo el recorrido.", "Alterná piernas o hacé todas las repeticiones de un lado primero."],
-    "Hip thrust": ["Espalda alta apoyada en un banco, barra sobre la cadera.", "Subí hasta que el torso quede en línea con los muslos.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
+    "Hip thrust con barra": ["Espalda alta apoyada en un banco, barra sobre la cadera.", "Subí hasta que el torso quede en línea con los muslos.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
     "Hip thrust en máquina": ["El respaldo y el recorrido ya vienen guiados por la máquina.", "Subí hasta que el torso quede en línea con los muslos.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
     "Puente de glúteos": ["Igual que el hip thrust pero con la espalda en el piso.", "Empujá con los talones, apretando glúteos arriba.", "Bajá controlado sin descansar del todo entre repeticiones."],
-    "Puente de glúteo con barra": ["Igual que el puente de glúteo, con una barra apoyada sobre la cadera.", "Sostené la barra firme con las manos mientras empujás con los talones.", "Apretá bien los glúteos arriba, sin arquear la zona lumbar."],
-    "Puente de glúteo a una pierna": ["Igual que el puente de glúteo, pero con una sola pierna apoyada.", "Mantené la cadera nivelada, sin que el lado libre caiga o rote.", "Subí apretando el glúteo de la pierna de apoyo, bajá controlado."],
-    "Patada de glúteo en el piso": ["Apoyate en cuatro patas (manos y rodillas), espalda neutra.", "Empujá una pierna hacia atrás y arriba, con la rodilla flexionada a 90°.", "Apretá el glúteo arriba y volvé controlado, sin arquear la zona lumbar."],
-    "Patada lateral a cuatro patas": ["Apoyate en cuatro patas (manos y rodillas), espalda neutra.", "Llevá la rodilla hacia afuera hasta la altura de la cadera, sin girar el torso.", "Volvé controlado sin dejar caer la pierna de golpe."],
-    "Elevación lateral de pierna": ["Acostate de costado, cuerpo alineado, apoyado sobre el antebrazo.", "Subí la pierna de arriba manteniéndola estirada, sin girarla hacia adelante.", "Bajá controlado sin apoyarla del todo entre repeticiones."],
     "Gemelos en máquina": ["Subí lo más alto posible sobre la punta de los pies.", "Bajá controlado hasta sentir el estiramiento del gemelo.", "Evitá rebotar para hacer más repeticiones."],
     "Gemelos parado con mancuerna": ["Sostené la mancuerna al costado del cuerpo, con el brazo relajado.", "Subí lo más alto posible sobre la punta de los pies.", "Bajá controlado sin rebotar."],
     "Gemelos sentado en máquina": ["Rodillas flexionadas a 90°, esto enfatiza el sóleo.", "Subí bien alto y hacé una pausa breve arriba.", "Bajá controlado hasta el estiramiento completo."],
@@ -1755,7 +1706,6 @@
     "Abductores en máquina": ["Espalda apoyada, movimiento controlado hacia afuera.", "No uses impulso ni rebotes.", "Volvé despacio a la posición inicial."],
     "Aductores en máquina": ["Ajustá el rango para sentir el trabajo en la parte interna del muslo.", "Cerrá las piernas de forma controlada.", "Evitá que las pesas choquen entre repeticiones."],
     "Step Up": ["Subí a un banco apoyando todo el pie, sin impulso de la pierna de atrás.", "Empujá con el talón de la pierna que sube.", "Bajá controlado, sin dejarte caer."],
-    "Peso muerto piernas rígidas": ["Rodillas casi rectas, más rígidas que en el rumano.", "Cadera hacia atrás, barra pegada a las piernas.", "Bajá solo hasta donde la espalda se mantenga recta."],
     "Press militar con barra": ["Core apretado, no arquees de más la zona lumbar.", "Subí la barra en línea recta por delante de la cara.", "Bloqueá arriba sin trabar los codos de golpe."],
     "Press de hombros con mancuernas": ["Mismo cuidado con la zona lumbar que con barra.", "Codos ligeramente por delante del cuerpo al empezar.", "Subí ambas mancuernas de forma pareja."],
     "Press militar con mancuernas sentado": ["Espalda bien apoyada en el respaldo, sin arquear la zona lumbar.", "Codos ligeramente por delante del cuerpo al empezar.", "Subí ambas mancuernas de forma pareja hasta casi extender el codo."],
@@ -1765,7 +1715,6 @@
     "Vuelos frontales": ["Subí una mancuerna o barra al frente hasta la altura del hombro.", "No uses impulso de piernas ni espalda.", "Bajá controlado a la posición inicial."],
     "Vuelos pájaro": ["Torso inclinado hacia adelante, brazos casi rectos.", "Abrí los brazos llevando los codos hacia atrás.", "Apretá los omóplatos al final del movimiento."],
     "Remo al mentón": ["Agarre un poco más angosto que los hombros.", "Subí los codos por encima de las manos.", "Si sentís molestia en el hombro, abrí más el agarre."],
-    "Encogimientos de hombros": ["Subí los hombros derecho hacia arriba, sin girarlos.", "Aguantá un segundo arriba apretando los trapecios.", "Bajá controlado, sin dejar caer el peso de golpe."],
     "Curl con barra": ["Codos pegados al torso durante todo el movimiento.", "Subí sin balancear el cuerpo para impulsar la barra.", "Bajá controlado hasta extender casi del todo el brazo."],
     "Curl con mancuernas": ["Ambos brazos suben al mismo tiempo, codos pegados al torso.", "Girá la muñeca (supinación) a medida que subís.", "Bajá controlado, sin balancear el cuerpo para impulsar el peso."],
     "Curl con mancuernas alternado": ["Girá la muñeca (supinación) a medida que subís.", "Un brazo a la vez, sin balancear el torso.", "Bajá controlado antes de empezar el otro lado."],
@@ -1778,7 +1727,6 @@
     "Press francés": ["Codos apuntando al techo durante todo el movimiento.", "Bajá la barra/mancuerna hacia la frente, no hacia la nuca.", "Solo se mueve el antebrazo, el codo queda fijo."],
     "Extensión de tríceps en polea": ["Codos pegados al cuerpo, fijos.", "Extendé completo abajo apretando el tríceps.", "Volvé controlado sin que la polea tire del brazo."],
     "Extensión de tríceps en polea con barra": ["Agarre firme en la barra recta, codos pegados al cuerpo.", "Extendé completo abajo sin mover los codos hacia adelante.", "Volvé controlado, sin que la polea tire del brazo."],
-    "Extensión tríceps polea agarre prono": ["Palmas hacia abajo (agarre prono) en vez de la cuerda o barra en V.", "Este agarre enfatiza más la cabeza larga del tríceps.", "Codos fijos pegados al cuerpo durante todo el recorrido."],
     "Fondos de tríceps en banco": ["Manos en el borde del banco, piernas estiradas para más intensidad.", "Bajá hasta 90° en el codo.", "Empujá con el tríceps, sin hundir los hombros."],
     "Patada de tríceps": ["Torso inclinado, brazo pegado al cuerpo y paralelo al piso.", "Extendé el antebrazo hacia atrás, sin mover el codo.", "Aguantá un instante arriba antes de volver."],
     "Extensión de tríceps con mancuerna": ["Mancuerna sostenida con ambas manos detrás de la cabeza.", "Codos apuntando al techo, fijos.", "Bajá controlado sintiendo el estiramiento."],
@@ -2269,7 +2217,7 @@
     // ---------- ESPALDA ----------
     "dominadas-anatomia.jpg": ["Dominadas"],
     "dominadas-supinas-anatomia.jpg": ["Dominadas supinas", "Jalón agarre supino"],
-    "jalon-espalda-anatomia.jpg": ["Jalón agarre ancho", "Jalón agarre neutro", "Jalón al pecho"],
+    "jalon-espalda-anatomia.jpg": ["Jalón agarre neutro", "Jalón al pecho"],
     "pullover-anatomia.jpg": ["Pullover"],
     "remo-espalda-anatomia.jpg": [
       "Remo con barra", "Remo con mancuerna unilateral", "Remo en Hammer", "Remo en máquina",
@@ -2406,19 +2354,14 @@
     "Extensión de piernas": "https://musclewiki.com/exercise/machine-leg-extension",
     "Isquio acostado": "https://musclewiki.com/exercise/machine-hamstring-curl",
     "Isquio sentado": "https://musclewiki.com/exercise/machine-seated-leg-curl",
-    "Zancadas": "https://musclewiki.com/exercise/forward-lunges",
     "Estocadas con mancuerna": "https://musclewiki.com/exercise/dumbbell-forward-lunge",
-    "Hip thrust": "https://musclewiki.com/exercise/barbell-hip-thrust",
+    "Hip thrust con barra": "https://musclewiki.com/exercise/barbell-hip-thrust",
     "Hip thrust en máquina": "https://musclewiki.com/exercise/machine-hip-thrust",
     "Puente de glúteos": "https://musclewiki.com/exercise/glute-bridge",
-    "Puente de glúteo con barra": "https://musclewiki.com/exercise/barbell-glute-bridge",
-    "Puente de glúteo a una pierna": "https://musclewiki.com/exercise/single-leg-glute-bridge",
-    "Patada de glúteo en el piso": "https://musclewiki.com/exercise/kickbacks",
     "Gemelos en máquina": "https://musclewiki.com/exercise/calf-raises",
     "Gemelos sentado en máquina": "https://musclewiki.com/exercise/machine-seated-calf-raises",
     "Abductores en máquina": "https://musclewiki.com/exercise/machine-hip-abduction",
     "Aductores en máquina": "https://musclewiki.com/exercise/machine-hip-adduction",
-    "Peso muerto piernas rígidas": "https://musclewiki.com/exercise/barbell-stiff-leg-deadlifts",
     "Press militar con barra": "https://musclewiki.com/exercise/barbell-overhead-press",
     "Press de hombros con mancuernas": "https://musclewiki.com/exercise/dumbbell-overhead-press",
     // V36.1: verificado contra musclewiki.com — "Machine Overhand Overhead
@@ -2440,7 +2383,6 @@
     "Curl concentrado": "https://musclewiki.com/exercise/dumbbell-concentration-curl",
     "Press francés": "https://musclewiki.com/exercise/barbell-skullcrusher",
     "Extensión de tríceps en polea con barra": "https://musclewiki.com/exercise/cable-bar-pushdown",
-    "Extensión tríceps polea agarre prono": "https://musclewiki.com/exercise/cable-bar-pushdown",
     "Fondos de tríceps en banco": "https://musclewiki.com/exercise/bench-dips",
     "Patada de tríceps": "https://musclewiki.com/exercise/dumbbell-tricep-kickback",
     "Press cerrado": "https://musclewiki.com/exercise/barbell-close-grip-bench-press",
@@ -2463,10 +2405,6 @@
     // aparecen acá quedaron SIN enlace a propósito porque MuscleWiki no tiene una
     // página que corresponda sin ambigüedad — ver la lista al final del bloque.
     // ---- Espalda ----
-    // "Jalón agarre ancho" comparte página con "Jalón al pecho": el jalón al
-    // pecho de MuscleWiki (machine-pulldown) ES el de agarre ancho, no hay una
-    // página separada para cada agarre ancho.
-    "Jalón agarre ancho": "https://musclewiki.com/exercise/machine-pulldown",
     "Jalón agarre neutro": "https://musclewiki.com/exercise/neutral-pulldown",
     "Jalón agarre supino": "https://musclewiki.com/exercise/underhand-pulldown",
     "Remo en T": "https://musclewiki.com/exercise/machine-plate-loaded-t-bar-row",
@@ -2480,7 +2418,6 @@
     "Peso muerto rumano con mancuernas": "https://musclewiki.com/exercise/dumbbell-romanian-deadlift",
     "Gemelos parado con mancuerna": "https://musclewiki.com/exercise/dumbbell-calf-raise",
     "Gemelos en prensa": "https://musclewiki.com/exercise/machine-horizontal-leg-press-calf-raise",
-    "Elevación lateral de pierna": "https://musclewiki.com/exercise/bodyweight-hip-abduction",
     // ---- Bíceps ----
     "Curl con mancuernas": "https://musclewiki.com/exercise/dumbbell-curl",
     "Curl en polea": "https://musclewiki.com/exercise/cable-bar-curl",
@@ -2500,10 +2437,8 @@
     "Pec Fly invertido": "https://musclewiki.com/exercise/machine-reverse-fly",
     "Encogimientos con barra": "https://musclewiki.com/exercise/barbell-shrug",
     "Encogimientos con mancuernas": "https://musclewiki.com/exercise/dumbbell-shrug",
-    // "Encogimientos de hombros" es el nombre genérico y su equipo es mancuernas,
-    // así que apunta a la misma página que la variante con mancuernas. El slug
-    // suelto "shrug" NO sirve: es el "Vitruvian Shrug", otro aparato.
-    "Encogimientos de hombros": "https://musclewiki.com/exercise/dumbbell-shrug",
+    // Nota de V33, por si alguna vez se agrega otra variante: el slug suelto
+    // "shrug" NO sirve, es el "Vitruvian Shrug", otro aparato.
     "Encogimientos en máquina": "https://musclewiki.com/exercise/machine-standing-shrug",
     // ---- Core ----
     "Crunch en polea": "https://musclewiki.com/exercise/cable-rope-kneeling-crunch",
@@ -2527,9 +2462,6 @@
     //   Remo en máquina unilateral         (no hay remo en máquina a un brazo)
     //   Remo en máquina agarre ancho       (no hay remo en máquina agarre ancho;
     //     machine-overhand-row es otro agarre, no "ancho")
-    //   Jalón tras nuca                    (no hay jalón tras nuca, solo press)
-    //   Patada lateral a cuatro patas      (solo con banda o polea; VodaFit la
-    //     tiene como peso corporal)
     //   Curl en polea unilateral           (las de un brazo son bayesian,
     //     rolling o hammer: movimientos distintos)
   };
@@ -2564,7 +2496,6 @@
     "Dominadas": "Peso corporal",
     "Dominadas supinas": "Peso corporal",
     "Jalón al pecho": "Polea",
-    "Jalón tras nuca": "Polea",
     "Remo con barra": "Barra",
     "Remo con mancuerna unilateral": "Mancuernas",
     "Remo en polea baja": "Polea",
@@ -2577,7 +2508,6 @@
     "Remo en Hammer": "Máquina",
     "Remo en TRX": "Peso corporal",
     "Jalón agarre supino": "Polea",
-    "Jalón agarre ancho": "Polea",
     "Jalón agarre neutro": "Polea",
     "Peso muerto con barra": "Barra",
     "Peso muerto con mancuernas": "Mancuernas",
@@ -2598,16 +2528,10 @@
     "Extensión de piernas": "Máquina",
     "Isquio acostado": "Máquina",
     "Isquio sentado": "Máquina",
-    "Zancadas": "Peso corporal",
     "Estocadas con mancuerna": "Mancuernas",
-    "Hip thrust": "Barra",
+    "Hip thrust con barra": "Barra",
     "Hip thrust en máquina": "Máquina",
     "Puente de glúteos": "Peso corporal",
-    "Puente de glúteo con barra": "Barra",
-    "Puente de glúteo a una pierna": "Peso corporal",
-    "Patada de glúteo en el piso": "Peso corporal",
-    "Patada lateral a cuatro patas": "Peso corporal",
-    "Elevación lateral de pierna": "Peso corporal",
     "Gemelos en máquina": "Máquina", // *
     // V35.2: era "Mancuerna" (singular), el único de los 29 ejercicios con
     // mancuernas que lo escribía así. El filtro de equipamiento de la Biblioteca
@@ -2620,7 +2544,6 @@
     "Abductores en máquina": "Máquina",
     "Aductores en máquina": "Máquina",
     "Step Up": "Peso corporal", // * (también común con mancuernas)
-    "Peso muerto piernas rígidas": "Barra",
     // Hombros
     "Press militar con barra": "Barra",
     "Press de hombros con mancuernas": "Mancuernas",
@@ -2635,7 +2558,6 @@
     "Vuelos pájaro": "Mancuernas",
     "Pec Fly invertido": "Máquina",
     "Remo al mentón": "Barra",
-    "Encogimientos de hombros": "Mancuernas", // *
     "Encogimientos con mancuernas": "Mancuernas",
     "Encogimientos con barra": "Barra",
     "Encogimientos en máquina": "Máquina",
@@ -2652,7 +2574,6 @@
     "Press francés": "Barra", // * (a veces mancuerna)
     "Extensión de tríceps en polea": "Polea",
     "Extensión de tríceps en polea con barra": "Polea",
-    "Extensión tríceps polea agarre prono": "Polea",
     "Fondos de tríceps en banco": "Peso corporal",
     "Patada de tríceps": "Mancuernas",
     "Extensión de tríceps con mancuerna": "Mancuernas",
@@ -3166,33 +3087,119 @@
     return (s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
   }
 
-  function exerciseSuggestions(query, extra){
-    const q = normalizeTxt(query);
-    if(!q) return [];
-    const pool = new Set();
-    (extra||[]).forEach(n=> n && pool.add(n));
-    EXERCISES.forEach(n=> pool.add(n));
-    const starts = [], contains = [];
-    pool.forEach(name=>{
-      const nn = normalizeTxt(name);
-      if(nn===q) return;
-      if(nn.startsWith(q)) starts.push(name);
-      else if(nn.includes(q)) contains.push(name);
-    });
-    starts.sort((a,b)=>a.localeCompare(b,"es"));
-    contains.sort((a,b)=>a.localeCompare(b,"es"));
-    return starts.concat(contains).slice(0,6);
+  /* ============ 2B: BUSCADOR DEL CATÁLOGO OFICIAL ============
+     Problemas que tenía la versión anterior, medidos sobre el catálogo real:
+
+     1. `includes` exige substring CONTIGUO, así que cualquier búsqueda de más
+        de una palabra caía a cero resultados. "press banca" — que es,
+        literalmente, el placeholder del propio formulario — devolvía 0 de 7
+        coincidencias posibles. Lo mismo "sentadilla barra", "remo mancuerna",
+        "aperturas banco".
+     2. Los aliases NO entraban al pool (el pool era EXERCISES), así que todo
+        el vocabulario real de gimnasio era inalcanzable: "Prensa de piernas",
+        "Curl femoral", "Pec deck", "Elevaciones laterales" devolvían cero,
+        aunque la tabla de aliases los traduce perfecto.
+     3. El corte era alfabético dentro de cada nivel, no por relevancia, y
+        escondía el resto en silencio.
+     4. La coincidencia EXACTA se descartaba adrede.
+
+     Jerarquía de relevancia (§4 de 2B). Un ejercicio entra por su MEJOR nivel:
+       0 exacto   — el nombre normalizado es la consulta
+       1 comienzo — el nombre empieza con la consulta
+       2 palabras — todas las palabras de la consulta están en el nombre
+       3 alias    — alguna de las de arriba matcheó contra un alias
+       4 parcial  — la consulta aparece suelta dentro del nombre
+     A igual nivel gana el nombre MÁS CORTO (casi siempre la variante base:
+     "Press de banca con barra" antes que "...inclinado con mancuernas") y el
+     alfabético decide el último empate.
+
+     Devuelve la lista COMPLETA ya ordenada. El recorte a 4 y el "Ver X más..."
+     son presentación y viven en attachAutocomplete.
+
+     SÓLO devuelve ejercicios OFICIALES ACTIVOS. Los ejercicios personalizados
+     del usuario (§7 de 2B) no son parte del catálogo y no se sugieren acá. */
+  const AC_MIN_CHARS = 2;
+  const AC_INITIAL = 4;
+  const AC_RANK = { exacto:0, comienzo:1, palabras:2, alias:3, parcial:4 };
+
+  // Normalización de búsqueda (§5 de 2B): minúsculas, sin tildes y espacios
+  // repetidos colapsados, así que "PRESS  BANCA" y "press banca" son lo mismo.
+  function normalizeSearch(s){
+    return (s||"").toString().toLowerCase().normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
-  function attachAutocomplete(input, listEl, extraProvider, onSelect){
+  function exerciseSuggestions(query){
+    const q = normalizeSearch(query);
+    if(q.length < AC_MIN_CHARS) return [];
+    const palabras = q.split(" ").filter(Boolean);
+    // Nivel de una cadena candidata (nombre oficial o alias) contra la consulta.
+    // null = no matchea. El nivel "palabras" solo aplica con 2+ palabras: con
+    // una sola sería idéntico a "parcial".
+    const nivel = (texto)=>{
+      const t = normalizeSearch(texto);
+      if(t === q) return AC_RANK.exacto;
+      if(t.startsWith(q)) return AC_RANK.comienzo;
+      if(palabras.length > 1 && palabras.every(p=> t.indexOf(p) !== -1)) return AC_RANK.palabras;
+      if(t.indexOf(q) !== -1) return AC_RANK.parcial;
+      return null;
+    };
+    // nombre oficial -> mejor nivel con el que se lo alcanzó
+    const mejor = new Map();
+    const considerar = (nombre, rank)=>{
+      const prev = mejor.get(nombre);
+      if(prev === undefined || rank < prev) mejor.set(nombre, rank);
+    };
+    activeExercises().forEach(nombre=>{
+      const r = nivel(nombre);
+      if(r !== null) considerar(nombre, r);
+    });
+    // Los aliases aportan VOCABULARIO, no entradas: lo que se sugiere es
+    // siempre el nombre oficial de destino (§4: la interfaz muestra únicamente
+    // el nombre oficial, sin explicar por qué apareció).
+    Object.keys(EXERCISE_ALIASES).forEach(alias=>{
+      const destino = EXERCISE_ALIASES[alias];
+      if(EXERCISES.indexOf(destino) === -1) return; // alias colgado: se ignora
+      if(nivel(alias) !== null) considerar(destino, AC_RANK.alias);
+    });
+    return Array.from(mejor.keys()).sort((a,b)=>{
+      const d = mejor.get(a) - mejor.get(b);
+      if(d) return d;
+      if(a.length !== b.length) return a.length - b.length;
+      return a.localeCompare(b, "es");
+    });
+  }
+
+  // Muestra AC_INITIAL (4) resultados y, si hay más, una fila "Ver X más..."
+  // que expande la lista EN EL MISMO LUGAR (§3 de 2B): no abre otra pantalla.
+  // `expandido` se resetea en cada tecleo, porque la lista cambió.
+  //
+  // El input sigue siendo texto libre: el autocompletado solo PROPONE. Nunca
+  // autoselecciona ni impide escribir un nombre que no está en el catálogo
+  // (§7 de 2B — alta manual de ejercicios personalizados).
+  function attachAutocomplete(input, listEl, onSelect){
     if(!input || !listEl) return;
-    function update(){
-      const q = input.value;
-      const sugg = q.trim() ? exerciseSuggestions(q, extraProvider?extraProvider():[]) : [];
-      if(sugg.length===0){ listEl.innerHTML=""; listEl.style.display="none"; return; }
-      listEl.innerHTML = sugg.map(s=>`<div class="ac-item" data-val="${esc(s)}">${esc(s)}</div>`).join("");
+    let expandido = false;
+    function pintar(){
+      const todas = exerciseSuggestions(input.value);
+      if(!todas.length){ listEl.innerHTML=""; listEl.style.display="none"; return; }
+      const visibles = expandido ? todas : todas.slice(0, AC_INITIAL);
+      const resto = todas.length - visibles.length;
+      listEl.innerHTML =
+        visibles.map(s=>`<div class="ac-item" data-val="${esc(s)}">${esc(s)}</div>`).join("") +
+        (resto > 0 ? `<div class="ac-item ac-more" data-ac-more="1">Ver ${resto} más...</div>` : "");
       listEl.style.display = "block";
-      listEl.querySelectorAll(".ac-item").forEach(it=>{
+      // "Ver X más..." NO lleva data-val: no se puede elegir como ejercicio.
+      const more = listEl.querySelector("[data-ac-more]");
+      if(more) more.addEventListener("mousedown", (e)=>{
+        e.preventDefault();
+        expandido = true;
+        pintar();
+        input.focus();
+      });
+      listEl.querySelectorAll(".ac-item[data-val]").forEach(it=>{
         it.addEventListener("mousedown", (e)=>{
           e.preventDefault();
           input.value = it.dataset.val;
@@ -3202,6 +3209,7 @@
         });
       });
     }
+    function update(){ expandido = false; pintar(); }
     input.addEventListener("input", update);
     input.addEventListener("focus", update);
     input.addEventListener("blur", ()=>{ setTimeout(()=>{ listEl.style.display="none"; }, 120); });
@@ -4575,7 +4583,7 @@
         ? `<div class="muscle-diagram"><img src="${esc(url)}" style="width:74px; height:92px; object-fit:contain; border-radius:8px" onerror="this.style.visibility='hidden'"></div>`
         : muscleDiagramFor(nameInput.value.trim());
     };
-    attachAutocomplete(nameInput, m.querySelector("#ex-name-ac"), allExerciseNames, updateMusclePreview);
+    attachAutocomplete(nameInput, m.querySelector("#ex-name-ac"), updateMusclePreview);
     nameInput.addEventListener("input", updateMusclePreview);
     imagenInput.addEventListener("input", updateMusclePreview);
     m.querySelector('[data-act="cancel"]').onclick = closeModal;
@@ -4910,19 +4918,19 @@
     "Press de banca plano en Smith","Press de banca inclinado en Smith","Press de banca declinado en Smith",
     "Flexiones de brazo",
     // Espalda — dominadas/jalones/remos/peso muerto (multiarticular hombro+codo o cadera+rodilla)
-    "Dominadas","Dominadas supinas","Jalón al pecho","Jalón tras nuca",
+    "Dominadas","Dominadas supinas","Jalón al pecho",
     "Remo con barra","Remo con mancuerna unilateral","Remo en polea baja","Remo en máquina",
     "Remo en máquina agarre ancho","Remo en T",
     // V31: variantes nuevas de tracción — mismo carácter multiarticular.
     "Remo en máquina unilateral","Remo en Hammer","Remo en TRX",
-    "Jalón agarre supino","Jalón agarre ancho","Jalón agarre neutro",
-    "Peso muerto con barra","Peso muerto rumano con barra","Peso muerto sumo con barra","Peso muerto con mancuernas","Peso muerto piernas rígidas",
+    "Jalón agarre supino","Jalón agarre neutro",
+    "Peso muerto con barra","Peso muerto rumano con barra","Peso muerto sumo con barra","Peso muerto con mancuernas",
     "Peso muerto rumano con mancuernas","Peso muerto sumo con mancuernas",
     // Piernas — sentadillas/prensa/zancadas/hip thrust (multiarticular cadera+rodilla)
     "Sentadilla con barra","Sentadilla frontal","Sentadilla búlgara","Sentadilla Sumo","Sentadilla Hack",
     "Sentadilla Smith",
-    "Prensa inclinada","Zancadas","Estocadas con mancuerna",
-    "Hip thrust","Hip thrust en máquina","Puente de glúteo con barra","Step Up",
+    "Prensa inclinada","Estocadas con mancuerna",
+    "Hip thrust con barra","Hip thrust en máquina","Step Up",
     // Hombros — press militar (multiarticular hombro+codo)
     "Press militar con barra","Press de hombros con mancuernas","Press militar con mancuernas sentado",
     "Press de hombros en máquina","Arnold press","Press tras nuca con barra",
@@ -4962,7 +4970,7 @@
   // reemplazo exercicio-por-ejercicio.
   const EXERCISES_RISKY_50PLUS = new Set([
     "Sentadilla con barra", "Sentadilla frontal", "Sentadilla Sumo",
-    "Peso muerto con barra", "Peso muerto sumo con barra", "Peso muerto piernas rígidas",
+    "Peso muerto con barra", "Peso muerto sumo con barra",
     "Remo con barra", "Press militar con barra", "Press tras nuca con barra",
   ]);
 
@@ -7504,7 +7512,7 @@
     };
     const otherWrap = el.querySelector("#reg-other-wrap");
     if(selEx.value==="__otro__") otherWrap.style.display = "";
-    attachAutocomplete(el.querySelector("#reg-other-name"), el.querySelector("#reg-other-name-ac"), allExerciseNames);
+    attachAutocomplete(el.querySelector("#reg-other-name"), el.querySelector("#reg-other-name-ac"));
 
     el.querySelector("#btn-save-reg").onclick = async ()=>{
       let exercise = selEx.value;
@@ -9106,7 +9114,7 @@
     // v30
     calendarOriginFor, calendarOriginsFor, CALENDAR_ORIGIN_LABELS,
     // v31 — biblioteca, clasificación, patrones, edad y rutina enfocada
-    EXERCISE_ALIASES, canonicalExerciseName, EXERCISES_RETIRED, isRetiredExercise,
+    EXERCISE_ALIASES, canonicalExerciseName, activeExercises,
     // v34 — capa normalizadora + diagnóstico de identidad
     EXERCISE_NAME_STOPWORDS, normalizeExerciseName, EXERCISE_NORMALIZED_INDEX,
     resolveExerciseNameNormalized, isAmbiguousExerciseName, exerciseNameResolves,
@@ -9114,6 +9122,8 @@
     canonicalizeDayNames, canonicalizeRutinaSlots, exerciseHistoryFor, allExerciseNames,
     Store,
     filterHistory, toCSV, screenRegistro,
+    // 2B: buscador del catálogo oficial.
+    exerciseSuggestions, attachAutocomplete, normalizeSearch, AC_MIN_CHARS, AC_INITIAL, AC_RANK,
     openExerciseDiagnosticsModal,
     EXERCISE_PATTERN, exercisePattern, PATTERN_PREDOMINANCE, PATTERN_PREDOMINANCE_WEIGHT,
     exercisePredominance, exercisePredominanceWeight,

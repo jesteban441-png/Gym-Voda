@@ -34,6 +34,9 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 <div id="out"></div>
 <iframe id="app" src="index.html"></iframe>
 
+<!-- 2C: la línea base de clasificación vive en su propio archivo. Se carga
+     antes del harness y queda en window.VODAFIT_BASELINE_CLASIFICACION. -->
+<script src="baseline-clasificacion.js"></script>
 <script>
 (function(){
   var out = document.getElementById("out");
@@ -98,7 +101,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     test("todo nombre de EXERCISES activo existe en MUSCLE_MAP", function(){
       var missing = A.EXERCISES.filter(function(n){
-        return !A.isRetiredExercise(n) && !A.MUSCLE_MAP[n] && !/^(Cinta|Bicicleta|Elíptico|Máquina de remo|Escaladora|Salto de soga|Burpees|Kettlebell|Battle rope|Trineo)/.test(n);
+        return !A.MUSCLE_MAP[n] && !/^(Cinta|Bicicleta|Elíptico|Máquina de remo|Escaladora|Salto de soga|Burpees|Kettlebell|Battle rope|Trineo)/.test(n);
       });
       assert(missing.length===0, "sin MUSCLE_MAP: " + missing.join(", "));
     });
@@ -115,17 +118,13 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     test("ningún nombre viejo renombrado quedó como clave activa", function(){
-      // V35.1: se exceptúan los RETIRADOS. La intención original sigue siendo
-      // la misma (una clave de alias no debe ser un ejercicio que el generador
-      // todavía ofrece), pero ahora hay un caso legítimo más: un retirado de
-      // V31 aliaseado a su equivalente activo. El retirado sigue en EXERCISES y
-      // en MUSCLE_MAP a propósito, para que el historial conserve su ficha, y
-      // isRetiredExercise lo mantiene fuera del pool activo.
+      // 2B: desaparece la excepción de los retirados y el test vuelve a su
+      // forma original, más estricta: NINGUNA clave de alias puede ser a la vez
+      // un ejercicio del catálogo. Antes había tres (los retirados aliaseados
+      // a su reemplazo); 2B borró esos ejercicios y esos aliases.
       var olds = Object.keys(A.EXERCISE_ALIASES);
-      var leaked = olds.filter(function(o){
-        return A.EXERCISES.indexOf(o)!==-1 && !A.isRetiredExercise(o);
-      });
-      assert(leaked.length===0, "claves de alias que son ejercicios ACTIVOS: " + leaked.join(", "));
+      var leaked = olds.filter(function(o){ return A.EXERCISES.indexOf(o)!==-1; });
+      assert(leaked.length===0, "claves de alias que son ejercicios del catálogo: " + leaked.join(", "));
     });
 
     test("los aliases apuntan a un nombre canónico real", function(){
@@ -154,17 +153,52 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(A.exercisePrimarySubgroup("Peso muerto")!=null, "subgrupo por alias");
     });
 
-    test("los retirados salen de los pools activos", function(){
-      var pools = A.muscleGroupPools();
-      var all = [];
-      Object.keys(pools).forEach(function(g){ all = all.concat(pools[g]); });
-      var leaked = Array.from(A.EXERCISES_RETIRED).filter(function(n){ return all.indexOf(n)!==-1; });
-      assert(leaked.length===0, "retirados visibles: " + leaked.join(", "));
+    // 2B reemplaza estos dos tests. Afirmaban las dos mitades de la decisión
+    // vieja: que los retirados salían de los pools PERO conservaban su ficha en
+    // MUSCLE_MAP para el historial. La segunda mitad ya no es cierta ni
+    // deseable: 2B los borró de verdad. Lo que se afirma ahora es lo contrario
+    // — que no queda rastro de ellos en ninguna estructura.
+    var BORRADOS_2B = ["Hip thrust","Puente de glúteo con barra","Puente de glúteo a una pierna",
+      "Patada de glúteo en el piso","Patada lateral a cuatro patas","Elevación lateral de pierna",
+      "Peso muerto piernas rígidas","Zancadas","Jalón tras nuca","Jalón agarre ancho",
+      "Encogimientos de hombros","Extensión tríceps polea agarre prono"];
+
+    test("2B — los doce retirados no existen en NINGUNA estructura", function(){
+      var tablas = {
+        EXERCISES: function(n){ return A.EXERCISES.indexOf(n)!==-1; },
+        MUSCLE_MAP: function(n){ return !!A.MUSCLE_MAP[n]; },
+        EXERCISE_TIPS: function(n){ return !!A.EXERCISE_TIPSñ; },
+        EXERCISE_HOWTO_LINKS: function(n){ return !!A.EXERCISE_HOWTO_LINKSñ; },
+        EXERCISE_EQUIPMENT: function(n){ return !!A.EXERCISE_EQUIPMENTñ; },
+        EXERCISE_PATTERN: function(n){ return !!A.EXERCISE_PATTERNñ; },
+        EXERCISE_ANATOMY_IMAGES: function(n){ return !!A.EXERCISE_ANATOMY_IMAGESñ; },
+        EXERCISES_COMPOUND: function(n){ return A.EXERCISES_COMPOUND.has(n); },
+        EXERCISES_RISKY_50PLUS: function(n){ return A.EXERCISES_RISKY_50PLUS.has(n); },
+        EXERCISE_ALIASES_clave: function(n){ return !!A.EXERCISE_ALIASESñ; }
+      };
+      var sobrevivientes = [];
+      BORRADOS_2B.forEach(function(n){
+        Object.keys(tablas).forEach(function(t){
+          if(tablas[t](n)) sobrevivientes.push(n + " en " + t);
+        });
+      });
+      assert(sobrevivientes.length===0, "sobrevivieron: " + sobrevivientes.join(" | "));
     });
 
-    test("los retirados conservan su ficha (no se borró el dato)", function(){
-      var lost = Array.from(A.EXERCISES_RETIRED).filter(function(n){ return !A.MUSCLE_MAP[n]; });
-      assert(lost.length===0, "perdieron MUSCLE_MAP: " + lost.join(", "));
+    test("2B — ningún alias apunta a un ejercicio borrado", function(){
+      var colgados = Object.keys(A.EXERCISE_ALIASES).filter(function(k){
+        return A.EXERCISES.indexOf(A.EXERCISE_ALIASES[k]) === -1;
+      });
+      assert(colgados.length===0, "aliases colgados: " + colgados.join(", "));
+    });
+
+    test("2B — la categoría \"retirados\" ya no existe como concepto", function(){
+      assert(typeof A.isRetiredExercise === "undefined", "isRetiredExercise sigue exportada");
+      assert(typeof A.EXERCISES_RETIRED === "undefined", "EXERCISES_RETIRED sigue exportada");
+      // En su lugar hay una sola puerta de entrada al catálogo oficial.
+      assert(typeof A.activeExercises === "function", "falta activeExercises()");
+      assert(A.activeExercises().length === A.EXERCISES.length,
+        "activeExercises no coincide con EXERCISES: " + A.activeExercises().length + " vs " + A.EXERCISES.length);
     });
 
     /* ---------------- CLASIFICACIÓN ---------------- */
@@ -173,7 +207,6 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     test("todo ejercicio activo tiene exactamente UN principal", function(){
       var bad = [];
       Object.keys(A.MUSCLE_MAP).forEach(function(n){
-        if(A.isRetiredExercise(n)) return;
         var p = A.exercisePrimarySubgroup(n);
         if(!p) bad.push(n);
       });
@@ -183,7 +216,6 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     test("el principal es estrictamente el de mayor intensidad (sin empate ambiguo)", function(){
       var bad = [];
       Object.keys(A.MUSCLE_MAP).forEach(function(n){
-        if(A.isRetiredExercise(n)) return;
         var t = A.MUSCLE_MAP[n].t || [];
         if(!t.length) return;
         var max = Math.max.apply(null, t.map(function(x){ return x[1]; }));
@@ -261,7 +293,6 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     test("todo ejercicio activo de la biblioteca tiene patrón declarado", function(){
       var sinPatron = [];
       Object.keys(A.MUSCLE_MAP).forEach(function(n){
-        if(A.isRetiredExercise(n)) return;
         if(!A.EXERCISE_PATTERN[n]) sinPatron.push(n);
       });
       assert(sinPatron.length===0, "sin patrón: " + sinPatron.join(", "));
@@ -375,7 +406,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     test("Dominadas supinas sigue siendo un ejercicio independiente y activo", function(){
       assert(!!A.MUSCLE_MAP["Dominadas supinas"], "no existe");
-      assert(!A.isRetiredExercise("Dominadas supinas"), "está retirado");
+      assert(A.EXERCISES.indexOf("Dominadas supinas")!==-1, "no está en el catálogo");
       assert(A.MUSCLE_MAP["Dominadas"] !== A.MUSCLE_MAP["Dominadas supinas"], "se fusionaron");
     });
 
@@ -384,35 +415,33 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "patrones distintos: " + A.exercisePattern("Dominadas") + " / " + A.exercisePattern("Dominadas supinas"));
     });
 
-    test("Jalón tras nuca está fuera del pool activo", function(){
-      assert(A.isRetiredExercise("Jalón tras nuca"), "no está retirado");
+    test("Jalón tras nuca ya no existe (2B lo eliminó)", function(){
+      // V31 §11 lo había retirado por riesgo de hombro conservándole la ficha.
+      // 2B lo borra: no hay historial que preservar.
+      assert(!A.MUSCLE_MAP["Jalón tras nuca"], "sigue en MUSCLE_MAP");
+      assert(A.EXERCISES.indexOf("Jalón tras nuca")===-1, "sigue en EXERCISES");
       var pools = A.subgroupPools();
       assert((pools.espalda||[]).indexOf("Jalón tras nuca")===-1, "sigue en el pool de espalda");
     });
 
     test("Remo en polea baja sigue presente y activo", function(){
-      assert(!!A.MUSCLE_MAP["Remo en polea baja"] && !A.isRetiredExercise("Remo en polea baja"));
+      assert(!!A.MUSCLE_MAP["Remo en polea baja"] && A.EXERCISES.indexOf("Remo en polea baja")!==-1);
       assert((A.subgroupPools().espalda||[]).indexOf("Remo en polea baja")!==-1, "no está en el pool");
     });
 
     test("Hiperextensiones sigue presente (reclasificada, no eliminada)", function(){
-      assert(!!A.MUSCLE_MAP["Hiperextensiones"] && !A.isRetiredExercise("Hiperextensiones"));
+      assert(!!A.MUSCLE_MAP["Hiperextensiones"] && A.EXERCISES.indexOf("Hiperextensiones")!==-1);
     });
 
     test("las variantes de jalón y remo de la spec §11 existen y están activas", function(){
-      // V35.3: "Jalón agarre ancho" salió de esta lista. Se unificó con
-      // "Jalón al pecho" (misma identidad: mismo equipamiento, mismo patrón,
-      // mismo link de MuscleWiki) y se retiró para que haya UNA sola identidad
-      // activa de ese movimiento. Sigue existiendo en MUSCLE_MAP para el
-      // historial; lo que ya no es, es un ejercicio activo.
+      // V35.3 unificó "Jalón agarre ancho" con "Jalón al pecho" y lo retiró
+      // conservándole la ficha. 2B lo borra del todo, junto con su alias.
       var req = ["Jalón agarre supino","Jalón al pecho","Jalón agarre neutro",
                  "Remo en máquina unilateral","Remo en TRX","Remo en Hammer","Pullover","Remo con mancuerna unilateral"];
-      var bad = req.filter(function(n){ return !A.MUSCLE_MAP[n] || A.isRetiredExercise(n); });
-      assert(bad.length===0, "faltan/retirados: " + bad.join(", "));
-      // Y el nombre viejo conserva su ficha, aunque retirado.
-      assert(!!A.MUSCLE_MAP["Jalón agarre ancho"], "Jalón agarre ancho salió de MUSCLE_MAP");
-      assert(A.isRetiredExercise("Jalón agarre ancho"), "Jalón agarre ancho debería estar retirado");
-      assert(A.canonicalExerciseName("Jalón agarre ancho") === "Jalón al pecho", "no resuelve al canónico");
+      var bad = req.filter(function(n){ return !A.MUSCLE_MAP[n] || A.EXERCISES.indexOf(n)===-1; });
+      assert(bad.length===0, "faltan: " + bad.join(", "));
+      assert(!A.MUSCLE_MAP["Jalón agarre ancho"], "Jalón agarre ancho sigue en MUSCLE_MAP");
+      assert(A.EXERCISE_ALIASES["Jalón agarre ancho"] === undefined, "sigue teniendo alias");
     });
 
     /* ---------------- HOMBROS ---------------- */
@@ -423,31 +452,32 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "Press de hombros en máquina","Press tras nuca con barra","Arnold press","Vuelos laterales con mancuerna",
         "Elevación lateral en máquina","Elevación lateral en polea","Vuelos frontales","Face Pull","Pec Fly invertido",
         "Vuelos pájaro","Remo al mentón","Encogimientos con mancuernas","Encogimientos con barra","Encogimientos en máquina"];
-      var bad = req.filter(function(n){ return !A.MUSCLE_MAP[n] || A.isRetiredExercise(n); });
-      assert(bad.length===0, "faltan/retirados: " + bad.join(", "));
+      var bad = req.filter(function(n){ return !A.MUSCLE_MAP[n] || A.EXERCISES.indexOf(n)===-1; });
+      assert(bad.length===0, "faltan: " + bad.join(", "));
     });
 
-    test("las TRES variantes de encogimiento están activas", function(){
+    test("las TRES variantes de encogimiento están en el catálogo", function(){
       var v = ["Encogimientos con mancuernas","Encogimientos con barra","Encogimientos en máquina"];
-      var bad = v.filter(function(n){ return A.isRetiredExercise(n); });
-      assert(bad.length===0, "retiradas: " + bad.join(", "));
+      var bad = v.filter(function(n){ return A.EXERCISES.indexOf(n)===-1; });
+      assert(bad.length===0, "faltan: " + bad.join(", "));
     });
 
-    test("Encogimientos de hombros (genérico) está fuera del pool activo", function(){
-      assert(A.isRetiredExercise("Encogimientos de hombros"), "no está retirado");
+    test("Encogimientos de hombros (genérico) ya no existe (2B lo eliminó)", function(){
+      assert(A.EXERCISES.indexOf("Encogimientos de hombros")===-1, "sigue en EXERCISES");
+      assert(!A.MUSCLE_MAP["Encogimientos de hombros"], "sigue en MUSCLE_MAP");
       var pools = A.subgroupPools();
       assert((pools.hombros||[]).indexOf("Encogimientos de hombros")===-1, "sigue en el pool");
     });
 
     test("Press de hombros con mancuernas existe como ejercicio independiente", function(){
       assert(!!A.MUSCLE_MAP["Press de hombros con mancuernas"], "no existe");
-      assert(!A.isRetiredExercise("Press de hombros con mancuernas"), "está retirado");
+      assert(A.EXERCISES.indexOf("Press de hombros con mancuernas")!==-1, "no está en el catálogo");
       assert(A.EXERCISES.indexOf("Press de hombros con mancuernas")!==-1, "no está en EXERCISES");
     });
 
     test("Press militar con mancuernas sentado existe como ejercicio independiente", function(){
       assert(!!A.MUSCLE_MAP["Press militar con mancuernas sentado"], "no existe");
-      assert(!A.isRetiredExercise("Press militar con mancuernas sentado"), "está retirado");
+      assert(A.EXERCISES.indexOf("Press militar con mancuernas sentado")!==-1, "no está en el catálogo");
       assert(A.EXERCISES.indexOf("Press militar con mancuernas sentado")!==-1, "no está en EXERCISES");
     });
 
@@ -470,7 +500,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       var bad = [];
       variantes.forEach(function(n){
         if(!A.MUSCLE_MAP[n]) bad.push(n + ": no existe");
-        else if(A.isRetiredExercise(n)) bad.push(n + ": retirado");
+        else if(A.EXERCISES.indexOf(n)===-1) bad.push(n + ": fuera del catálogo");
         else if(A.canonicalExerciseName(n)!==n) bad.push(n + ": aliaseado a " + A.canonicalExerciseName(n));
       });
       assert(bad.length===0, bad.join(" | "));
@@ -486,16 +516,13 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // ejercicio propio: eso es un renombre. Si ambos existieran, sería una
       // fusión accidental de variantes.
       //
-      // V35.1: se exceptúan los RETIRADOS, que siguen en MUSCLE_MAP para
-      // conservar su ficha en el historial. Aliasear un retirado a su
-      // equivalente activo NO es una fusión accidental: es una decisión
-      // explícita, tomada caso por caso en la auditoría de identidad (de los 11
-      // retirados, solo 2 la recibieron). Lo que este test sigue prohibiendo es
-      // fusionar dos ejercicios ACTIVOS.
+      // 2B: cae la excepción de los retirados (ya no existen) y el test vuelve
+      // a su forma estricta: ninguna clave de alias puede tener entrada propia
+      // en MUSCLE_MAP.
       var fusiones = Object.keys(A.EXERCISE_ALIASES).filter(function(viejo){
-        return !!A.MUSCLE_MAP[viejo] && !A.isRetiredExercise(viejo);
+        return !!A.MUSCLE_MAP[viejo];
       });
-      assert(fusiones.length===0, "fusión de dos ejercicios ACTIVOS: " + fusiones.join(", "));
+      assert(fusiones.length===0, "fusión de dos ejercicios del catálogo: " + fusiones.join(", "));
     });
 
     test("los renombres sensibles conservan identidad única", function(){
@@ -520,21 +547,23 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     /* ---------------- BRAZOS ---------------- */
     group("Brazos");
 
-    test("Extensión tríceps polea agarre prono sigue retirada del pool", function(){
-      assert(A.isRetiredExercise("Extensión tríceps polea agarre prono"), "no está retirada");
-      assert(!!A.MUSCLE_MAP["Extensión tríceps polea agarre prono"], "se perdió su ficha histórica");
+    test("Extensión tríceps polea agarre prono ya no existe (2B la eliminó)", function(){
+      assert(A.EXERCISES.indexOf("Extensión tríceps polea agarre prono")===-1, "sigue en EXERCISES");
+      assert(!A.MUSCLE_MAP["Extensión tríceps polea agarre prono"], "sigue en MUSCLE_MAP");
+      // Su reemplazo activo sigue en pie.
+      assert(!!A.MUSCLE_MAP["Extensión de tríceps en polea con barra"], "se perdió el reemplazo");
     });
 
     test("Curl de muñeca existe en la biblioteca activa", function(){
       assert(!!A.MUSCLE_MAP["Curl de muñeca"], "no existe en MUSCLE_MAP");
       assert(A.EXERCISES.indexOf("Curl de muñeca")!==-1, "no está en EXERCISES");
-      assert(!A.isRetiredExercise("Curl de muñeca"), "está retirado");
+      assert(A.EXERCISES.indexOf("Curl de muñeca")!==-1, "no está en el catálogo");
     });
 
     test("Curl de muñeca inverso existe en la biblioteca activa", function(){
       assert(!!A.MUSCLE_MAP["Curl de muñeca inverso"], "no existe en MUSCLE_MAP");
       assert(A.EXERCISES.indexOf("Curl de muñeca inverso")!==-1, "no está en EXERCISES");
-      assert(!A.isRetiredExercise("Curl de muñeca inverso"), "está retirado");
+      assert(A.EXERCISES.indexOf("Curl de muñeca inverso")!==-1, "no está en el catálogo");
     });
 
     test("ambos curls de muñeca tienen principal Antebrazo", function(){
@@ -898,7 +927,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         repeat(12, function(){
           var day = A.generateFocusedDay(foci, 0);
           if(!day) return;
-          names(day).forEach(function(n){ if(A.isRetiredExercise(n)) bad.push(n); });
+          names(day).forEach(function(n){ if(A.EXERCISES.indexOf(n)===-1) bad.push(n); });
         });
       });
       assert(bad.length===0, "retirados elegidos: " + uniq(bad).join(", "));
@@ -1039,7 +1068,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       ["Masculino","Femenino"].forEach(function(sexo){
         for(var d=1; d<=6; d++){
           (A.generateAutoRoutine(d, sexo, [])||[]).forEach(function(day){
-            names(day).forEach(function(n){ if(A.isRetiredExercise(n)) bad.push(n); });
+            names(day).forEach(function(n){ if(A.EXERCISES.indexOf(n)===-1) bad.push(n); });
           });
         }
       });
@@ -1172,14 +1201,17 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(!!p, "Piernas perdió su sub-filtro");
       assert(p.options.length===5, "opciones de Piernas: " + p.options.length);
       // Los conteos de Piernas no cambiaron con esta modificación.
-      var esperado = { quads:7, glutes:12, hamstrings:4, calves:4, adductors:1 };
+      // 2B: glutes 12 → 13 por "Hip thrust con barra" (el ex "Hip thrust",
+      // retirado hasta ahora). Los otros cuatro focos no se tocaron.
+      var esperado = { quads:7, glutes:13, hamstrings:4, calves:4, adductors:1 };
       var bad = [];
       Object.keys(esperado).forEach(function(k){
         var n = A.explorerNamesFor("Piernas", k).length;
         if(n!==esperado[k]) bad.push(k + ": " + n + " ≠ " + esperado[k]);
       });
       assert(bad.length===0, bad.join(" | "));
-      assert(A.explorerNamesFor("Piernas",null).length===28, "Piernas Todos: " + A.explorerNamesFor("Piernas",null).length);
+      // 2B: 28 → 29 por "Hip thrust con barra".
+      assert(A.explorerNamesFor("Piernas",null).length===29, "Piernas Todos: " + A.explorerNamesFor("Piernas",null).length);
     });
 
     test("los grupos sin sub-filtro no se ven afectados", function(){
@@ -1440,24 +1472,13 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     test("cada nombre canónico se resuelve a sí mismo (idempotencia)", function(){
-      // V35.1: la idempotencia se exige sobre los ejercicios ACTIVOS. Un
-      // retirado con alias hacia su equivalente activo se desvía a propósito:
-      // es justo el punto de aliasearlo. Los activos no pueden desviarse nunca.
-      // V35.3: se suma "Jalón agarre ancho" (tres retirados con alias en total).
+      // 2B: antes había una excepción (los tres retirados con alias se desviaban
+      // a propósito, porque seguían en EXERCISES). Al borrarlos, la regla queda
+      // sin excepciones: TODO nombre del catálogo se resuelve a sí mismo.
       var malos = A.EXERCISES.filter(function(n){
-        return !A.isRetiredExercise(n) && A.canonicalExerciseName(n) !== n;
+        return A.canonicalExerciseName(n) !== n;
       });
-      assert(malos.length === 0, "canónicos ACTIVOS que se desvían: " + malos.join(", "));
-      // Y de los retirados, solo los dos aprobados en la auditoría se desvían.
-      var retiradosDesviados = A.EXERCISES.filter(function(n){
-        return A.isRetiredExercise(n) && A.canonicalExerciseName(n) !== n;
-      }).sort();
-      assert(retiradosDesviados.length === 3,
-        "retirados desviados inesperados: " + retiradosDesviados.join(", "));
-      ["Encogimientos de hombros","Extensión tríceps polea agarre prono","Jalón agarre ancho"].forEach(function(n){
-        assert(retiradosDesviados.indexOf(n) !== -1,
-          "falta " + n + " entre los retirados desviados: " + retiradosDesviados.join(", "));
-      });
+      assert(malos.length === 0, "nombres del catálogo que se desvían: " + malos.join(", "));
     });
 
     test("normaliza mayúsculas, acentos, puntuación y espacios", function(){
@@ -1619,7 +1640,8 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       //   V35.1: + "Encogimientos de hombros" y
       //          "Extensión tríceps polea agarre prono" = 40
       //   V35.3: + "Jalón agarre ancho" = 41
-      assert(Object.keys(A.EXERCISE_ALIASES).length === 41,
+      // 2B: 41 → 38 (se borraron los 3 aliases cuya clave era un retirado).
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38,
         "cantidad de aliases inesperada: " + Object.keys(A.EXERCISE_ALIASES).length);
       assert(A.EXERCISE_ALIASES["Gemelos"] === "Gemelos parado con mancuerna", "se perdió el alias de V34");
     });
@@ -1986,105 +2008,165 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     // equivalencia respaldada solo en DOS. Los otros nueve quedan como
     // identidades históricas independientes, por decisión explícita.
 
-    group("V35.1 · aliases nuevos de retirados");
+    group("2B · los aliases de nombres retirados se fueron con ellos");
 
-    test("Encogimientos de hombros canonicaliza a Encogimientos con mancuernas", function(){
-      assert(A.canonicalExerciseName("Encogimientos de hombros") === "Encogimientos con mancuernas",
-        "no resuelve: " + A.canonicalExerciseName("Encogimientos de hombros"));
-      assert(A.EXERCISE_ALIASES["Encogimientos de hombros"] === "Encogimientos con mancuernas",
-        "falta la entrada explícita en EXERCISE_ALIASES");
-      // No arrastra a las otras dos variantes, que son ejercicios distintos.
+    // Estos tres tests afirmaban que los nombres retirados canonicalizaban a su
+    // reemplazo activo. Era la pieza central de la compatibilidad histórica de
+    // V35.1/V35.3, y 2B la eliminó a propósito: los nombres ya no existen y sus
+    // aliases tampoco. Lo que se verifica ahora es el estado nuevo, no el viejo.
+    test("2B — los tres aliases de nombres retirados ya no existen", function(){
+      ["Encogimientos de hombros","Extensión tríceps polea agarre prono","Jalón agarre ancho"]
+      .forEach(function(n){
+        assert(A.EXERCISE_ALIASES[n] === undefined, n + " sigue teniendo alias");
+        // Un nombre desconocido se devuelve TAL CUAL: la canonicalización no
+        // inventa un reemplazo. Eso es lo que permite el alta manual (§7).
+        assert(A.canonicalExerciseName(n) === n,
+          n + " canonicalizó a " + A.canonicalExerciseName(n) + " sin tener alias");
+      });
+    });
+
+    test("2B — los destinos activos de esos aliases siguen sanos", function(){
+      ["Encogimientos con mancuernas","Extensión de tríceps en polea con barra","Jalón al pecho"]
+      .forEach(function(n){
+        assert(A.EXERCISES.indexOf(n) !== -1, n + " salió del catálogo");
+        assert(!!A.MUSCLE_MAP[n], n + " perdió su MUSCLE_MAP");
+        assert(A.canonicalExerciseName(n) === n, n + " se desvió");
+      });
+      // Y las variantes hermanas no se absorbieron entre sí.
       assert(A.canonicalExerciseName("Encogimientos con barra") === "Encogimientos con barra", "absorbió la de barra");
       assert(A.canonicalExerciseName("Encogimientos en máquina") === "Encogimientos en máquina", "absorbió la de máquina");
+      assert(A.canonicalExerciseName("Extensión de tríceps en polea") === "Extensión de tríceps en polea", "absorbió la de cuerda");
     });
 
-    test("Extensión tríceps polea agarre prono canonicaliza al activo", function(){
-      assert(A.canonicalExerciseName("Extensión tríceps polea agarre prono") === "Extensión de tríceps en polea con barra",
-        "no resuelve: " + A.canonicalExerciseName("Extensión tríceps polea agarre prono"));
-      // Y NO absorbe la variante con cuerda, que es otro ejercicio.
-      assert(A.canonicalExerciseName("Extensión de tríceps en polea") === "Extensión de tríceps en polea",
-        "absorbió la variante con cuerda");
-    });
-
-    test("el alias roto ag/Prono ahora apunta al activo", function(){
-      // Antes apuntaba a "Extensión tríceps polea agarre prono", que está
-      // RETIRADO: la cadena resolvía pero terminaba en un ejercicio que el
-      // generador ya no ofrece.
+    test("el alias ag/Prono sigue apuntando al activo", function(){
+      // Este alias NO se borró: su clave nunca fue un ejercicio del catálogo,
+      // es una forma de escritura. Sigue siendo vocabulario útil.
       assert(A.canonicalExerciseName("Extensión de tríceps en polea ag/Prono") === "Extensión de tríceps en polea con barra",
         "sigue roto: " + A.canonicalExerciseName("Extensión de tríceps en polea ag/Prono"));
       assert(A.EXERCISE_ALIASES["Extensión de tríceps en polea ag/Prono"] === "Extensión de tríceps en polea con barra",
-        "el target del alias no se corrigió");
-      // Los tres nombres del mismo pushdown terminan en la misma identidad.
+        "cambió el target del alias");
+      // Las dos formas de escritura del mismo pushdown llegan a la misma identidad.
       var destino = A.canonicalExerciseName("Extensión de tríceps en polea con barra");
-      ["Extensión de tríceps en polea c/barra","Extensión de tríceps en polea ag/Prono",
-       "Extensión tríceps polea agarre prono"].forEach(function(n){
+      ["Extensión de tríceps en polea c/barra","Extensión de tríceps en polea ag/Prono"].forEach(function(n){
         assert(A.canonicalExerciseName(n) === destino, n + " no llega a " + destino);
       });
     });
 
-    test("ningún alias apunta a un ejercicio retirado", function(){
+    test("ningún alias apunta a un ejercicio que no existe", function(){
+      // 2B: antes decía "a un retirado". Al no haber retirados, el invariante
+      // que queda es el más fuerte: todo destino de alias tiene que ser un
+      // ejercicio real del catálogo.
       var malos = Object.keys(A.EXERCISE_ALIASES).filter(function(k){
-        return A.EXERCISES_RETIRED.has(A.EXERCISE_ALIASES[k]);
+        return A.EXERCISES.indexOf(A.EXERCISE_ALIASES[k]) === -1;
       });
-      assert(malos.length === 0, "aliases que terminan en un retirado: " + malos.join(", "));
+      assert(malos.length === 0, "aliases colgados: " + malos.join(", "));
     });
 
-    group("V35.1 · los nueve retirados siguen siendo identidades propias");
+    group("2B · Hip thrust con barra y las identidades vecinas");
 
-    test("los nueve retirados sin alias no canonicalizan a otro ejercicio", function(){
-      var sinAlias = ["Hip thrust","Zancadas","Peso muerto piernas rígidas",
-        "Puente de glúteo con barra","Puente de glúteo a una pierna","Patada de glúteo en el piso",
-        "Patada lateral a cuatro patas","Elevación lateral de pierna","Jalón tras nuca"];
-      sinAlias.forEach(function(n){
+    test("2B — los nombres borrados no canonicalizan a ningún activo", function(){
+      // Antes este test cuidaba que los retirados NO se fusionaran con su
+      // vecino activo. Siguen sin fusionarse, pero por otro motivo: ya no son
+      // ejercicios, son cadenas desconocidas que se devuelven tal cual.
+      BORRADOS_2B.filter(function(n){ return n !== "Hip thrust"; }).forEach(function(n){
         assert(A.canonicalExerciseName(n) === n, n + " canonicalizó a " + A.canonicalExerciseName(n));
-        assert(A.EXERCISE_ALIASES[n] === undefined, n + " tiene un alias que no debería tener");
+        assert(A.EXERCISE_ALIASES[n] === undefined, n + " tiene alias");
+        assert(A.EXERCISES.indexOf(n) === -1, n + " sigue en el catálogo");
       });
     });
 
-    test("Hip thrust NO se mezcla con Hip thrust en máquina", function(){
-      // El retirado es con barra, el activo es de máquina: cargas no comparables.
-      assert(A.canonicalExerciseName("Hip thrust") !== "Hip thrust en máquina", "se fusionaron");
-      assert(A.exerciseEquipment("Hip thrust") === "Barra", "el retirado debería ser Barra");
-      assert(A.exerciseEquipment("Hip thrust en máquina") === "Máquina", "el activo debería ser Máquina");
+    test("2B — Hip thrust con barra existe y NO se mezcla con el de máquina", function(){
+      // El ex "Hip thrust" genérico era, sin ambigúedad, el de barra: equipamiento
+      // "Barra", link barbell-hip-thrust y consejos que hablan de la barra sobre
+      // la cadera. 2B lo renombra a "Hip thrust con barra" y lo devuelve al
+      // catálogo. Siguen siendo DOS ejercicios: cargas no comparables.
+      assert(A.EXERCISES.indexOf("Hip thrust con barra") !== -1, "no está en EXERCISES");
+      assert(A.EXERCISES.indexOf("Hip thrust") === -1, "el nombre genérico viejo sigue existiendo");
+      assert(A.canonicalExerciseName("Hip thrust con barra") === "Hip thrust con barra", "se desvió");
+      assert(A.canonicalExerciseName("Hip thrust con barra") !== "Hip thrust en máquina", "se fusionaron");
+      assert(A.exerciseEquipment("Hip thrust con barra") === "Barra", "debería ser Barra");
+      assert(A.exerciseEquipment("Hip thrust en máquina") === "Máquina", "el de máquina debería ser Máquina");
+      // Dos entradas DISTINTAS en MUSCLE_MAP (no se compartió el objeto).
+      assert(!!A.MUSCLE_MAP["Hip thrust con barra"], "sin MUSCLE_MAP");
+      assert(A.MUSCLE_MAP["Hip thrust con barra"] !== A.MUSCLE_MAP["Hip thrust en máquina"], "comparten entrada");
     });
 
-    test("Zancadas NO se mezcla con Estocadas con mancuerna", function(){
-      assert(A.canonicalExerciseName("Zancadas") !== "Estocadas con mancuerna", "se fusionaron");
-      // Pero el alias de la variante CON carga, que ya existía, sigue intacto.
-      assert(A.canonicalExerciseName("Zancadas con mancuernas") === "Estocadas con mancuerna",
-        "se rompió el alias preexistente de la variante con mancuernas");
+    test("2B — Hip thrust con barra conserva TODOS los metadatos del original", function(){
+      // El renombre no puede perder nada: es la misma ficha con otro nombre.
+      assert(A.exerciseEquipment("Hip thrust con barra") === "Barra", "equipamiento");
+      assert(A.exerciseHowtoLinkFor("Hip thrust con barra") === "https://musclewiki.com/exercise/barbell-hip-thrust", "enlace");
+      assert((A.EXERCISE_TIPS["Hip thrust con barra"] || []).length === 3, "consejos");
+      assert(A.EXERCISES_COMPOUND.has("Hip thrust con barra"), "marca de compuesto");
+      // MUSCLE_MAP: exactamente el contenido que tenía "Hip thrust".
+      var t = A.MUSCLE_MAP["Hip thrust con barra"].t;
+      assert(A.MUSCLE_MAP["Hip thrust con barra"].diagram === "back-leg", "diagram");
+      assert(JSON.stringify(t) === JSON.stringify([["glutes",1],["hamstrings",0.4]]), "regiones: " + JSON.stringify(t));
+      // Clasificación derivada.
+      assert(A.exerciseMuscleGroup("Hip thrust con barra") === "Piernas", "grupo");
+      assert(A.exercisePrimarySubgroup("Hip thrust con barra") === "piernas", "subgrupo");
+      assert(A.exerciseSubgroup10("Hip thrust con barra") === "gluteos", "subgrupo10");
+      assert(A.exerciseLegFocus("Hip thrust con barra") === "glutes", "foco de pierna");
     });
 
-    test("Peso muerto piernas rígidas NO se mezcla con el rumano", function(){
-      assert(A.canonicalExerciseName("Peso muerto piernas rígidas") !== "Peso muerto rumano con barra", "se fusionaron");
-      // Y el retirado sigue marcado como riesgoso 50+, que el rumano no es.
-      assert(A.EXERCISES_RISKY_50PLUS.has("Peso muerto piernas rígidas"), "perdió la marca de riesgo 50+");
-      assert(!A.EXERCISES_RISKY_50PLUS.has("Peso muerto rumano con barra"), "el rumano no debería ser riesgoso");
+    test("2B — Hip thrust con barra tiene patrón y entra a los pools", function(){
+      // "Hip thrust" NUNCA tuvo patrón declarado, porque estaba retirado y el
+      // invariante "todo ejercicio del catálogo tiene patrón" no lo alcanzaba.
+      // Al volver al catálogo sí lo alcanza: sin patrón, el generador lo trataría
+      // como identidad suelta y podría ofrecerlo el mismo día que el de máquina.
+      assert(A.exercisePattern("Hip thrust con barra") === "extension-cadera",
+        "patrón: " + A.exercisePattern("Hip thrust con barra"));
+      // Comparte patrón con los otros dos de extensión de cadera, así que el
+      // generador los trata como variantes del mismo movimiento.
+      assert(A.exercisePattern("Hip thrust en máquina") === "extension-cadera", "el de máquina cambió de patrón");
+      assert(A.exercisePattern("Puente de glúteos") === "extension-cadera", "el puente cambió de patrón");
+      // Y está en los pools que alimentan al generador.
+      assert(A.muscleGroupPools()["Piernas"].indexOf("Hip thrust con barra") !== -1, "falta en muscleGroupPools.Piernas");
+      assert(A.subgroupPools()["gluteos"].indexOf("Hip thrust con barra") !== -1, "falta en subgroupPools.gluteos");
+      assert(A.legFocusPools()["glutes"].indexOf("Hip thrust con barra") !== -1, "falta en legFocusPools.glutes");
     });
 
-    test("los puentes de glúteo y las patadas no se fusionan", function(){
-      assert(A.canonicalExerciseName("Puente de glúteo con barra") !== "Puente de glúteos", "barra vs peso corporal");
-      assert(A.canonicalExerciseName("Puente de glúteo a una pierna") !== "Puente de glúteos", "unilateral vs bilateral");
-      assert(A.canonicalExerciseName("Patada de glúteo en el piso") !== "Patada de glúteo en máquina", "piso vs máquina");
+    test("las identidades vecinas de glúteo siguen separadas", function(){
+      // Lo que este test cuidaba sigue valiendo para los que QUEDAN.
+      assert(A.canonicalExerciseName("Puente de glúteos") === "Puente de glúteos", "el puente se desvió");
+      assert(A.canonicalExerciseName("Patada de glúteo en máquina") === "Patada de glúteo en máquina", "la patada se desvió");
+      assert(A.canonicalExerciseName("Patada de glúteo en polea") === "Patada de glúteo en polea", "la de polea se desvió");
       // Los alias preexistentes de esa familia siguen funcionando.
       assert(A.canonicalExerciseName("Puente de glúteo") === "Puente de glúteos", "se rompió el alias singular→plural");
       assert(A.canonicalExerciseName("Extensión de cadera en máquina") === "Patada de glúteo en máquina", "se rompió el alias de extensión de cadera");
+      // Y el alias de la variante con carga de zancada, que nunca fue un
+      // ejercicio del catálogo, sigue intacto.
+      assert(A.canonicalExerciseName("Zancadas con mancuernas") === "Estocadas con mancuerna",
+        "se rompió el alias de la variante con mancuernas");
+    });
+
+    test("el rumano con barra NO quedó marcado como riesgoso 50+", function(){
+      // "Peso muerto piernas rígidas" era el único riesgoso 50+ que 2B borró:
+      // la lista baja de 9 a 8 y el rumano sigue fuera de ella.
+      assert(!A.EXERCISES_RISKY_50PLUS.has("Peso muerto rumano con barra"), "el rumano no debería ser riesgoso");
+      assert(!A.EXERCISES_RISKY_50PLUS.has("Peso muerto piernas rígidas"), "un nombre borrado sigue en la lista");
+      assert(A.EXERCISES_RISKY_50PLUS.size === 8, "riesgosos 50+: esperaba 8, hubo " + A.EXERCISES_RISKY_50PLUS.size);
+      // Los 8 que quedan siguen siendo ejercicios reales del catálogo.
+      Array.from(A.EXERCISES_RISKY_50PLUS).forEach(function(n){
+        assert(A.EXERCISES.indexOf(n) !== -1, n + " es riesgoso pero no está en el catálogo");
+      });
     });
 
     group("V35.1 · no regresión del pool activo");
 
-    test("los dos retirados aliaseados NO vuelven al pool activo", function(){
-      // isRetiredExercise chequea el nombre CRUDO además del canónico. Sin eso,
-      // un retirado con alias hacia un activo reaparecía en la biblioteca y en
-      // el generador.
-      assert(A.isRetiredExercise("Encogimientos de hombros") === true, "volvió al pool activo");
-      assert(A.isRetiredExercise("Extensión tríceps polea agarre prono") === true, "volvió al pool activo");
-      // Los 11 retirados siguen detectados como tales.
-      var todos = Array.from(A.EXERCISES_RETIRED);
-      var noDetectados = todos.filter(function(n){ return !A.isRetiredExercise(n); });
-      assert(noDetectados.length === 0, "retirados no detectados: " + noDetectados.join(", "));
-      // V31 aportó 11; V35.3 sumó "Jalón agarre ancho" = 12.
-      assert(todos.length === 12, "cambió la cantidad de retirados: " + todos.length);
+    test("2B — los nombres borrados no reaparecen en ningún pool", function(){
+      // Este test existía para cuidar un caso frágil de V35.1: un retirado con
+      // alias hacia un activo reaparecía en la biblioteca y en el generador si
+      // isRetiredExercise miraba solo el nombre canónico. 2B hace ese caso
+      // imposible por construcción (los nombres ya no existen), y lo que se
+      // verifica ahora es el resultado: cero rastro en los pools.
+      var pools = A.muscleGroupPools(), sub = A.subgroupPools(), leg = A.legFocusPools();
+      var fugas = [];
+      BORRADOS_2B.forEach(function(n){
+        Object.keys(pools).forEach(function(g){ if(pools[g].indexOf(n)!==-1) fugas.push(n+" en muscleGroupPools."+g); });
+        Object.keys(sub).forEach(function(g){ if(sub[g].indexOf(n)!==-1) fugas.push(n+" en subgroupPools."+g); });
+        Object.keys(leg).forEach(function(g){ if(leg[g].indexOf(n)!==-1) fugas.push(n+" en legFocusPools."+g); });
+      });
+      assert(fugas.length === 0, "fugas: " + fugas.join(" | "));
     });
 
     test("los conteos del explorador no cambian", function(){
@@ -2093,12 +2175,15 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // Espalda bajó 16 -> 15 en V35.3 al retirar "Jalón agarre ancho" (misma
       // identidad que "Jalón al pecho"); es un cambio aprobado, no una regresión.
       var pools = A.muscleGroupPools();
-      var esperado = { Pecho:13, Espalda:15, Piernas:28, Hombros:17, Brazos:18, Core:9 };
+      // 2B: Piernas 28 → 29 por "Hip thrust con barra" (el ex "Hip thrust",
+      // que estaba retirado y volvio al catalogo). Los otros cinco no cambian:
+      // los 11 borrados ya estaban fuera de los pools.
+      var esperado = { Pecho:13, Espalda:15, Piernas:29, Hombros:17, Brazos:18, Core:9 };
       Object.keys(esperado).forEach(function(g){
         assert(pools[g].length === esperado[g], g + ": esperaba " + esperado[g] + ", hubo " + pools[g].length);
       });
-      assert(pools["Hombros"].indexOf("Encogimientos de hombros") === -1, "el retirado está en el pool de Hombros");
-      assert(pools["Brazos"].indexOf("Extensión tríceps polea agarre prono") === -1, "el retirado está en el pool de Brazos");
+      assert(pools["Hombros"].indexOf("Encogimientos de hombros") === -1, "un nombre borrado está en el pool de Hombros");
+      assert(pools["Brazos"].indexOf("Extensión tríceps polea agarre prono") === -1, "un nombre borrado está en el pool de Brazos");
       // Sub-pools que alimentan al generador.
       assert(A.subgroupPools()["hombros"].length === 17, "subgroupPools hombros cambió");
       assert(A.subgroupPools()["triceps"].length === 7, "subgroupPools triceps cambió");
@@ -2107,7 +2192,8 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     test("los aliases ajenos a esta tarea no se modificaron", function(){
       // 38 previos + 2 de V35.1 + 1 de V35.3 = 41.
-      assert(Object.keys(A.EXERCISE_ALIASES).length === 41,
+      // 2B: 41 → 38 (se borraron los 3 aliases cuya clave era un retirado).
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38,
         "cantidad de aliases inesperada: " + Object.keys(A.EXERCISE_ALIASES).length);
       // Muestra de aliases de V31/V32/V34 que deben seguir igual.
       var intactos = {
@@ -2126,39 +2212,44 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         assert(A.EXERCISE_ALIASES[k] === intactos[k],
           "cambió el alias de " + k + ": " + A.EXERCISE_ALIASES[k]);
       });
-      // Y cada canónico sigue resolviéndose a sí mismo.
+      // Y cada canónico se resuelve a sí mismo. 2B: antes había 3 excepciones
+      // (los retirados aliaseados); al borrarlos no queda ninguna.
       var malos = A.EXERCISES.filter(function(n){ return A.canonicalExerciseName(n) !== n; });
-      // Los retirados aliaseados SÍ cambian (es el objetivo); nadie más.
-      assert(malos.length === 3, "canónicos desviados inesperados: " + malos.join(", "));
-      ["Encogimientos de hombros","Extensión tríceps polea agarre prono","Jalón agarre ancho"].forEach(function(n){
-        assert(malos.indexOf(n) !== -1, "falta " + n + " entre los desviados: " + malos.join(", "));
-      });
+      assert(malos.length === 0, "canónicos desviados: " + malos.join(", "));
     });
 
     group("V35.1 · historial, escritura y salidas");
 
-    test("el historial viejo y el nuevo se unifican", function(){
+    test("el historial de un alias y el del canónico se unifican", function(){
+      // 2B reescribe este test: usaba "Encogimientos de hombros", un alias que
+      // 2B borró junto con su ejercicio. El recorrido que verifica (entrar por
+      // cualquiera de los dos nombres y ver UN solo historial) es el mismo, y se
+      // prueba con "Gemelos", un alias que sobrevive porque su clave nunca fue
+      // un ejercicio del catálogo.
       var prev = A.state.registros;
       try{
         A.state.registros = [
-          A.Store.rowToRegistro({id:"r1", exercise:"Encogimientos de hombros", peso:30, date:"2026-01-05", set_number:null}),
-          A.Store.rowToRegistro({id:"r2", exercise:"Encogimientos con mancuernas", peso:34, date:"2026-02-05", set_number:null}),
-          A.Store.rowToRegistro({id:"r3", exercise:"Encogimientos con barra", peso:60, date:"2026-02-05", set_number:null})
+          A.Store.rowToRegistro({id:"r1", exercise:"Gemelos", peso:30, date:"2026-01-05", set_number:null}),
+          A.Store.rowToRegistro({id:"r2", exercise:"Gemelos parado con mancuerna", peso:34, date:"2026-02-05", set_number:null}),
+          A.Store.rowToRegistro({id:"r3", exercise:"Gemelos en máquina", peso:60, date:"2026-02-05", set_number:null})
         ];
-        var h = A.exerciseHistoryFor("Encogimientos con mancuernas");
+        var h = A.exerciseHistoryFor("Gemelos parado con mancuerna");
         assert(h.length === 2, "esperaba 2 registros unificados, hubo " + h.length);
-        // Entrar por el nombre viejo da el mismo historial.
-        assert(A.exerciseHistoryFor("Encogimientos de hombros").length === 2, "por el nombre viejo da distinto");
-        // La variante de barra queda aparte.
-        assert(A.exerciseHistoryFor("Encogimientos con barra").length === 1, "se mezcló la variante de barra");
+        // Entrar por el alias da el mismo historial.
+        assert(A.exerciseHistoryFor("Gemelos").length === 2, "por el alias da distinto");
+        // La variante de máquina queda aparte.
+        assert(A.exerciseHistoryFor("Gemelos en máquina").length === 1, "se mezcló la variante de máquina");
       } finally { A.state.registros = prev; }
     });
 
-    test("los tres nombres del pushdown comparten un solo historial y gráfico", function(){
+    test("las formas de escritura del pushdown comparten historial y gráfico", function(){
+      // 2B: eran TRES nombres; el tercero ("Extensión tríceps polea agarre
+      // prono") era un ejercicio retirado y se borró. Quedan las dos formas de
+      // escritura, que es lo que el test cuida: una sola progresión continua.
       var prev = A.state.registros;
       try{
         A.state.registros = [
-          A.Store.rowToRegistro({id:"r1", exercise:"Extensión tríceps polea agarre prono", peso:25, date:"2026-01-05", set_number:null}),
+          A.Store.rowToRegistro({id:"r1", exercise:"Extensión de tríceps en polea c/barra", peso:25, date:"2026-01-05", set_number:null}),
           A.Store.rowToRegistro({id:"r2", exercise:"Extensión de tríceps en polea ag/Prono", peso:27, date:"2026-01-20", set_number:null}),
           A.Store.rowToRegistro({id:"r3", exercise:"Extensión de tríceps en polea con barra", peso:30, date:"2026-02-05", set_number:null})
         ];
@@ -2169,33 +2260,46 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       } finally { A.state.registros = prev; }
     });
 
-    test("un retirado SIN alias conserva su historial propio y visible", function(){
+    test("2B — un ejercicio escrito a mano conserva su historial propio y visible", function(){
+      // Este test probaba que un RETIRADO conservara historial propio. 2B borra
+      // los retirados, pero la capacidad que el test cuidaba sigue siendo
+      // necesaria y ahora apunta a quien la necesita de verdad: un ejercicio
+      // PERSONALIZADO, escrito a mano porque no está en el catálogo (§7).
+      //
+      // Tiene que: tener su propio historial, no mezclarse con un oficial
+      // parecido, y aparecer en el historial agrupado con el nombre tal cual lo
+      // escribió el usuario.
       var prev = A.state.registros, prevF = A.state.historyFilter, prevR = A.state.rutina;
       try{
         A.state.registros = [
-          A.Store.rowToRegistro({id:"r1", exercise:"Hip thrust", peso:80, date:"2026-01-05", set_number:null}),
+          A.Store.rowToRegistro({id:"r1", exercise:"Hip thrust con banda elástica", peso:0, date:"2026-01-05", set_number:null}),
           A.Store.rowToRegistro({id:"r2", exercise:"Hip thrust en máquina", peso:60, date:"2026-02-05", set_number:null})
         ];
-        assert(A.exerciseHistoryFor("Hip thrust").length === 1, "se mezcló con la máquina");
-        assert(A.exerciseHistoryFor("Hip thrust en máquina").length === 1, "se mezcló con el de barra");
-        // Y sigue MOSTRÁNDOSE en el historial agrupado, con su nombre viejo.
+        assert(A.exerciseHistoryFor("Hip thrust con banda elástica").length === 1, "se mezcló con el oficial");
+        assert(A.exerciseHistoryFor("Hip thrust en máquina").length === 1, "el oficial absorbió al personalizado");
         A.state.historyFilter = { exercise:"", from:"", to:"" };
         A.state.rutina = { days:[] };
         var html = A.screenRegistro();
-        assert(html.indexOf('data-hist-group="Hip thrust"') !== -1, "el retirado desapareció del historial");
-        assert(html.indexOf('data-hist-group="Hip thrust en máquina"') !== -1, "falta el grupo del activo");
-        // La ficha del retirado sigue accesible (sigue en MUSCLE_MAP).
-        assert(!!A.MUSCLE_MAP["Hip thrust"], "el retirado salió de MUSCLE_MAP");
+        assert(html.indexOf('data-hist-group="Hip thrust con banda elástica"') !== -1,
+          "el ejercicio personalizado desapareció del historial");
+        assert(html.indexOf('data-hist-group="Hip thrust en máquina"') !== -1, "falta el grupo del oficial");
+        // Y NO es parte del catálogo oficial: no tiene ficha ni entra a los pools.
+        assert(A.EXERCISES.indexOf("Hip thrust con banda elástica") === -1, "se coló en EXERCISES");
+        assert(!A.MUSCLE_MAP["Hip thrust con banda elástica"], "se coló en MUSCLE_MAP");
+        assert(A.exerciseSuggestions("Hip thrust con banda").length === 0,
+          "el catálogo oficial lo está sugiriendo");
       } finally { A.state.registros = prev; A.state.historyFilter = prevF; A.state.rutina = prevR; }
     });
 
     test("la escritura canonicaliza los aliaseados y preserva los demás", function(){
       var R = A.Store.registroRowFor;
-      assert(R("p1",{exercise:"Encogimientos de hombros",peso:30,date:"2026-03-01"}).exercise === "Encogimientos con mancuernas", "encogimientos");
+      assert(R("p1",{exercise:"Gemelos",peso:30,date:"2026-03-01"}).exercise === "Gemelos parado con mancuerna", "alias Gemelos");
       assert(R("p1",{exercise:"Extensión de tríceps en polea ag/Prono",peso:30,date:"2026-03-01"}).exercise === "Extensión de tríceps en polea con barra", "pushdown");
-      // Un retirado sin alias se guarda TAL CUAL: no se inventa un reemplazo.
-      assert(R("p1",{exercise:"Hip thrust",peso:80,date:"2026-03-01"}).exercise === "Hip thrust", "alteró un retirado sin alias");
-      assert(R("p1",{exercise:"Jalón tras nuca",peso:40,date:"2026-03-01"}).exercise === "Jalón tras nuca", "alteró Jalón tras nuca");
+      // Un nombre que la app NO conoce se guarda TAL CUAL: no se inventa un
+      // reemplazo. Es la pieza que hace posible el alta manual (§7 de 2B), y
+      // vale igual para un nombre borrado que para uno inventado por el usuario.
+      assert(R("p1",{exercise:"Hip thrust con banda",peso:0,date:"2026-03-01"}).exercise === "Hip thrust con banda", "alteró un nombre personalizado");
+      assert(R("p1",{exercise:"Jalón tras nuca",peso:40,date:"2026-03-01"}).exercise === "Jalón tras nuca", "alteró un nombre desconocido");
     });
 
     test("rutinas guardadas, selector, CSV y PDF usan la identidad correcta", function(){
@@ -2203,56 +2307,57 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
                    regs:A.state.registros, prof:A.state.profile };
       try{
         A.state.profile = { id:"p1", name:"Test", metaSemanal:3, edad:25 };
+        // 2B: el mismo recorrido, con un alias que sobrevive ("Gemelos") y un
+        // ejercicio PERSONALIZADO en el lugar donde antes había un retirado.
         A.state.registros = [
-          A.Store.rowToRegistro({id:"r1", exercise:"Encogimientos de hombros", peso:30, date:"2026-01-05", set_number:null}),
-          A.Store.rowToRegistro({id:"r2", exercise:"Encogimientos con mancuernas", peso:34, date:"2026-02-05", set_number:null}),
-          A.Store.rowToRegistro({id:"r3", exercise:"Hip thrust", peso:80, date:"2026-01-05", set_number:null})
+          A.Store.rowToRegistro({id:"r1", exercise:"Gemelos", peso:30, date:"2026-01-05", set_number:null}),
+          A.Store.rowToRegistro({id:"r2", exercise:"Gemelos parado con mancuerna", peso:34, date:"2026-02-05", set_number:null}),
+          A.Store.rowToRegistro({id:"r3", exercise:"Gemelos en banda", peso:80, date:"2026-01-05", set_number:null})
         ];
         var slots = { personalizada:{ days:[{ id:"d1", nombre:"D1", exercises:[
-            { id:"e1", nombre:"Encogimientos de hombros" },
+            { id:"e1", nombre:"Gemelos" },
             { id:"e2", nombre:"Extensión de tríceps en polea ag/Prono" },
-            { id:"e3", nombre:"Hip thrust" }
+            { id:"e3", nombre:"Gemelos en banda" }
           ]}]}, automatica:{days:[]}, enfocada:{days:[]} };
         A.canonicalizeRutinaSlots(slots);
         var nombres = slots.personalizada.days[0].exercises.map(function(e){ return e.nombre; });
-        assert(nombres[0] === "Encogimientos con mancuernas", "rutina: encogimientos");
+        assert(nombres[0] === "Gemelos parado con mancuerna", "rutina: alias Gemelos");
         assert(nombres[1] === "Extensión de tríceps en polea con barra", "rutina: pushdown");
-        assert(nombres[2] === "Hip thrust", "rutina: el retirado sin alias cambió");
+        assert(nombres[2] === "Gemelos en banda", "rutina: el personalizado cambió de nombre");
         // Los id se preservan (una sesión activa indexa por id).
         assert(slots.personalizada.days[0].exercises.map(function(e){return e.id;}).join(",") === "e1,e2,e3", "cambiaron los id");
         // Selector
         A.state.rutina = slots.personalizada; A.state.rutinaSlots = slots; A.state.activeSlot = "personalizada";
         var sel = A.allExerciseNames();
-        assert(sel.indexOf("Encogimientos de hombros") === -1, "el selector muestra el nombre viejo");
-        assert(sel.indexOf("Encogimientos con mancuernas") !== -1, "falta el canónico en el selector");
-        assert(sel.indexOf("Hip thrust") !== -1, "el selector perdió el retirado sin alias");
+        assert(sel.indexOf("Gemelos") === -1, "el selector muestra el alias en vez del canónico");
+        assert(sel.indexOf("Gemelos parado con mancuerna") !== -1, "falta el canónico en el selector");
+        assert(sel.indexOf("Gemelos en banda") !== -1, "el selector perdió el ejercicio personalizado");
         // CSV
         var csv = A.toCSV(A.state.registros);
-        assert(csv.indexOf("Encogimientos con mancuernas") !== -1, "CSV sin el canónico");
-        assert(csv.indexOf("Encogimientos de hombros") === -1, "CSV todavía con el nombre viejo");
-        assert(csv.indexOf("Hip thrust") !== -1, "CSV perdió el retirado sin alias");
+        assert(csv.indexOf("Gemelos parado con mancuerna") !== -1, "CSV sin el canónico");
+        assert(csv.indexOf("Gemelos en banda") !== -1, "CSV perdió el ejercicio personalizado");
         // PDF: nombre canónico + máximo del historial unificado (34, no 30)
         var pdf = A.buildRoutinePdfData();
         var ex0 = pdf.days[0].exercises[0];
-        assert(ex0.nombre === "Encogimientos con mancuernas", "PDF: nombre");
+        assert(ex0.nombre === "Gemelos parado con mancuerna", "PDF: nombre");
         assert(ex0.max && ex0.max.peso === 34, "PDF: máximo del historial unificado, hubo " + JSON.stringify(ex0.max));
-        assert(pdf.days[0].exercises[2].nombre === "Hip thrust", "PDF: el retirado sin alias cambió de nombre");
+        assert(pdf.days[0].exercises[2].nombre === "Gemelos en banda", "PDF: el personalizado cambió de nombre");
       } finally {
         A.state.rutina = prev.rut; A.state.rutinaSlots = prev.slots; A.state.activeSlot = prev.slot;
         A.state.registros = prev.regs; A.state.profile = prev.prof;
       }
     });
 
-    test("la ficha del nombre viejo abre sobre el canónico y gana su lámina", function(){
+    test("la ficha de un alias abre sobre el canónico y hereda su lámina", function(){
+      // 2B: mismo comportamiento, probado con un alias que sobrevive.
       var prev = A.state.exDetail;
       try{
-        A.openExerciseDetail({ nombre:"Encogimientos de hombros" }, { returnTab:"rutina" });
-        assert(A.state.exDetail.nombre === "Encogimientos con mancuernas",
+        A.openExerciseDetail({ nombre:"Gemelos" }, { returnTab:"rutina" });
+        assert(A.state.exDetail.nombre === "Gemelos parado con mancuerna",
           "la ficha no abrió sobre el canónico: " + A.state.exDetail.nombre);
-        // Efecto lateral deseado: el retirado no tenía lámina y ahora hereda la del activo.
-        assert(A.exerciseAnatomyImageFor("Encogimientos de hombros") === A.exerciseAnatomyImageFor("Encogimientos con mancuernas"),
+        assert(A.exerciseAnatomyImageFor("Gemelos") === A.exerciseAnatomyImageFor("Gemelos parado con mancuerna"),
           "no hereda la lámina del canónico");
-        assert(A.exerciseEquipment("Encogimientos de hombros") === A.exerciseEquipment("Encogimientos con mancuernas"),
+        assert(A.exerciseEquipment("Gemelos") === A.exerciseEquipment("Gemelos parado con mancuerna"),
           "no hereda el equipamiento");
       } finally { A.state.exDetail = prev; }
     });
@@ -2273,10 +2378,12 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(conSingular.length === 0, "ejercicios con 'Mancuerna': " + conSingular.join(", "));
     });
 
-    test("Mancuernas es la única categoría de mancuernas y suma 29", function(){
+    test("Mancuernas es la única categoría de mancuernas y suma 28", function(){
       var conPlural = A.EXERCISES.filter(function(n){ return A.exerciseEquipment(n) === "Mancuernas"; });
-      // 28 previos + el que estaba en singular.
-      assert(conPlural.length === 29, "esperaba 29 con 'Mancuernas', hubo " + conPlural.length);
+      // 2B: 29 → 28 al borrar "Encogimientos de hombros", que era de mancuernas.
+      // Lo que este test cuida no es el número sino que no haya DOS categorías
+      // equivalentes, y eso sigue igual.
+      assert(conPlural.length === 28, "esperaba 28 con 'Mancuernas', hubo " + conPlural.length);
       assert(conPlural.indexOf("Gemelos parado con mancuerna") !== -1,
         "el ejercicio normalizado no quedó en la categoría 'Mancuernas'");
       // Y su alias de V34 hereda el equipamiento corregido.
@@ -2300,7 +2407,9 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     test("los otros valores de equipamiento no se tocaron", function(){
-      var esperado = { "Barra":20, "Cardio":5, "Máquina":26, "Peso corporal":22, "Peso libre":4, "Polea":16 };
+      // 2B: Barra 20→18, Peso corporal 22→17 y Polea 16→13 por los ejercicios
+      // borrados. Máquina, Cardio y Peso libre no perdieron ninguno.
+      var esperado = { "Barra":18, "Cardio":5, "Máquina":26, "Peso corporal":17, "Peso libre":4, "Polea":13 };
       Object.keys(esperado).forEach(function(k){
         var n = A.EXERCISES.filter(function(x){ return A.exerciseEquipment(x) === k; }).length;
         assert(n === esperado[k], k + ": esperaba " + esperado[k] + ", hubo " + n);
@@ -2333,7 +2442,10 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // Los pools no cambian.
       // Espalda 15 desde V35.3 (ver "unificación del jalón al pecho").
       var pools = A.muscleGroupPools();
-      var esperado = { Pecho:13, Espalda:15, Piernas:28, Hombros:17, Brazos:18, Core:9 };
+      // 2B: Piernas 28 → 29 por "Hip thrust con barra" (el ex "Hip thrust",
+      // que estaba retirado y volvio al catalogo). Los otros cinco no cambian:
+      // los 11 borrados ya estaban fuera de los pools.
+      var esperado = { Pecho:13, Espalda:15, Piernas:29, Hombros:17, Brazos:18, Core:9 };
       Object.keys(esperado).forEach(function(g){
         assert(pools[g].length === esperado[g], g + ": esperaba " + esperado[g] + ", hubo " + pools[g].length);
       });
@@ -2344,15 +2456,19 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     test("no aparecieron aliases nuevos", function(){
       // V34 (38) + V35.1 (2) + V35.3 (1) = 41. La tanda V35.2 NO agregó
       // ninguno: la normalización de equipamiento no es un alias de ejercicio.
-      assert(Object.keys(A.EXERCISE_ALIASES).length === 41,
+      // 2B: 41 → 38 (se borraron los 3 aliases cuya clave era un retirado).
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38,
         "cantidad de aliases inesperada: " + Object.keys(A.EXERCISE_ALIASES).length);
     });
 
-    test("ningún alias apunta a un ejercicio retirado", function(){
+    test("ningún alias apunta a un ejercicio que no existe", function(){
+      // 2B: antes decía "a un retirado". Al no haber retirados, el invariante
+      // que queda es el más fuerte: todo destino de alias tiene que ser un
+      // ejercicio real del catálogo.
       var malos = Object.keys(A.EXERCISE_ALIASES).filter(function(k){
-        return A.EXERCISES_RETIRED.has(A.EXERCISE_ALIASES[k]);
+        return A.EXERCISES.indexOf(A.EXERCISE_ALIASES[k]) === -1;
       });
-      assert(malos.length === 0, "aliases que terminan en un retirado: " + malos.join(", "));
+      assert(malos.length === 0, "aliases colgados: " + malos.join(", "));
     });
 
     test("no hay claves ambiguas en la normalización de nombres", function(){
@@ -2385,7 +2501,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
       // Jalón tras nuca: identidad propia y sigue retirado.
       assert(A.canonicalExerciseName("Jalón tras nuca") === "Jalón tras nuca", "Jalón tras nuca canonicalizó");
-      assert(A.isRetiredExercise("Jalón tras nuca") === true, "Jalón tras nuca dejó de estar retirado");
+      assert(A.EXERCISES.indexOf("Jalón tras nuca") === -1, "Jalón tras nuca volvió al catálogo");
       // Jalón al pecho sigue resolviéndose a sí mismo.
       assert(A.canonicalExerciseName("Jalón al pecho") === "Jalón al pecho", "Jalón al pecho canonicalizó a otra cosa");
     });
@@ -2393,52 +2509,58 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     /* ========= V35.3 — Jalón agarre ancho = Jalón al pecho ========= */
     group("V35.3 · unificación del jalón al pecho");
 
-    test("Jalón agarre ancho canonicaliza a Jalón al pecho", function(){
-      assert(A.canonicalExerciseName("Jalón agarre ancho") === "Jalón al pecho",
-        "no resuelve: " + A.canonicalExerciseName("Jalón agarre ancho"));
-      assert(A.EXERCISE_ALIASES["Jalón agarre ancho"] === "Jalón al pecho",
-        "falta la entrada explícita en EXERCISE_ALIASES");
-      // Variantes de escritura también llegan (capa normalizadora).
-      assert(A.canonicalExerciseName("jalon agarre ancho") === "Jalón al pecho", "minúsculas sin acento");
-      assert(A.canonicalExerciseName("JALÓN AGARRE ANCHO") === "Jalón al pecho", "mayúsculas");
+    test("2B — Jalón agarre ancho no dejó rastro", function(){
+      // V35.3 lo había unificado con "Jalón al pecho" vía alias, conservándole la
+      // ficha para el historial. 2B borra las dos cosas: el nombre y el alias.
+      // Un nombre desconocido se devuelve tal cual, sin inventar reemplazo.
+      assert(A.EXERCISES.indexOf("Jalón agarre ancho") === -1, "sigue en EXERCISES");
+      assert(!A.MUSCLE_MAP["Jalón agarre ancho"], "sigue en MUSCLE_MAP");
+      assert(A.EXERCISE_ALIASES["Jalón agarre ancho"] === undefined, "sigue teniendo alias");
+      assert(A.canonicalExerciseName("Jalón agarre ancho") === "Jalón agarre ancho",
+        "canonicalizó a " + A.canonicalExerciseName("Jalón agarre ancho"));
+      // Y la capa normalizadora tampoco lo resuelve ya.
+      assert(!A.exerciseNameResolves("jalon agarre ancho"), "la capa normalizadora todavía lo resuelve");
     });
 
     test("Jalón al pecho canonicaliza a sí mismo", function(){
       assert(A.canonicalExerciseName("Jalón al pecho") === "Jalón al pecho",
         "el canónico se desvió: " + A.canonicalExerciseName("Jalón al pecho"));
-      assert(A.isRetiredExercise("Jalón al pecho") === false, "el canónico quedó retirado por error");
+      assert(A.EXERCISES.indexOf("Jalón al pecho") !== -1, "el canónico salió del catálogo por error");
       assert(A.EXERCISE_ALIASES["Jalón al pecho"] === undefined, "el canónico tiene un alias que no debería tener");
     });
 
-    test("Jalón tras nuca sigue siendo una identidad independiente y retirada", function(){
-      // Es un recorrido distinto, retirado por riesgo de hombro. NO se fusiona
-      // con ningún jalón al pecho.
+    test("2B — Jalón tras nuca tampoco dejó rastro", function(){
+      // Se había retirado por riesgo de hombro conservándole la ficha. 2B lo
+      // borra. No se fusiona con ningún jalón: simplemente no existe.
+      assert(A.EXERCISES.indexOf("Jalón tras nuca") === -1, "sigue en EXERCISES");
+      assert(!A.MUSCLE_MAP["Jalón tras nuca"], "sigue en MUSCLE_MAP");
+      assert(A.EXERCISE_ALIASES["Jalón tras nuca"] === undefined, "le apareció un alias");
       assert(A.canonicalExerciseName("Jalón tras nuca") === "Jalón tras nuca",
         "canonicalizó a: " + A.canonicalExerciseName("Jalón tras nuca"));
-      assert(A.EXERCISE_ALIASES["Jalón tras nuca"] === undefined, "le apareció un alias");
-      assert(A.isRetiredExercise("Jalón tras nuca") === true, "dejó de estar retirado");
-      assert(!!A.MUSCLE_MAP["Jalón tras nuca"], "salió de MUSCLE_MAP");
-      // No comparte identidad con ninguno de los otros jalones.
-      ["Jalón al pecho","Jalón agarre ancho","Jalón agarre supino","Jalón agarre neutro"].forEach(function(n){
-        assert(A.canonicalExerciseName("Jalón tras nuca") !== A.canonicalExerciseName(n),
-          "se fusionó con " + n);
+      // Y los jalones que QUEDAN siguen siendo tres identidades separadas.
+      var quedan = ["Jalón al pecho","Jalón agarre supino","Jalón agarre neutro"];
+      quedan.forEach(function(n){
+        assert(A.EXERCISES.indexOf(n) !== -1, n + " salió del catálogo");
+        assert(A.canonicalExerciseName(n) === n, n + " se desvió");
       });
+      var ids = quedan.map(function(n){ return A.canonicalExerciseName(n); });
+      assert(new Set(ids).size === 3, "dos jalones se fusionaron: " + ids.join(" | "));
     });
 
     test("los otros agarres de jalón siguen independientes", function(){
       // Solo "agarre ancho" se unificó: supino y neutro son ejercicios propios.
       assert(A.canonicalExerciseName("Jalón agarre supino") === "Jalón agarre supino", "supino se desvió");
       assert(A.canonicalExerciseName("Jalón agarre neutro") === "Jalón agarre neutro", "neutro se desvió");
-      assert(A.isRetiredExercise("Jalón agarre supino") === false, "supino quedó retirado");
-      assert(A.isRetiredExercise("Jalón agarre neutro") === false, "neutro quedó retirado");
+      assert(A.EXERCISES.indexOf("Jalón agarre supino") !== -1, "supino salió del catálogo");
+      assert(A.EXERCISES.indexOf("Jalón agarre neutro") !== -1, "neutro salió del catálogo");
       // Y "Remo en máquina agarre ancho" no se vio arrastrado por el nombre.
       assert(A.canonicalExerciseName("Remo en máquina agarre ancho") === "Remo en máquina agarre ancho",
         "el remo agarre ancho se desvió");
-      assert(A.isRetiredExercise("Remo en máquina agarre ancho") === false, "el remo agarre ancho quedó retirado");
+      assert(A.EXERCISES.indexOf("Remo en máquina agarre ancho") !== -1, "el remo agarre ancho salió del catálogo");
     });
 
     test("Jalón agarre ancho sale de todos los pools activos", function(){
-      assert(A.isRetiredExercise("Jalón agarre ancho") === true, "no quedó marcado como retirado");
+      assert(A.EXERCISES.indexOf("Jalón agarre ancho") === -1, "sigue en el catálogo");
       var pools = A.muscleGroupPools();
       Object.keys(pools).forEach(function(g){
         assert(pools[g].indexOf("Jalón agarre ancho") === -1, "sigue en el pool de " + g);
@@ -2449,7 +2571,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     test("Jalón agarre ancho no es un ejercicio activo de la Biblioteca", function(){
-      var activos = A.EXERCISES.filter(function(n){ return !A.isRetiredExercise(n); });
+      var activos = A.activeExercises();
       assert(activos.indexOf("Jalón agarre ancho") === -1, "sigue apareciendo como activo");
       assert(activos.indexOf("Jalón al pecho") !== -1, "el canónico no aparece como activo");
       // Ya no hay dos entradas activas que canonicalicen al mismo ejercicio.
@@ -2465,7 +2587,12 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         }).join(" ; "));
     });
 
-    test("el historial del nombre viejo se agrupa con el canónico", function(){
+    test("2B — los nombres borrados quedan como registros propios, sin fusionarse", function(){
+      // Antes: el historial del nombre viejo se agrupaba con el canónico vía
+      // alias. 2B borró el alias, así que un registro viejo con ese nombre pasa a
+      // ser un nombre desconocido: mantiene SU grupo y no se mezcla con nadie.
+      // Es el mismo comportamiento que tendrá un ejercicio personalizado, y es
+      // la consecuencia aceptada de no mantener compatibilidad histórica.
       var prev = { regs:A.state.registros, hf:A.state.historyFilter, rut:A.state.rutina };
       try{
         A.state.registros = [
@@ -2474,90 +2601,83 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
           A.Store.rowToRegistro({id:"r3", exercise:"Jalón tras nuca", peso:40, date:"2026-01-10", set_number:null}),
           A.Store.rowToRegistro({id:"r4", exercise:"Jalón agarre neutro", peso:45, date:"2026-01-15", set_number:null})
         ];
-        var h = A.exerciseHistoryFor("Jalón al pecho");
-        assert(h.length === 2, "esperaba 2 registros unificados, hubo " + h.length);
-        assert(h.map(function(r){ return r.id; }).join(",") === "r1,r2", "ids: " + h.map(function(r){return r.id;}).join(","));
-        // Entrar por el nombre viejo da el mismo historial.
-        assert(A.exerciseHistoryFor("Jalón agarre ancho").length === 2, "por el nombre viejo da distinto");
-        // Progresión continua, no dos series partidas.
-        assert(A.exerciseWeeklyMax(h).map(function(s){ return s.peso; }).join(",") === "50,55", "gráfico partido");
-        // Jalón tras nuca y agarre neutro quedan aparte.
+        // El canónico ya NO absorbe al nombre borrado.
+        assert(A.exerciseHistoryFor("Jalón al pecho").length === 1, "absorbió el registro del nombre borrado");
+        assert(A.exerciseHistoryFor("Jalón agarre ancho").length === 1, "el nombre borrado perdió su registro");
         assert(A.exerciseHistoryFor("Jalón tras nuca").length === 1, "tras nuca se mezcló");
         assert(A.exerciseHistoryFor("Jalón agarre neutro").length === 1, "agarre neutro se mezcló");
-        // Agrupación de la pantalla de Registro: un solo grupo para el jalón al pecho.
+        // Cada uno con su grupo en la pantalla de Registro: ningún dato se pierde
+        // de vista, aunque el nombre ya no sea del catálogo.
         A.state.historyFilter = { exercise:"", from:"", to:"" };
         A.state.rutina = { days:[] };
         var html = A.screenRegistro();
-        assert(html.indexOf('data-hist-group="Jalón al pecho"') !== -1, "falta el grupo canónico");
-        assert(html.indexOf('data-hist-group="Jalón agarre ancho"') === -1, "quedó un grupo con el nombre viejo");
-        assert(html.indexOf('data-hist-group="Jalón tras nuca"') !== -1, "desapareció el grupo de tras nuca");
-        // La escritura nueva entra canonicalizada.
-        assert(A.Store.registroRowFor("p1",{exercise:"Jalón agarre ancho",peso:60,date:"2026-03-01"}).exercise === "Jalón al pecho",
-          "la escritura no canonicaliza");
+        ["Jalón al pecho","Jalón agarre ancho","Jalón tras nuca","Jalón agarre neutro"].forEach(function(nm){
+          assert(html.indexOf('data-hist-group="' + nm + '"') !== -1, "falta el grupo de " + nm);
+        });
+        // La escritura guarda los nombres desconocidos TAL CUAL.
+        assert(A.Store.registroRowFor("p1",{exercise:"Jalón agarre ancho",peso:60,date:"2026-03-01"}).exercise === "Jalón agarre ancho",
+          "la escritura inventó un reemplazo");
         assert(A.Store.registroRowFor("p1",{exercise:"Jalón tras nuca",peso:40,date:"2026-03-01"}).exercise === "Jalón tras nuca",
           "la escritura alteró Jalón tras nuca");
       } finally { A.state.registros = prev.regs; A.state.historyFilter = prev.hf; A.state.rutina = prev.rut; }
     });
 
-    test("no se pierde ficha, lámina ni MuscleWiki del canónico", function(){
+    test("2B — el jalón al pecho quedó INTACTO tras borrar a sus vecinos", function(){
+      // Lo importante de este test: borrar "Jalón agarre ancho" y "Jalón tras
+      // nuca" no pudo dañar al canónico, que compartía lámina con uno de ellos.
       assert(A.exerciseAnatomyImageFor("Jalón al pecho") === "ejercicios/anatomia/jalon-espalda-anatomia.jpg",
         "el canónico perdió la lámina: " + A.exerciseAnatomyImageFor("Jalón al pecho"));
       assert(A.exerciseHowtoLinkFor("Jalón al pecho") === "https://musclewiki.com/exercise/machine-pulldown",
         "el canónico perdió el link de MuscleWiki");
       assert(A.exerciseEquipment("Jalón al pecho") === "Polea", "el canónico perdió el equipamiento");
       assert(!!A.MUSCLE_MAP["Jalón al pecho"], "el canónico salió de MUSCLE_MAP");
-      // El nombre viejo sigue en MUSCLE_MAP y hereda la ficha del canónico.
-      assert(!!A.MUSCLE_MAP["Jalón agarre ancho"], "el nombre viejo salió de MUSCLE_MAP");
-      assert(A.exerciseAnatomyImageFor("Jalón agarre ancho") === A.exerciseAnatomyImageFor("Jalón al pecho"),
-        "el nombre viejo no hereda la lámina");
-      assert(A.exerciseHowtoLinkFor("Jalón agarre ancho") === A.exerciseHowtoLinkFor("Jalón al pecho"),
-        "el nombre viejo no hereda el MuscleWiki");
-      // La ficha se abre sobre el canónico.
-      var prev = A.state.exDetail;
-      try{
-        A.openExerciseDetail({ nombre:"Jalón agarre ancho" }, { returnTab:"rutina" });
-        assert(A.state.exDetail.nombre === "Jalón al pecho",
-          "la ficha no abrió sobre el canónico: " + A.state.exDetail.nombre);
-      } finally { A.state.exDetail = prev; }
+      assert(A.exercisePattern("Jalón al pecho") === "traccion-vertical", "el canónico perdió el patrón");
+      // "Jalón agarre neutro" compartía la MISMA lámina y también sigue sano:
+      // al sacar "Jalón agarre ancho" de ANATOMY_BY_FILE no se cayó el archivo.
+      assert(A.exerciseAnatomyImageFor("Jalón agarre neutro") === "ejercicios/anatomia/jalon-espalda-anatomia.jpg",
+        "el agarre neutro perdió la lámina: " + A.exerciseAnatomyImageFor("Jalón agarre neutro"));
+      assert(A.exercisePattern("Jalón agarre neutro") === "traccion-vertical",
+        "el agarre neutro perdió el patrón: " + A.exercisePattern("Jalón agarre neutro"));
+      // Los nombres borrados ya no tienen nada.
+      assert(!A.exerciseAnatomyImageFor("Jalón agarre ancho"), "el nombre borrado conserva lámina");
+      assert(!A.exerciseHowtoLinkFor("Jalón agarre ancho"), "el nombre borrado conserva MuscleWiki");
     });
 
     test("los pools quedan consistentes: Espalda 15, el resto sin cambios", function(){
       var pools = A.muscleGroupPools();
       assert(pools["Espalda"].length === 15, "Espalda: esperaba 15, hubo " + pools["Espalda"].length);
-      var sinCambios = { Pecho:13, Piernas:28, Hombros:17, Brazos:18, Core:9 };
+      // 2B: Piernas 28 → 29 ("Hip thrust con barra").
+      var sinCambios = { Pecho:13, Piernas:29, Hombros:17, Brazos:18, Core:9 };
       Object.keys(sinCambios).forEach(function(g){
         assert(pools[g].length === sinCambios[g], g + ": esperaba " + sinCambios[g] + ", hubo " + pools[g].length);
       });
       var total = Object.keys(pools).reduce(function(a,g){ return a + pools[g].length; }, 0);
-      assert(total === 100, "total de pools: esperaba 100, hubo " + total);
+      assert(total === 101, "total de pools: esperaba 101, hubo " + total);
       assert(A.subgroupPools()["espalda"].length === 15, "subgroupPools espalda: " + A.subgroupPools()["espalda"].length);
     });
 
-    test("estado final de identidad: 41 aliases, 12 retirados, sin cabos sueltos", function(){
-      // V34 (38) + V35.1 (2) + V35.3 (1) = 41.
-      assert(Object.keys(A.EXERCISE_ALIASES).length === 41,
+    test("estado final de identidad tras 2B: 38 aliases, 111 ejercicios", function(){
+      // Antes de 2B: 41 aliases y 122 entradas en EXERCISES (110 activas + 12
+      // retiradas). 2B borró los 12 retirados y los 3 aliases cuya clave era
+      // uno de ellos, y renombró "Hip thrust" a "Hip thrust con barra"
+      // devolviéndolo al catálogo: 122 - 12 + 1 = 111 y 41 - 3 = 38.
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38,
         "cantidad de aliases inesperada: " + Object.keys(A.EXERCISE_ALIASES).length);
-      // V31 (11) + V35.3 (1) = 12.
-      assert(A.EXERCISES_RETIRED.size === 12, "cantidad de retirados inesperada: " + A.EXERCISES_RETIRED.size);
-      assert(A.EXERCISES.length === 122, "EXERCISES cambió de tamaño: " + A.EXERCISES.length);
-      // Ningún alias termina en un retirado.
-      var aRetirado = Object.keys(A.EXERCISE_ALIASES).filter(function(k){
-        return A.EXERCISES_RETIRED.has(A.EXERCISE_ALIASES[k]);
+      assert(A.EXERCISES.length === 111, "EXERCISES cambió de tamaño: " + A.EXERCISES.length);
+      // Ya no hay dos poblaciones: todo lo que está en EXERCISES es oficial activo.
+      assert(A.activeExercises().length === 111, "activeExercises dio " + A.activeExercises().length);
+      // Ningún alias colgado.
+      var colgados = Object.keys(A.EXERCISE_ALIASES).filter(function(k){
+        return A.EXERCISES.indexOf(A.EXERCISE_ALIASES[k]) === -1;
       });
-      assert(aRetirado.length === 0, "aliases que terminan en un retirado: " + aRetirado.join(", "));
-      // Los 12 retirados siguen detectados.
-      var noDetectados = Array.from(A.EXERCISES_RETIRED).filter(function(n){ return !A.isRetiredExercise(n); });
-      assert(noDetectados.length === 0, "retirados no detectados: " + noDetectados.join(", "));
+      assert(colgados.length === 0, "aliases colgados: " + colgados.join(", "));
+      // Ninguna clave de alias es, a la vez, un ejercicio del catálogo.
+      var dobles = Object.keys(A.EXERCISE_ALIASES).filter(function(k){ return A.EXERCISES.indexOf(k) !== -1; });
+      assert(dobles.length === 0, "claves de alias que son ejercicios: " + dobles.join(", "));
       // Sin claves ambiguas en la normalización.
       var amb = [];
       A.EXERCISE_NORMALIZED_INDEX.forEach(function(v, k){ if(v === null) amb.push(k); });
       assert(amb.length === 0, "claves ambiguas: " + amb.join(" | "));
-      // Los tres retirados CON alias son exactamente los aprobados.
-      var conAlias = Array.from(A.EXERCISES_RETIRED).filter(function(n){ return !!A.EXERCISE_ALIASES[n]; }).sort();
-      assert(conAlias.length === 3, "retirados con alias: " + conAlias.join(", "));
-      ["Encogimientos de hombros","Extensión tríceps polea agarre prono","Jalón agarre ancho"].forEach(function(n){
-        assert(conAlias.indexOf(n) !== -1, "falta " + n + " entre los retirados con alias");
-      });
     });
 
     /* ========= V36 — tope diario DURO ========= */
@@ -2690,7 +2810,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
               d.exercises.forEach(function(e){
                 assert(!!e.id && !!e.nombre, "ejercicio sin id o sin nombre");
                 assert(!!e.series, "ejercicio sin series");
-                assert(!A.isRetiredExercise(e.nombre), "se coló un retirado: " + e.nombre);
+                assert(A.EXERCISES.indexOf(e.nombre)!==-1, "se coló algo fuera del catálogo: " + e.nombre);
               });
             });
           });
@@ -2830,7 +2950,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
           // valida el invariante estable: nunca vacío y nunca desmedido.
           assert(n >= 4 && n <= 12, "Día Especial fuera de un rango razonable: " + n);
           (d.exercises||[]).forEach(function(e){
-            assert(!A.isRetiredExercise(e.nombre), "Día Especial trajo un retirado: " + e.nombre);
+            assert(A.EXERCISES.indexOf(e.nombre)!==-1, "Día Especial trajo algo fuera del catálogo: " + e.nombre);
           });
         });
       } finally { A.state.profile = prev; }
@@ -2866,7 +2986,6 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     test("ningún ejercicio activo de fuerza queda sin referencia de ejecución", function(){
       var sinNada = A.EXERCISES.filter(function(n){
-        if(A.isRetiredExercise(n)) return false;
         // El cardio queda fuera por decisión de producto: son máquinas o
         // implementos donde la ejecución es autoexplicativa. Si alguna vez se
         // les agrega referencia, este filtro se saca.
@@ -2884,7 +3003,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "Press de banca declinado en Smith","Peso muerto sumo con mancuernas"];
       criticos.forEach(function(n){
         assert(A.EXERCISES.indexOf(n) !== -1, n + " ya no está en EXERCISES");
-        assert(!A.isRetiredExercise(n), n + " quedó retirado");
+        assert(A.activeExercises().indexOf(n) !== -1, n + " salió del catálogo");
         assert(tieneReferencia(n), n + " sigue sin referencia de ejecución");
       });
       // El único que recibió enlace, verificado contra musclewiki.com.
@@ -2914,7 +3033,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // dumbbell-curl (Curl con mancuernas y su variante alternada), que quedó
       // marcado como decisión pendiente y NO se tocó.
       var byUrl = {};
-      A.EXERCISES.filter(function(n){ return !A.isRetiredExercise(n) && A.exerciseHowtoLinkFor(n); })
+      A.EXERCISES.filter(function(n){ return !!A.exerciseHowtoLinkFor(n); })
         .forEach(function(n){
           var u = A.exerciseHowtoLinkFor(n);
           (byUrl[u] = byUrl[u] || []).push(n);
@@ -2942,17 +3061,22 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     test("esta tanda no tocó identidad, retirados ni pools", function(){
-      assert(Object.keys(A.EXERCISE_ALIASES).length === 41, "cambió la cantidad de aliases: " + Object.keys(A.EXERCISE_ALIASES).length);
-      assert(A.EXERCISES_RETIRED.size === 12, "cambió la cantidad de retirados: " + A.EXERCISES_RETIRED.size);
-      assert(A.EXERCISES.length === 122, "cambió EXERCISES: " + A.EXERCISES.length);
+      // 2B actualiza estos tres números: 41→38 aliases, 122→111 ejercicios y
+      // desaparece el conteo de retirados.
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38, "cambió la cantidad de aliases: " + Object.keys(A.EXERCISE_ALIASES).length);
+      assert(A.EXERCISES.length === 111, "cambió EXERCISES: " + A.EXERCISES.length);
       var pools = A.muscleGroupPools();
-      var esperado = { Pecho:13, Espalda:15, Piernas:28, Hombros:17, Brazos:18, Core:9 };
+      // 2B: Piernas 28 → 29 por "Hip thrust con barra" (el ex "Hip thrust",
+      // que estaba retirado y volvio al catalogo). Los otros cinco no cambian:
+      // los 11 borrados ya estaban fuera de los pools.
+      var esperado = { Pecho:13, Espalda:15, Piernas:29, Hombros:17, Brazos:18, Core:9 };
       Object.keys(esperado).forEach(function(g){
         assert(pools[g].length === esperado[g], g + ": esperaba " + esperado[g] + ", hubo " + pools[g].length);
       });
-      // Los retirados no recibieron consejos ni enlaces nuevos en esta tanda.
-      assert(!A.exerciseHowtoLinkFor("Jalón tras nuca"), "Jalón tras nuca recibió un enlace");
-      assert(!A.exerciseHowtoLinkFor("Patada lateral a cuatro patas"), "Patada lateral recibió un enlace");
+      // 2B: estos dos nombres ya no existen, así que exerciseHowtoLinkFor tiene
+      // que devolver vacío por inexistencia, no por falta de enlace.
+      assert(!A.exerciseHowtoLinkFor("Jalón tras nuca"), "Jalón tras nuca tiene enlace");
+      assert(!A.exerciseHowtoLinkFor("Patada lateral a cuatro patas"), "Patada lateral tiene enlace");
     });
 
     /* ========= V37 — vueltas del cronómetro de entrenamiento ========= */
@@ -3840,20 +3964,45 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     test("los entrenamientos de la semana se cuentan bien y el Día Especial no suma", function(){
+      // Las tres fechas "de esta semana" son diasAtras(0), no diasAtras(0) y
+      // diasAtras(1). Motivo: computeRacha agrupa por semana ISO (lunes a
+      // domingo), así que los LUNES diasAtras(1) cae en la semana ANTERIOR y el
+      // control de la prueba se volvía falso — el test fallaba un día de cada
+      // siete. computeRacha cuenta ENTRADAS, no días distintos (byWeek[key]++
+      // por entreno), así que dos entrenos en la misma fecha valen 2 igual y lo
+      // que el test verifica no cambia: que dos normales sumen al objetivo y
+      // que el Día Especial no.
       conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:4, createdAt:1 }, entrenos:[
         { id:1, date:diasAtras(0) },
-        { id:2, date:diasAtras(1) },
-        { id:3, date:diasAtras(1), isSpecial:true },   // no suma al objetivo
+        { id:2, date:diasAtras(0) },
+        { id:3, date:diasAtras(0), isSpecial:true },   // no suma al objetivo
         { id:4, date:diasAtras(400) }                  // fuera de la semana
       ]}, function(){
-        var esperado = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(1)}], 4).thisWeekCount;
+        var esperado = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(0)}], 4).thisWeekCount;
+        assert(esperado === 2, "el control de la prueba no es válido: los dos normales deberían dar 2, dieron " + esperado);
         var html = A.perfilResumenHtml();
         assert(html.indexOf(esperado + "<small> / 4</small>") !== -1,
           "debería mostrar " + esperado + " / 4");
         // Y el especial efectivamente no está contado.
-        var conEspecial = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(1)},{date:diasAtras(1)}], 4).thisWeekCount;
+        var conEspecial = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(0)},{date:diasAtras(0)}], 4).thisWeekCount;
         assert(conEspecial === esperado + 1, "el control de la prueba no es válido");
       });
+    });
+
+    test("2C — ningún test de la semana depende del día en que se corre", function(){
+      // Candado sobre el bug de arriba: diasAtras(0) y diasAtras(1) NO siempre
+      // caen en la misma semana ISO. Este test deja constancia de que es una
+      // propiedad del calendario, no un detalle, y falla si alguien vuelve a
+      // asumir lo contrario.
+      var hoy = new Date();
+      var esLunes = hoy.getDay() === 1;
+      var mismaSemana = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(1)}], 4).thisWeekCount === 2;
+      assert(esLunes ? !mismaSemana : mismaSemana,
+        "hoy es " + (esLunes ? "lunes" : "día " + hoy.getDay()) +
+        " y diasAtras(0)+diasAtras(1) " + (mismaSemana ? "SÍ " : "NO ") + "caen en la misma semana");
+      // Lo que sí es estable cualquier día: hoy siempre está en la semana actual.
+      assert(A.computeRacha([{date:diasAtras(0)}], 4).thisWeekCount === 1, "hoy no cuenta en la semana actual");
+      assert(A.computeRacha([{date:diasAtras(400)}], 4).thisWeekCount === 0, "hace 400 días cuenta en la semana actual");
     });
 
     test("la racha se muestra y con 0 no pone el fueguito", function(){
@@ -4677,10 +4826,12 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(s.regiones["calves-gastro"].puntos === 1, "debería pintar gemelo, dio " + s.regiones["calves-gastro"].puntos);
       assert(s.regiones["calves-gastro"].popular.nombre === "Gemelos parado con mancuerna",
         "debería usar el nombre canónico, dio " + s.regiones["calves-gastro"].popular.nombre);
-      // Un retirado también sigue resolviendo.
-      var retirado = Array.from(A.EXERCISES_RETIRED)[0];
-      var s2 = mmStats([mmReg(retirado, MM_HOY, 3, 40)], 7);
-      assert(s2.registrosEnVentana === 1, "un retirado debería seguir contando (" + retirado + ")");
+      // 2B: un nombre BORRADO del catálogo ya no tiene MUSCLE_MAP, así que el
+      // mapa lo ignora en vez de pintarlo. Es el comportamiento correcto para
+      // un nombre que la app ya no reconoce.
+      var s2 = mmStats([mmReg("Jalón tras nuca", MM_HOY, 3, 40)], 7);
+      assert(s2.resumen.musculosEntrenados === 0, "un nombre borrado no debería pintar nada");
+      assert(s2.ignorados.sinMapa === 1, "debería contarse como sinMapa, dio " + JSON.stringify(s2.ignorados));
     });
 
     test("el cardio no pinta ninguna región", function(){
@@ -4939,12 +5090,15 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     test("MUSCLE_MAP y las clasificaciones existentes siguen igual", function(){
       // Los números de la auditoría, como candado.
-      var act = A.EXERCISES.filter(function(n){ return !A.isRetiredExercise(n); });
-      assert(act.length === 110, "activos dio " + act.length);
-      assert(act.filter(function(n){ return A.MUSCLE_MAP[n]; }).length === 100, "con MUSCLE_MAP dio " + act.filter(function(n){ return A.MUSCLE_MAP[n]; }).length);
+      // 2B mueve estos números: 110→111 activos y 100→101 con MUSCLE_MAP
+      // (se borraron 12 retirados y volvió "Hip thrust con barra"), 41→38
+      // aliases. Las 26 regiones NO se tocaron, que es lo que este candado
+      // cuida de verdad.
+      var act = A.activeExercises();
+      assert(act.length === 111, "activos dio " + act.length);
+      assert(act.filter(function(n){ return A.MUSCLE_MAP[n]; }).length === 101, "con MUSCLE_MAP dio " + act.filter(function(n){ return A.MUSCLE_MAP[n]; }).length);
       assert(Object.keys(A.REGION_VIEW).length === 26, "regiones dio " + Object.keys(A.REGION_VIEW).length);
-      assert(A.EXERCISES_RETIRED.size === 12, "retirados dio " + A.EXERCISES_RETIRED.size);
-      assert(Object.keys(A.EXERCISE_ALIASES).length === 41, "aliases dio " + Object.keys(A.EXERCISE_ALIASES).length);
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38, "aliases dio " + Object.keys(A.EXERCISE_ALIASES).length);
       // La clasificación de los 10/11 subgrupos no cambió.
       assert(A.exercisePrimarySubgroup("Press de banca con barra") === "pecho", "cambió el subgrupo principal");
       assert(A.exerciseSubgroup10("Peso muerto con barra") === "gluteos", "cambió el subgrupo10");
@@ -4981,6 +5135,792 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         assert(s.sinDatos === true, "no debería inferir nada desde entrenos");
         assert(s.resumen.musculosEntrenados === 0, "dio " + s.resumen.musculosEntrenados);
       } finally { A.state.entrenos = prev; }
+    });
+
+    /* Monta un autocompletado real (input + lista) DENTRO del iframe, para que
+       los eventos y el DOM vivan en el mismo realm que attachAutocomplete.
+       Devuelve helpers para teclear, leer lo mostrado y hacer click. */
+    function acMontar(){
+      var doc = frame.contentDocument;
+      var wrap = doc.createElement("div");
+      wrap.className = "ac-wrap";
+      wrap.innerHTML = '<input type="text"><div class="ac-list"></div>';
+      doc.body.appendChild(wrap);
+      var input = wrap.querySelector("input");
+      var lista = wrap.querySelector(".ac-list");
+      var api = {
+        input: input,
+        lista: lista,
+        elegido: null,
+        escribir: function(v){
+          input.value = v;
+          input.dispatchEvent(new frame.contentWindow.Event("input", { bubbles:true }));
+        },
+        items: function(){
+          return Array.prototype.map.call(lista.querySelectorAll(".ac-item[data-val]"),
+            function(el){ return el.getAttribute("data-val"); });
+        },
+        more: function(){ return lista.querySelector("[data-ac-more]"); },
+        click: function(el){
+          el.dispatchEvent(new frame.contentWindow.MouseEvent("mousedown", { bubbles:true, cancelable:true }));
+        },
+        limpiar: function(){ wrap.remove(); }
+      };
+      A.attachAutocomplete(input, lista, function(v){ api.elegido = v; });
+      return api;
+    }
+
+    /* ================= ETAPA 2B — AUTOCOMPLETADO =================
+       Los dos defectos que 2B arregla ya existían, no eran a futuro:
+       "press banca" (el placeholder del propio formulario) devolvía 0 de 7
+       coincidencias, y los 38 aliases —el vocabulario real de gimnasio—
+       eran inalcanzables porque el pool era EXERCISES. */
+    group("2B · autocompletado: umbral y cantidad");
+
+    // F + G
+    test("con 1 carácter no se activa la búsqueda, con 2 sí", function(){
+      assert(A.AC_MIN_CHARS === 2, "AC_MIN_CHARS: " + A.AC_MIN_CHARS);
+      ["p","P","a"," p ",""].forEach(function(q){
+        assert(A.exerciseSuggestions(q).length === 0, "se activó con " + JSON.stringify(q));
+      });
+      // "pr" sí: 2 caracteres reales después de normalizar.
+      assert(A.exerciseSuggestions("pr").length > 0, "no se activó con 2 caracteres");
+      // Y el umbral se mide DESPUÉS de colapsar espacios: "  p  " sigue siendo 1.
+      assert(A.exerciseSuggestions("  p  ").length === 0, "los espacios contaron como caracteres");
+    });
+
+    // H + I + J
+    test("muestra 4 resultados y ofrece 'Ver X más...' cuando hay más", function(){
+      var ac = acMontar();
+      try{
+        // "press" tiene 16 coincidencias en el catálogo.
+        var todas = A.exerciseSuggestions("press");
+        assert(todas.length > 4, "el caso de prueba necesita más de 4 coincidencias, hubo " + todas.length);
+        ac.escribir("press");
+        assert(A.AC_INITIAL === 4, "AC_INITIAL: " + A.AC_INITIAL);
+        assert(ac.items().length === 4, "mostró " + ac.items().length + " en vez de 4");
+        // La fila extra existe, dice cuántas faltan y NO es seleccionable.
+        var mas = ac.more();
+        assert(!!mas, "falta la fila 'Ver X más...'");
+        assert(mas.textContent === "Ver " + (todas.length - 4) + " más...", "texto: " + mas.textContent);
+        assert(mas.getAttribute("data-val") === null, "'Ver X más...' es seleccionable como ejercicio");
+        // J: expande EN EL MISMO LUGAR, sin abrir otra pantalla.
+        ac.click(mas);
+        assert(ac.items().length === todas.length, "tras expandir mostró " + ac.items().length + " de " + todas.length);
+        assert(!ac.more(), "sigue ofreciendo 'Ver más' después de expandir");
+        assert(ac.lista.isConnected, "la lista se desmontó al expandir");
+        // Y los nombres son exactamente los de la función pura, en el mismo orden.
+        assert(ac.items().join("|") === todas.join("|"), "la UI reordenó los resultados");
+      } finally { ac.limpiar(); }
+    });
+
+    test("con 4 coincidencias o menos no aparece 'Ver X más...'", function(){
+      var ac = acMontar();
+      try{
+        var todas = A.exerciseSuggestions("dominadas");
+        assert(todas.length <= 4, "el caso necesita 4 o menos, hubo " + todas.length);
+        ac.escribir("dominadas");
+        assert(ac.items().length === todas.length, "mostró " + ac.items().length);
+        assert(!ac.more(), "apareció 'Ver más' sin haber resultados ocultos");
+      } finally { ac.limpiar(); }
+    });
+
+    test("al volver a teclear se vuelve a colapsar a 4", function(){
+      var ac = acMontar();
+      try{
+        ac.escribir("press");
+        ac.click(ac.more());
+        assert(ac.items().length > 4, "no expandió");
+        ac.escribir("curl");   // la lista cambió: el estado expandido no debe sobrevivir
+        assert(ac.items().length === 4, "quedó expandido tras cambiar la consulta: " + ac.items().length);
+        assert(!!ac.more(), "perdió la fila 'Ver más'");
+      } finally { ac.limpiar(); }
+    });
+
+    group("2B · autocompletado: orden de relevancia");
+
+    // K
+    test("la coincidencia exacta va primera", function(){
+      // Antes se DESCARTABA (if(nn===q) return). §6 pide lo contrario.
+      [["Dominadas","Dominadas"],["Plancha","Plancha"],["Pullover","Pullover"],
+       ["Press cerrado","Press cerrado"]].forEach(function(p){
+        var r = A.exerciseSuggestions(p[0]);
+        assert(r[0] === p[1], "escribiendo " + p[0] + " el primero fue " + r[0]);
+      });
+      // Y escribir el nombre exacto NO deja de ofrecer a sus hermanos.
+      var dom = A.exerciseSuggestions("Dominadas");
+      assert(dom.indexOf("Dominadas supinas") !== -1, "perdió la variante hermana");
+      assert(dom[0] === "Dominadas", "la exacta no quedó primera");
+    });
+
+    // L
+    test("la coincidencia al comienzo gana a la parcial", function(){
+      var r = A.exerciseSuggestions("remo");
+      // "Remo ..." (comienzo) antes que "Máquina de remo" (parcial).
+      var maquina = r.indexOf("Máquina de remo");
+      assert(maquina !== -1, "no encontró Máquina de remo");
+      r.slice(0, maquina).forEach(function(n){
+        assert(/^Remo/.test(n), n + " está antes de una parcial sin empezar con 'Remo'");
+      });
+      // Otro caso: "polea" no empieza ningún nombre, así que todos son parciales.
+      var pol = A.exerciseSuggestions("polea");
+      assert(pol.length > 0, "sin resultados para polea");
+      assert(pol.every(function(n){ return !/^polea/i.test(n); }), "alguno empieza con polea");
+    });
+
+    test("a igual relevancia gana el nombre más corto", function(){
+      var r = A.exerciseSuggestions("press de banca");
+      // Todos son "comienzo"; el orden tiene que ser por longitud creciente.
+      for(var i=1;i<r.length;i++){
+        assert(r[i].length >= r[i-1].length,
+          "no está ordenado por longitud: " + r[i-1] + " (" + r[i-1].length + ") antes de " + r[i] + " (" + r[i].length + ")");
+      }
+      assert(r[0] === "Press de banca con barra", "el primero fue " + r[0]);
+    });
+
+    // M
+    test("busca por todas las palabras, en cualquier orden", function(){
+      // El caso que estaba roto: es el placeholder del propio formulario.
+      var pb = A.exerciseSuggestions("press banca");
+      assert(pb.length === 7, "press banca dio " + pb.length + " (antes daba 0)");
+      assert(pb.indexOf("Press de banca con barra") !== -1, "falta el press de banca con barra");
+      // Las palabras pueden venir en otro orden que en el nombre.
+      var im = A.exerciseSuggestions("inclinado mancuerna");
+      assert(im.indexOf("Press de banca inclinado con mancuernas") !== -1,
+        "no encontró el press inclinado con mancuernas: " + im.join(" | "));
+      var mi = A.exerciseSuggestions("mancuerna inclinado");
+      assert(mi.join("|") === im.join("|"), "el orden de las palabras cambió el resultado");
+      // Y sigue siendo todas-las-palabras, no alguna: una palabra ajena no debe pasar.
+      assert(A.exerciseSuggestions("inclinado xilofon").length === 0, "alcanzó con una sola palabra");
+    });
+
+    // N
+    test("los aliases encuentran el ejercicio oficial", function(){
+      // 38 aliases que antes eran inalcanzables: el pool era EXERCISES.
+      var casos = {
+        "prensa de piernas": "Prensa inclinada",
+        "curl femoral": "Isquio sentado",
+        "pec deck": "Pec Fly",
+        "press arnold": "Arnold press",
+        "elevaciones laterales": "Vuelos laterales con mancuerna",
+        "extension de cuadriceps": "Extensión de piernas",
+        "elevacion de talones de pie": "Gemelos parado con mancuerna",
+        "pullover con mancuerna": "Pullover"
+      };
+      Object.keys(casos).forEach(function(q){
+        var r = A.exerciseSuggestions(q);
+        assert(r.length > 0, q + " no devolvió nada");
+        assert(r.indexOf(casos[q]) !== -1, q + " no encontró " + casos[q] + ": " + r.join(" | "));
+      });
+      // Lo que se MUESTRA es el nombre oficial, nunca el alias (§4).
+      var r = A.exerciseSuggestions("pec deck");
+      assert(r.indexOf("Pec deck (contractora)") === -1, "sugirió el alias en vez del oficial");
+      // Y un alias cuyo destino fuese inexistente no debe aportar nada.
+      var colgados = Object.keys(A.EXERCISE_ALIASES).filter(function(k){
+        return A.EXERCISES.indexOf(A.EXERCISE_ALIASES[k]) === -1;
+      });
+      assert(colgados.length === 0, "hay aliases colgados que podrían filtrarse: " + colgados.join(", "));
+    });
+
+    test("el alias pierde contra una coincidencia directa", function(){
+      // "Gemelos" es alias de "Gemelos parado con mancuerna", pero también es
+      // el comienzo de cuatro nombres oficiales: esos van primero.
+      var r = A.exerciseSuggestions("gemelos");
+      assert(r.length === 4, "dio " + r.length + ": " + r.join(" | "));
+      assert(r.every(function(n){ return /^Gemelos/.test(n); }), "entró algo que no empieza con Gemelos");
+    });
+
+    group("2B · autocompletado: normalización de la búsqueda");
+
+    // O + P + Q
+    test("mayúsculas, tildes y espacios repetidos no cambian el resultado", function(){
+      var base = A.exerciseSuggestions("press banca").join("|");
+      assert(base.length > 0, "el caso base no devolvió nada");
+      ["PRESS BANCA","press banca","Press Banca","press  banca",
+       "  press   banca  ","prEsS   BaNcA"].forEach(function(q){
+        assert(A.exerciseSuggestions(q).join("|") === base, "cambió con " + JSON.stringify(q));
+      });
+      // Tildes en los dos sentidos: con y sin.
+      var conTilde = A.exerciseSuggestions("jalón").join("|");
+      var sinTilde = A.exerciseSuggestions("jalon").join("|");
+      assert(conTilde === sinTilde && conTilde.length > 0, "jalón ≠ jalon: " + conTilde + " vs " + sinTilde);
+      var m1 = A.exerciseSuggestions("máquina").join("|");
+      var m2 = A.exerciseSuggestions("maquina").join("|");
+      assert(m1 === m2 && m1.length > 0, "máquina ≠ maquina");
+      // normalizeSearch, directo.
+      assert(A.normalizeSearch("  PRESS   BaNcA  ") === "press banca", "dio: " + A.normalizeSearch("  PRESS   BaNcA  "));
+      assert(A.normalizeSearch("Jalón al pecho") === "jalon al pecho", "dio: " + A.normalizeSearch("Jalón al pecho"));
+      assert(A.normalizeSearch(null) === "" && A.normalizeSearch(undefined) === "", "no tolera null/undefined");
+    });
+
+    group("2B · autocompletado: catálogo oficial y alta manual");
+
+    test("solo sugiere ejercicios oficiales ACTIVOS", function(){
+      // Todo lo que devuelve es un nombre del catálogo, para cualquier consulta.
+      ["press","curl","remo","pe","sentadilla","gemelos","jalon","maquina","mancuerna","a b"]
+      .forEach(function(q){
+        A.exerciseSuggestions(q).forEach(function(n){
+          assert(A.EXERCISES.indexOf(n) !== -1, q + " sugirió algo fuera del catálogo: " + n);
+        });
+      });
+      // B: ninguno de los 12 nombres borrados aparece, ni escribiéndolo entero.
+      BORRADOS_2B.forEach(function(n){
+        var r = A.exerciseSuggestions(n);
+        assert(r.indexOf(n) === -1, n + " sigue apareciendo en el autocompletado");
+      });
+      // Y los cuatro que tenían un nombre muy buscable tampoco se filtran.
+      assert(A.exerciseSuggestions("jalon tras nuca").length === 0, "Jalón tras nuca sigue sugiriéndose");
+      assert(A.exerciseSuggestions("encogimientos de hombros").length === 0, "Encogimientos de hombros sigue sugiriéndose");
+      assert(A.exerciseSuggestions("zancadas").indexOf("Zancadas") === -1, "Zancadas sigue sugiriéndose");
+      assert(A.exerciseSuggestions("piernas rigidas").length === 0, "Peso muerto piernas rígidas sigue sugiriéndose");
+    });
+
+    test("los ejercicios personalizados NO entran al catálogo ni a las sugerencias", function(){
+      // §7: el catálogo oficial y los ejercicios del usuario son poblaciones
+      // distintas. Antes, attachAutocomplete mezclaba los nombres de la rutina
+      // (extraProvider) en el pool de sugerencias; ahora no.
+      var prev = { rut:A.state.rutina, slots:A.state.rutinaSlots, slot:A.state.activeSlot };
+      try{
+        var dia = { id:"d1", nombre:"D1", exercises:[
+          { id:"e1", nombre:"Press de banca con barra" },
+          { id:"e2", nombre:"Mi press raro inventado" }
+        ]};
+        A.state.rutina = { days:[dia] };
+        A.state.rutinaSlots = { personalizada:{days:[dia]}, automatica:{days:[]}, enfocada:{days:[]} };
+        A.state.activeSlot = "personalizada";
+        // El selector del Registro SÍ lo ve (es el dato del usuario)...
+        assert(A.allExerciseNames().indexOf("Mi press raro inventado") !== -1,
+          "el selector perdió el ejercicio personalizado");
+        // ...pero el catálogo oficial NO lo sugiere.
+        assert(A.exerciseSuggestions("mi press raro").length === 0, "el catálogo sugirió un personalizado");
+        assert(A.exerciseSuggestions("press").indexOf("Mi press raro inventado") === -1,
+          "el personalizado se colgó de una búsqueda del catálogo");
+        assert(A.EXERCISES.indexOf("Mi press raro inventado") === -1, "entró a EXERCISES");
+        // Y tampoco entra a ningún pool del generador.
+        var pools = A.muscleGroupPools();
+        Object.keys(pools).forEach(function(g){
+          assert(pools[g].indexOf("Mi press raro inventado") === -1, "entró al pool de " + g);
+        });
+      } finally { A.state.rutina = prev.rut; A.state.rutinaSlots = prev.slots; A.state.activeSlot = prev.slot; }
+    });
+
+    // R
+    test("un oficial elegido desde el autocompletado conserva su identidad y metadatos", function(){
+      var ac = acMontar();
+      try{
+        ac.escribir("press banca");
+        var elegido = ac.items()[0];
+        ac.click(ac.lista.querySelector('.ac-item[data-val="' + elegido + '"]'));
+        assert(ac.input.value === elegido, "el input quedó en " + ac.input.value);
+        assert(ac.elegido === elegido, "el callback recibió " + ac.elegido);
+        assert(elegido === "Press de banca con barra", "el primero fue " + elegido);
+        // El nombre que queda en el input es EXACTAMENTE el oficial, así que
+        // resuelve a sí mismo y arrastra toda su ficha.
+        var n = ac.input.value;
+        assert(A.EXERCISES.indexOf(n) !== -1, "no es un oficial");
+        assert(A.canonicalExerciseName(n) === n, "no es su propio canónico");
+        assert(!!A.MUSCLE_MAP[n], "sin MUSCLE_MAP");
+        assert(A.exercisePattern(n) === "press-horizontal", "patrón: " + A.exercisePattern(n));
+        assert(A.exerciseMuscleGroup(n) === "Pecho", "grupo: " + A.exerciseMuscleGroup(n));
+        assert(A.exercisePrimarySubgroup(n) === "pecho", "subgrupo: " + A.exercisePrimarySubgroup(n));
+        assert(A.exerciseEquipment(n) === "Barra", "equipamiento: " + A.exerciseEquipment(n));
+        assert((A.EXERCISE_TIPS[n] || []).length > 0, "sin consejos");
+        assert(!!A.exerciseHowtoLinkFor(n), "sin enlace");
+        assert(!!A.exerciseAnatomyImageFor(n), "sin lámina");
+        // Y se guarda sin duplicar identidad (§6: no se crea un manual gemelo).
+        assert(A.Store.registroRowFor("p1",{exercise:n,peso:80,date:"2026-03-01"}).exercise === n,
+          "la escritura alteró el nombre oficial");
+      } finally { ac.limpiar(); }
+    });
+
+    test("elegir por un alias deja el nombre OFICIAL en el input", function(){
+      var ac = acMontar();
+      try{
+        ac.escribir("prensa de piernas");
+        assert(ac.items().length === 1, "esperaba 1 resultado, hubo " + ac.items().length);
+        ac.click(ac.lista.querySelector(".ac-item[data-val]"));
+        assert(ac.input.value === "Prensa inclinada", "el input quedó en " + ac.input.value);
+        // No queda ningún rastro del alias: lo guardado es el oficial.
+        assert(A.Store.registroRowFor("p1",{exercise:ac.input.value,peso:100,date:"2026-03-01"}).exercise === "Prensa inclinada",
+          "no se guardó el oficial");
+      } finally { ac.limpiar(); }
+    });
+
+    // S
+    test("el alta manual de un ejercicio inexistente no queda bloqueada", function(){
+      var ac = acMontar();
+      try{
+        ac.escribir("Hip thrust con banda elástica");
+        // Sin sugerencias: no hay nada parecido en el catálogo...
+        assert(ac.items().length === 0, "sugirió algo: " + ac.items().join(" | "));
+        assert(ac.lista.style.display === "none", "la lista quedó abierta");
+        // ...y el texto escrito sobrevive intacto: no se autoselecciona nada.
+        assert(ac.input.value === "Hip thrust con banda elástica", "el input cambió: " + ac.input.value);
+        assert(ac.elegido === null, "se autoseleccionó un ejercicio sin que el usuario eligiera");
+        // Se puede guardar tal cual.
+        var row = A.Store.registroRowFor("p1",{exercise:ac.input.value,peso:0,date:"2026-03-01"});
+        assert(row.exercise === "Hip thrust con banda elástica", "la escritura lo alteró: " + row.exercise);
+        // Y un nombre que SÍ tiene sugerencias tampoco se autocompleta solo.
+        ac.escribir("press ban");
+        assert(ac.items().length > 0, "no sugirió nada para un prefijo válido");
+        assert(ac.input.value === "press ban", "el input se autocompletó: " + ac.input.value);
+        assert(ac.elegido === null, "se autoseleccionó sin click");
+      } finally { ac.limpiar(); }
+    });
+
+    group("2B · autocompletado: rendimiento y bordes");
+
+    test("aguanta un catálogo 3x sin degradarse", function(){
+      // No se puede agrandar EXERCISES (es const y no se toca), así que se mide
+      // el costo real por consulta y se verifica que el margen sea amplio: el
+      // algoritmo es O(n) sobre nombres cortos, así que 3x sigue siendo trivial.
+      var consultas = ["pr","press","press banca","mancuerna","a","gemelos","pec deck","inclinado mancuerna"];
+      var t0 = performance.now();
+      for(var i=0;i<200;i++) consultas.forEach(function(q){ A.exerciseSuggestions(q); });
+      var ms = performance.now() - t0;
+      var porConsulta = ms / (200 * consultas.length);
+      // Con 111 ejercicios + 38 aliases una consulta cuesta centésimas de ms.
+      // Un presupuesto de 1ms deja más de 10x de margen para 300+ ejercicios.
+      assert(porConsulta < 1, "cada consulta cuesta " + porConsulta.toFixed(3) + "ms");
+    });
+
+    test("no explota con entradas raras", function(){
+      [null, undefined, "", " ", "   ", "\t\n", "?!", "((", "a".repeat(500), 42, {}]
+      .forEach(function(q){
+        var r;
+        try{ r = A.exerciseSuggestions(q); }
+        catch(e){ assert(false, "explotó con " + JSON.stringify(q) + ": " + e.message); return; }
+        assert(Array.isArray(r), "no devolvió un array con " + JSON.stringify(q));
+        r.forEach(function(n){ assert(A.EXERCISES.indexOf(n) !== -1, "sugirió " + n + " para " + JSON.stringify(q)); });
+      });
+    });
+
+    test("nunca devuelve duplicados, aunque el ejercicio matchee por varias vías", function(){
+      // "Prensa inclinada" matchea por nombre Y por el alias "Prensa de
+      // piernas": tiene que aparecer UNA sola vez, con su mejor relevancia.
+      ["prensa","gemelos","press","pec","curl","polea","mancuerna","a b"].forEach(function(q){
+        var r = A.exerciseSuggestions(q);
+        var unicos = r.filter(function(v,i){ return r.indexOf(v) === i; });
+        assert(unicos.length === r.length, q + " devolvió duplicados: " + r.join(" | "));
+      });
+    });
+
+    /* ================= ETAPA 2C — NO REGRESIÓN DE CLASIFICACIÓN =================
+
+       Qué protege. exercisePrimarySubgroup(), exerciseMuscleGroup() y
+       exerciseLegFocus() derivan TODAS de una sola cosa: la región de mayor
+       intensidad del ejercicio. De ahí salen el grupo visual, el subgrupo, el
+       subgrupo de 10, los pools del generador, Día Especial y la rutina
+       enfocada. Agregar una región asistente con intensidad >= al máximo actual
+       mueve el principal y arrastra todo eso en silencio: no hay error, no hay
+       síntoma, solo rutinas que empiezan a salir distintas.
+
+       Por qué una tabla literal y no un recálculo. Un test no puede comparar
+       "antes y después": solo existe una versión del código a la vez. La única
+       forma de detectar el cambio es tener la foto del estado aprobado
+       ESCRITA Y COMMITEADA antes de tocar MUSCLE_MAP. Eso es
+       baseline-clasificacion.js.
+
+       Cómo se lee un fallo. El mensaje nombra el ejercicio, lo esperado y lo
+       obtenido. Si el cambio fue deliberado, se actualiza esa fila de la
+       baseline en el mismo commit. Si nadie lo quiso, el bug está en
+       MUSCLE_MAP. Nunca se actualiza la baseline "para que pase".            */
+    group("2C · baseline: integridad del archivo");
+
+    var BL = window.VODAFIT_BASELINE_CLASIFICACION;
+
+    test("la baseline está cargada y bien formada", function(){
+      assert(!!BL, "no se cargó baseline-clasificacion.js (window.VODAFIT_BASELINE_CLASIFICACION)");
+      assert(BL.etapa === "2C", "etapa: " + BL.etapa);
+      assert(Array.isArray(BL.ejercicios), "ejercicios no es un array");
+      assert(BL.ejercicios.length === 101, "filas: esperaba 101, hubo " + BL.ejercicios.length);
+      // Toda fila tiene los cinco campos, con el tipo correcto.
+      var malas = [];
+      BL.ejercicios.forEach(function(f, i){
+        if(typeof f.ej !== "string" || !f.ej) malas.push(i + ": ej");
+        else if(typeof f.grupo !== "string" || !f.grupo) malas.push(f.ej + ": grupo");
+        else if(typeof f.subgrupo !== "string" || !f.subgrupo) malas.push(f.ej + ": subgrupo");
+        else if(typeof f.diagram !== "string" || !f.diagram) malas.push(f.ej + ": diagram");
+        else if(!Array.isArray(f.t) || !f.t.length) malas.push(f.ej + ": t");
+      });
+      assert(malas.length === 0, "filas mal formadas: " + malas.join(", "));
+      // Sin duplicados y en orden alfabético es-AR (determinismo del archivo).
+      var nombres = BL.ejercicios.map(function(f){ return f.ej; });
+      var dup = nombres.filter(function(n,i){ return nombres.indexOf(n) !== i; });
+      assert(dup.length === 0, "ejercicios duplicados en la baseline: " + dup.join(", "));
+      var ordenado = nombres.slice().sort(function(a,b){ return a.localeCompare(b,"es"); });
+      var desorden = nombres.findIndex(function(n,i){ return n !== ordenado[i]; });
+      assert(desorden === -1,
+        "la baseline no está ordenada: en la posición " + desorden + " hay '" +
+        nombres[desorden] + "' y debería estar '" + ordenado[desorden] + "'");
+    });
+
+    test("los totales declarados en la baseline coinciden con el runtime", function(){
+      assert(A.EXERCISES.length === BL.totales.oficiales,
+        "oficiales: la baseline dice " + BL.totales.oficiales + ", el runtime tiene " + A.EXERCISES.length);
+      var conMM = A.EXERCISES.filter(function(n){ return !!A.MUSCLE_MAP[n]; });
+      assert(conMM.length === BL.totales.conMuscleMap,
+        "con MUSCLE_MAP: la baseline dice " + BL.totales.conMuscleMap + ", el runtime tiene " + conMM.length);
+      var sinGrupo = A.EXERCISES.filter(function(n){ return !A.exerciseMuscleGroup(n); });
+      assert(sinGrupo.length === BL.totales.sinGrupo,
+        "sin grupo: la baseline dice " + BL.totales.sinGrupo + ", el runtime tiene " + sinGrupo.length +
+        " (" + sinGrupo.join(", ") + ")");
+      var sinSub = A.EXERCISES.filter(function(n){ return !A.exercisePrimarySubgroup(n); });
+      assert(sinSub.length === BL.totales.sinSubgrupo,
+        "sin subgrupo: la baseline dice " + BL.totales.sinSubgrupo + ", el runtime tiene " + sinSub.length +
+        " (" + sinSub.join(", ") + ")");
+      assert(Object.keys(A.EXERCISE_ALIASES).length === BL.totales.aliases,
+        "aliases: la baseline dice " + BL.totales.aliases + ", el runtime tiene " + Object.keys(A.EXERCISE_ALIASES).length);
+    });
+
+    test("la baseline cubre EXACTAMENTE los ejercicios con MUSCLE_MAP", function(){
+      // Ni de más ni de menos: si entra un ejercicio nuevo con MUSCLE_MAP, este
+      // test obliga a agregarlo a la baseline en el mismo commit.
+      var enBL = BL.ejercicios.map(function(f){ return f.ej; });
+      var enRuntime = A.EXERCISES.filter(function(n){ return !!A.MUSCLE_MAP[n]; });
+      var faltan = enRuntime.filter(function(n){ return enBL.indexOf(n) === -1; });
+      var sobran = enBL.filter(function(n){ return enRuntime.indexOf(n) === -1; });
+      assert(faltan.length === 0,
+        "ejercicios con MUSCLE_MAP que NO están en la baseline (agregalos): " + faltan.join(", "));
+      assert(sobran.length === 0,
+        "filas de la baseline que ya no existen o perdieron MUSCLE_MAP (saca o actualizá la fila): " + sobran.join(", "));
+    });
+
+    group("2C · no regresión: grupo y subgrupo por ejercicio");
+
+    // Un test por campo, recorriendo las 101 filas y acumulando TODAS las
+    // diferencias: así un cambio masivo se ve entero en un solo mensaje en vez
+    // de cortarse en la primera fila que falla.
+    test("ningún ejercicio cambió de GRUPO principal", function(){
+      var dif = [];
+      BL.ejercicios.forEach(function(f){
+        var real = A.exerciseMuscleGroup(f.ej);
+        if(real !== f.grupo) dif.push(f.ej + ": esperado '" + f.grupo + "', obtenido '" + real + "'");
+      });
+      assert(dif.length === 0, dif.length + " cambio(s) de grupo — " + dif.join(" | "));
+    });
+
+    test("ningún ejercicio cambió de SUBGRUPO principal", function(){
+      var dif = [];
+      BL.ejercicios.forEach(function(f){
+        var real = A.exercisePrimarySubgroup(f.ej);
+        if(real !== f.subgrupo) dif.push(f.ej + ": esperado '" + f.subgrupo + "', obtenido '" + real + "'");
+      });
+      assert(dif.length === 0, dif.length + " cambio(s) de subgrupo — " + dif.join(" | "));
+    });
+
+    test("el grupo sigue siendo una función del subgrupo", function(){
+      // No alcanza con que grupo y subgrupo no cambien por separado: el grupo
+      // SALE del subgrupo (vía SUBGROUP_TO_MUSCLEGROUP, que no está exportada).
+      // La propiedad se verifica sin esa constante: si el mapeo sigue siendo una
+      // función, cada subgrupo tiene que dar UN solo grupo en los 101.
+      var porSubgrupo = {};
+      BL.ejercicios.forEach(function(f){
+        var g = A.exerciseMuscleGroup(f.ej);
+        (porSubgrupo[f.subgrupo] = porSubgrupo[f.subgrupo] || []).push({ ej:f.ej, grupo:g });
+      });
+      var rotos = [];
+      Object.keys(porSubgrupo).forEach(function(sg){
+        var grupos = uniq(porSubgrupo[sg].map(function(x){ return x.grupo; }));
+        if(grupos.length !== 1){
+          rotos.push("subgrupo '" + sg + "' da " + grupos.length + " grupos distintos (" + grupos.join("/") + "): " +
+            porSubgrupo[sg].map(function(x){ return x.ej + "→" + x.grupo; }).join(", "));
+        }
+      });
+      assert(rotos.length === 0, rotos.join(" | "));
+      // Y el mapeo observado es exactamente el esperado por la taxonomía de V31
+      // (traps en Hombros y lower-back en Core son decisiones explícitas de V31).
+      var esperado = { pecho:"Pecho", hombros:"Hombros", espalda:"Espalda",
+        biceps:"Brazos", triceps:"Brazos", antebrazo:"Brazos", core:"Core", piernas:"Piernas" };
+      Object.keys(porSubgrupo).forEach(function(sg){
+        assert(porSubgrupo[sg][0].grupo === esperado[sg],
+          "subgrupo '" + sg + "': esperaba grupo '" + esperado[sg] + "', da '" + porSubgrupo[sg][0].grupo + "'");
+      });
+      // Los 8 subgrupos siguen representados.
+      assert(Object.keys(porSubgrupo).length === 8,
+        "subgrupos con ejercicios: esperaba 8, hubo " + Object.keys(porSubgrupo).length +
+        " (" + Object.keys(porSubgrupo).sort().join(", ") + ")");
+    });
+
+    test("2C — la baseline DETECTA los cambios que tiene que detectar", function(){
+      // Un baseline que no atrapa nada no sirve. Este test lo prueba: aplica
+      // mutaciones sobre una COPIA de la entrada (MUSCLE_MAP real intacto) y
+      // verifica que la comparacion las marque. Es el test del test.
+      function principal(t){ var best = t[0]; t.forEach(function(x){ if(x[1] > best[1]) best = x; }); return best[0]; }
+      function subgrupoDe(t){ return A.REGION_SUBGROUP[principal(t)]; }
+      function clon(t){ return JSON.parse(JSON.stringify(t)); }
+      function diferencias(nombre, tMutado){
+        var f = BL.ejercicios.filter(function(x){ return x.ej === nombre; })[0];
+        var d = [];
+        if(subgrupoDe(tMutado) !== f.subgrupo) d.push("subgrupo");
+        if(f.t.map(function(x){ return x[0]; }).join(",") !== tMutado.map(function(x){ return x[0]; }).join(",")) d.push("regiones");
+        f.t.forEach(function(par, i){
+          var r = tMutado[i];
+          if(r && r[0] === par[0] && r[1] !== par[1]) d.push("intensidad");
+        });
+        if(JSON.stringify(f.t) !== JSON.stringify(tMutado)) d.push("entrada");
+        return uniq(d);
+      }
+      var PB = "Press de banca con barra";
+      // 1. Asistente que EMPATA con el máximo: es el caso peligroso de D2,
+      //    porque mueve el principal (y con él subgrupo, grupo y pools).
+      var m1 = clon(A.MUSCLE_MAP[PB].t); m1.push(["triceps-lateral", 1]);
+      var d1 = diferencias(PB, m1);
+      assert(d1.indexOf("regiones") !== -1 && d1.indexOf("entrada") !== -1,
+        "no detectó un asistente que empata con el máximo: " + d1.join(","));
+      // 2. Asistente POR DEBAJO del máximo: el caso normal de D2. No cambia la
+      //    clasificación (por eso subgrupo NO debe aparecer), pero sí las regiones.
+      var m2 = clon(A.MUSCLE_MAP[PB].t); m2.push(["triceps-lateral", 0.45]);
+      var d2 = diferencias(PB, m2);
+      assert(d2.indexOf("regiones") !== -1, "no detectó una región agregada: " + d2.join(","));
+      assert(d2.indexOf("subgrupo") === -1, "marcó cambio de subgrupo donde no lo hay: " + d2.join(","));
+      // 3. Solo una intensidad existente.
+      var m3 = clon(A.MUSCLE_MAP["Dominadas"].t); m3[1][1] = 0.55;
+      var d3 = diferencias("Dominadas", m3);
+      assert(d3.indexOf("intensidad") !== -1, "no detectó un cambio de intensidad: " + d3.join(","));
+      // 4. Reordenar sin cambiar valores: el orden importa (ante un empate
+      //    futuro decide la primera región declarada).
+      var m4 = clon(A.MUSCLE_MAP[PB].t).reverse();
+      var d4 = diferencias(PB, m4);
+      assert(d4.indexOf("regiones") !== -1, "no detectó un reordenamiento: " + d4.join(","));
+      // 5. CONTROL: sin mutación no debe marcar nada. Si esto falla, los otros
+      //    cuatro no prueban nada.
+      var d5 = diferencias("Dominadas", clon(A.MUSCLE_MAP["Dominadas"].t));
+      assert(d5.length === 0, "marcó diferencias sin mutación: " + d5.join(","));
+    });
+
+    group("2C · no regresión: regiones e intensidades por ejercicio");
+
+    test("ningún ejercicio cambió sus REGIONES", function(){
+      // Compara la secuencia de regiones en su orden original. El orden importa:
+      // exercisePrimarySubgroup usa `>` estricto, así que ante un empate futuro
+      // decidiría la primera región declarada.
+      var dif = [];
+      BL.ejercicios.forEach(function(f){
+        var m = A.MUSCLE_MAP[f.ej];
+        if(!m){ dif.push(f.ej + ": perdió su entrada en MUSCLE_MAP"); return; }
+        var esp = f.t.map(function(x){ return x[0]; }).join(",");
+        var real = m.t.map(function(x){ return x[0]; }).join(",");
+        if(real !== esp) dif.push(f.ej + ": esperado [" + esp + "], obtenido [" + real + "]");
+      });
+      assert(dif.length === 0, dif.length + " cambio(s) de regiones — " + dif.join(" | "));
+    });
+
+    test("ningún ejercicio cambió sus INTENSIDADES", function(){
+      var dif = [];
+      BL.ejercicios.forEach(function(f){
+        var m = A.MUSCLE_MAP[f.ej];
+        if(!m) return; // ya lo reporta el test de regiones
+        f.t.forEach(function(par, i){
+          var real = m.t[i];
+          if(!real) return;
+          if(real[0] === par[0] && real[1] !== par[1]){
+            dif.push(f.ej + " / " + par[0] + ": esperado " + par[1] + ", obtenido " + real[1]);
+          }
+        });
+      });
+      assert(dif.length === 0, dif.length + " cambio(s) de intensidad — " + dif.join(" | "));
+    });
+
+    test("ningún ejercicio cambió su entrada COMPLETA de MUSCLE_MAP", function(){
+      // Red de seguridad: compara la entrada serializada entera, así captura
+      // también lo que los dos tests de arriba podrían dejar pasar (una región
+      // agregada al final, un par reordenado, un `diagram` cambiado).
+      var dif = [];
+      BL.ejercicios.forEach(function(f){
+        var m = A.MUSCLE_MAP[f.ej];
+        if(!m) return;
+        var esp = JSON.stringify({ diagram:f.diagram, t:f.t });
+        var real = JSON.stringify({ diagram:m.diagram, t:m.t });
+        if(real !== esp) dif.push(f.ej + ":\n      esperado " + esp + "\n      obtenido " + real);
+      });
+      assert(dif.length === 0, dif.length + " entrada(s) distinta(s) — " + dif.join("\n    "));
+    });
+
+    test("todo nombre de la baseline sigue siendo su propio canónico", function(){
+      // Si un ejercicio de la baseline recibiera un alias, su fila dejaría de
+      // describir al ejercicio que nombra.
+      var dif = [];
+      BL.ejercicios.forEach(function(f){
+        var c = A.canonicalExerciseName(f.ej);
+        if(c !== f.ej) dif.push(f.ej + " → " + c);
+      });
+      assert(dif.length === 0, "nombres de la baseline que se desvían: " + dif.join(", "));
+    });
+
+    group("2C · casos especiales declarados");
+
+    test("sigue sin haber empates en la intensidad máxima", function(){
+      // La baseline declara `empatesEnMaxima: []`. Si aparece un empate, la
+      // región principal pasa a depender del ORDEN DE ESCRITURA del array
+      // (exercisePrimarySubgroup usa `>` estricto). No es un error en sí, pero
+      // es una decisión que hay que tomar a mano, no descubrir después.
+      var empates = [];
+      BL.ejercicios.forEach(function(f){
+        var m = A.MUSCLE_MAP[f.ej];
+        if(!m) return;
+        var mx = Math.max.apply(null, m.t.map(function(x){ return x[1]; }));
+        var enMax = m.t.filter(function(x){ return x[1] === mx; });
+        if(enMax.length > 1){
+          var sgs = uniq(enMax.map(function(x){ return A.REGION_SUBGROUP[x[0]]; }));
+          empates.push(f.ej + " (" + enMax.map(function(x){ return x[0]; }).join("+") +
+            " en " + mx + (sgs.length > 1 ? ", subgrupos distintos: " + sgs.join("/") : "") + ")");
+        }
+      });
+      assert(empates.length === BL.casosEspeciales.empatesEnMaxima.length,
+        "aparecieron empates nuevos (la baseline declara " + BL.casosEspeciales.empatesEnMaxima.length +
+        "): " + empates.join(" | "));
+    });
+
+    test("los tres ejercicios con máximo 0.9 siguen siendo exactamente esos tres", function(){
+      // No son un bug: la regla es "máximo relativo", no "=== 1". Quedan
+      // declarados porque cualquier regla futura que compare contra 1 los
+      // rompería, y porque si la lista cambia alguien tocó intensidades.
+      var reales = [];
+      BL.ejercicios.forEach(function(f){
+        var m = A.MUSCLE_MAP[f.ej];
+        if(!m) return;
+        var mx = Math.max.apply(null, m.t.map(function(x){ return x[1]; }));
+        if(mx !== 1) reales.push(f.ej + " (max " + mx + ")");
+      });
+      var esperados = BL.casosEspeciales.maximoDistintoDeUno;
+      assert(reales.length === esperados.length,
+        "esperaba " + esperados.length + " con máximo distinto de 1, hubo " + reales.length + ": " + reales.join(", "));
+      esperados.forEach(function(n){
+        assert(reales.some(function(r){ return r.indexOf(n) === 0; }),
+          "falta " + n + " entre los de máximo distinto de 1: " + reales.join(", "));
+      });
+      // Y los tres siguen clasificando bien a pesar de no llegar a 1.
+      esperados.forEach(function(n){
+        assert(!!A.exercisePrimarySubgroup(n), n + " se quedó sin subgrupo");
+        assert(!!A.exerciseMuscleGroup(n), n + " se quedó sin grupo");
+      });
+    });
+
+    test("Aductores en máquina sigue siendo el único sin subgrupo de 10", function(){
+      // Decisión abierta D3: LEG_FOCUS_TO_SUBGROUP10 no tiene clave para
+      // "adductors", así que esta pierna no entra a los pools de Día Especial.
+      // 2C lo declara, no lo corrige.
+      var nulos = BL.ejercicios
+        .filter(function(f){ return f.subgrupo === "piernas" && !A.exerciseSubgroup10(f.ej); })
+        .map(function(f){ return f.ej; });
+      var esperados = BL.casosEspeciales.subgrupo10Nulo;
+      assert(nulos.length === esperados.length,
+        "piernas sin subgrupo de 10: esperaba " + esperados.length + " (" + esperados.join(", ") +
+        "), hubo " + nulos.length + " (" + nulos.join(", ") + ")");
+      esperados.forEach(function(n){
+        assert(nulos.indexOf(n) !== -1, "falta " + n + " entre los nulos: " + nulos.join(", "));
+      });
+      // Y coincide con lo que reporta la función de diagnóstico de la app.
+      var ambiguos = A.ambiguousLegExercises();
+      assert(ambiguos.length === esperados.length,
+        "ambiguousLegExercises() dio " + ambiguos.length + ": " + ambiguos.join(", "));
+    });
+
+    group("2C · invariantes estructurales de MUSCLE_MAP");
+
+    /* Lo de arriba es una foto: protege los 101 que ya existen. Lo de acá es la
+       REGLA, y por eso también alcanza a los ejercicios que se agreguen después,
+       que ninguna foto puede cubrir. */
+    test("toda entrada de MUSCLE_MAP tiene una región máxima ÚNICA", function(){
+      var malos = [];
+      Object.keys(A.MUSCLE_MAP).forEach(function(n){
+        var t = A.MUSCLE_MAP[n].t || [];
+        if(!t.length){ malos.push(n + ": t vacío"); return; }
+        var mx = Math.max.apply(null, t.map(function(x){ return x[1]; }));
+        var enMax = t.filter(function(x){ return x[1] === mx; });
+        if(enMax.length > 1) malos.push(n + ": " + enMax.length + " regiones en el máximo " + mx);
+      });
+      assert(malos.length === 0,
+        "el principal pasa a depender del orden de escritura en: " + malos.join(" | "));
+    });
+
+    test("toda región de MUSCLE_MAP existe en la taxonomía y en el SVG", function(){
+      var malos = [];
+      Object.keys(A.MUSCLE_MAP).forEach(function(n){
+        (A.MUSCLE_MAP[n].t || []).forEach(function(par){
+          if(!A.REGION_SUBGROUP[par[0]]) malos.push(n + " → " + par[0] + " (sin subgrupo)");
+          if(!A.REGION_VIEW[par[0]]) malos.push(n + " → " + par[0] + " (sin vista)");
+        });
+      });
+      assert(malos.length === 0, "regiones inválidas: " + malos.join(" | "));
+    });
+
+    test("toda intensidad está en el rango (0, 1]", function(){
+      var malos = [];
+      Object.keys(A.MUSCLE_MAP).forEach(function(n){
+        (A.MUSCLE_MAP[n].t || []).forEach(function(par){
+          if(typeof par[1] !== "number" || !(par[1] > 0) || par[1] > 1){
+            malos.push(n + " / " + par[0] + " = " + par[1]);
+          }
+        });
+      });
+      assert(malos.length === 0, "intensidades fuera de rango: " + malos.join(" | "));
+    });
+
+    test("ninguna entrada repite una región ni excede 8 regiones", function(){
+      var malos = [];
+      Object.keys(A.MUSCLE_MAP).forEach(function(n){
+        var regs = (A.MUSCLE_MAP[n].t || []).map(function(x){ return x[0]; });
+        var dup = regs.filter(function(r,i){ return regs.indexOf(r) !== i; });
+        if(dup.length) malos.push(n + ": región repetida " + uniq(dup).join(","));
+        if(regs.length > 8) malos.push(n + ": " + regs.length + " regiones");
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("todo ejercicio con MUSCLE_MAP tiene grupo Y subgrupo", function(){
+      var malos = [];
+      A.EXERCISES.forEach(function(n){
+        if(!A.MUSCLE_MAP[n]) return;
+        if(!A.exercisePrimarySubgroup(n)) malos.push(n + ": sin subgrupo");
+        if(!A.exerciseMuscleGroup(n)) malos.push(n + ": sin grupo");
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("los ejercicios SIN MUSCLE_MAP son exactamente los 10 de cardio", function(){
+      // El complemento de la baseline. Si un ejercicio nuevo entra sin
+      // MUSCLE_MAP, desaparece en silencio de grupo, subgrupo, pools y mapa:
+      // este test lo hace visible.
+      var sinMM = A.EXERCISES.filter(function(n){ return !A.MUSCLE_MAP[n]; });
+      assert(sinMM.length === BL.totales.sinGrupo,
+        "sin MUSCLE_MAP: esperaba " + BL.totales.sinGrupo + ", hubo " + sinMM.length + ": " + sinMM.join(", "));
+      var cardio = ["Cinta (caminar/correr)","Bicicleta fija","Elíptico","Máquina de remo","Escaladora",
+                    "Salto de soga","Burpees","Kettlebell swing","Battle rope","Trineo (sled)"];
+      var inesperados = sinMM.filter(function(n){ return cardio.indexOf(n) === -1; });
+      assert(inesperados.length === 0,
+        "ejercicios sin MUSCLE_MAP que no son cardio: " + inesperados.join(", "));
+    });
+
+    group("2C · la baseline no cambió nada de la app");
+
+    test("2C es solo lectura: la app no conoce la baseline", function(){
+      // El archivo lo carga el harness, no index.html. Si la app empezara a
+      // depender de él, la baseline dejaría de ser una foto independiente.
+      var win = frame.contentWindow;
+      assert(typeof win.VODAFIT_BASELINE_CLASIFICACION === "undefined",
+        "la app cargó la baseline: dejó de ser una verificación independiente");
+      assert(typeof A.VODAFIT_BASELINE_CLASIFICACION === "undefined",
+        "la baseline se filtró al export de pruebas");
+    });
+
+    test("los números de 2B y las 26 regiones de V43 siguen intactos", function(){
+      assert(A.EXERCISES.length === 111, "EXERCISES: " + A.EXERCISES.length);
+      assert(A.activeExercises().length === 111, "activeExercises: " + A.activeExercises().length);
+      assert(Object.keys(A.MUSCLE_MAP).length === 101, "MUSCLE_MAP: " + Object.keys(A.MUSCLE_MAP).length);
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38, "aliases: " + Object.keys(A.EXERCISE_ALIASES).length);
+      // V43/V43.1: las 26 regiones y la escala, sin tocar.
+      assert(Object.keys(A.REGION_VIEW).length === 26, "regiones: " + Object.keys(A.REGION_VIEW).length);
+      assert(A.MAPA_REGIONS.length === 26, "MAPA_REGIONS: " + A.MAPA_REGIONS.length);
+      assert(A.MAPA_VISUAL_MAX === 5 && A.MAPA_TINTE_MIN === 0.12, "cambió la escala del mapa");
+      assert(A.mapaIntensidad(5) === 1 && A.mapaIntensidad(0) === 0, "cambió mapaIntensidad");
+      // Pools heredados de 2B.
+      var pools = A.muscleGroupPools();
+      var esperado = { Pecho:13, Espalda:15, Piernas:29, Hombros:17, Brazos:18, Core:9 };
+      Object.keys(esperado).forEach(function(g){
+        assert(pools[g].length === esperado[g], g + ": esperaba " + esperado[g] + ", hubo " + pools[g].length);
+      });
     });
 
     finish();
