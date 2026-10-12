@@ -4446,9 +4446,13 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(m[1].trim() === "return;", "el corte debería ser un return seco, dio: " + m[1]);
     });
 
-    test("la versión de caché subió a v7 y la anterior ya no aparece", function(){
-      assert(/const CACHE = "gymapp-v7";/.test(SW_SRC), "CACHE debería ser gymapp-v7");
-      assert(!/const CACHE = "gymapp-v6";/.test(SW_SRC), "no debería quedar la v6 como activa");
+    test("la versión de caché subió a v8 y la anterior ya no aparece", function(){
+      // V44.3: el candado pasa de v7 a v8. El motivo del bump cambió de dueño
+      // pero es el mismo mecanismo: V44.2 dejó de usar los .gif y esas entradas
+      // quedaron huérfanas en la caché de los dispositivos, y lo único que las
+      // evacúa es que el nombre de la caché sea distinto (ver el activate).
+      assert(/const CACHE = "gymapp-v8";/.test(SW_SRC), "CACHE debería ser gymapp-v8");
+      assert(!/const CACHE = "gymapp-v7";/.test(SW_SRC), "no debería quedar la v7 como activa");
     });
 
     test("el activate sigue borrando las cachés viejas (es lo que evacúa la v6)", function(){

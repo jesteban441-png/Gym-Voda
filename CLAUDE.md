@@ -22,7 +22,7 @@ PWA estática, sin framework y sin build system. Backend: **Supabase** (Auth + P
 
 **Navegación:** `state.tab` es el único selector de pantalla — `rutina`, `registro`, `timer`, `perfil`, más tres sin pestaña propia (`explorar`, `exdetail`, `mapa`) que se abren con topbar y botón de volver. `setTab()` es el único embudo. `render()` → `renderScreen()` → `screen*()` → `afterScreenMount()`.
 
-**Service Worker:** `CACHE = "gymapp-v7"`. No-GET pasa derecho; navegación network-first con fallback al `index.html` cacheado; el resto cache-first con refresh en segundo plano. **Supabase se excluye por ORIGEN**, no por lista de endpoints: `isSupabaseUrl()` corta con un `return` seco **antes** de tocar Cache Storage. No agregar una estrategia de caché para Supabase.
+**Service Worker:** `CACHE = "gymapp-v8"`. No-GET pasa derecho; navegación network-first con fallback al `index.html` cacheado; el resto cache-first con refresh en segundo plano. **Supabase se excluye por ORIGEN**, no por lista de endpoints: `isSupabaseUrl()` corta con un `return` seco **antes** de tocar Cache Storage. No agregar una estrategia de caché para Supabase.
 
 ### Convenciones de Supabase (obligatorias)
 

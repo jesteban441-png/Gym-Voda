@@ -4,7 +4,15 @@
 // REST de Supabase con la estrategia vieja, y el handler de `activate` borra
 // toda caché cuyo nombre no sea el actual. Sin el bump esas entradas se
 // quedarían guardadas para siempre, aunque de ahora en más no se agreguen más.
-const CACHE = "gymapp-v7";
+//
+// V44.3: v7 -> v8, por el mismo motivo y con otro contenido a evacuar. V44.2
+// reemplazó los GIF de ejecución por WebP, así que las entradas .gif que un
+// dispositivo ya tenía guardadas quedaron huérfanas: el HTML nuevo no las pide
+// nunca más, no se vencen solas y `activate` sólo borra cachés con OTRO nombre.
+// Sin el bump se quedaban ocupando lugar para siempre (decenas de MB en un
+// dispositivo donde se hayan abierto muchas fichas). El costo del bump es
+// volver a bajar el index.html y los 7 íconos del precache.
+const CACHE = "gymapp-v8";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"];
 
 self.addEventListener("install", (event) => {
