@@ -6245,6 +6245,85 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(A.exerciseGifFor("Press de banca con barra"), "se perdió la animación");
     });
 
+    // ---------------------------------------------------------------
+    // V45 — integridad de EXERCISE_TIPS
+    // ---------------------------------------------------------------
+    test("V45 — toda clave de EXERCISE_TIPS es un ejercicio oficial que canonicaliza a sí mismo", function(){
+      // EXERCISE_TIPS es uno de los diccionarios paralelos indexados por nombre
+      // canónico. Una clave que no esté en EXERCISES, o que canonicalice a otro
+      // nombre, es contenido que NUNCA se muestra: exTipsTabHtml() busca por
+      // canonicalExerciseName(nombre) y no encontraría esa entrada.
+      var malos = [];
+      Object.keys(A.EXERCISE_TIPS).forEach(function(n){
+        if(A.EXERCISES.indexOf(n) === -1) malos.push(n + ": no está en EXERCISES");
+        else if(A.canonicalExerciseName(n) !== n) malos.push(n + ": canonicaliza a " + A.canonicalExerciseName(n));
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("V45 — ninguna lista de consejos supera los 5 ítems", function(){
+      // Candado de legibilidad, no de implementación: los consejos se leen de
+      // pie y en medio de una serie. V45 sumó errores frecuentes DENTRO de las
+      // indicaciones existentes (no se creó un bloque aparte), así que el
+      // único límite que queda es cuántos ítems entran sin que la ficha deje de
+      // escanearse de un vistazo. Si hace falta subir el tope, es una decisión
+      // de producto: se cambia el número ACÁ y se escribe por qué.
+      var MAX = 5, malos = [];
+      Object.keys(A.EXERCISE_TIPS).forEach(function(n){
+        var t = A.EXERCISE_TIPS[n] || [];
+        if(t.length > MAX) malos.push(n + ": " + t.length + " consejos");
+        if(t.length === 0) malos.push(n + ": entrada vacía (mejor no tener clave)");
+        var vistos = {};
+        t.forEach(function(x){
+          if(vistos[x]) malos.push(n + ": consejo repetido \"" + x + "\"");
+          vistos[x] = true;
+        });
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("V45 — los 14 ejercicios complementados conservan su aporte", function(){
+      // Foto de lo aprobado: cada uno recibió 1 o 2 indicaciones nuevas sobre
+      // las que ya tenía. No se reemplazó ninguna indicación anterior, así que
+      // el conteo esperado es el de antes + lo agregado. Si alguno vuelve a su
+      // conteo viejo, se revirtió contenido sin querer.
+      var esperado = {
+        "Press de banca con barra": 5,
+        "Aperturas de pecho con mancuernas en banco plano": 4,
+        "Vuelos laterales con mancuerna": 4,
+        "Jalón al pecho": 5,
+        "Remo con barra": 4,
+        "Remo con mancuerna unilateral": 4,
+        "Sentadilla con barra": 5,
+        "Prensa inclinada": 4,
+        "Extensión de piernas": 4,
+        "Extensión de tríceps en polea": 4,
+        "Extensión de tríceps en polea con barra": 4,
+        "Gemelos en máquina": 4,
+        "Gemelos parado con mancuerna": 4,
+        "Gemelos en prensa": 4
+      };
+      var malos = [];
+      Object.keys(esperado).forEach(function(n){
+        var t = A.EXERCISE_TIPS[n] || [];
+        if(t.length !== esperado[n]) malos.push(n + ": esperaba " + esperado[n] + " consejos, tiene " + t.length);
+      });
+      // Las dos variantes de tríceps en polea comparten la MISMA advertencia de
+      // tronco: es un error del patrón, no del accesorio (decisión de V45).
+      ["Extensión de tríceps en polea","Extensión de tríceps en polea con barra"].forEach(function(n){
+        var t = A.EXERCISE_TIPS[n] || [];
+        if(t.join(" ").indexOf("Tronco recto") === -1) malos.push(n + ": perdió la advertencia de tronco");
+      });
+      // La pausa en la contracción máxima quedó en las CUATRO variantes de
+      // gemelos: las tres que la recibieron en V45 y la de sentado, que ya la
+      // tenía escrita con otras palabras.
+      ["Gemelos en máquina","Gemelos parado con mancuerna","Gemelos en prensa"].forEach(function(n){
+        var t = A.EXERCISE_TIPS[n] || [];
+        if(t.join(" ").indexOf("contracción máxima") === -1) malos.push(n + ": perdió la pausa de contracción");
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
     finish();
   }
 
