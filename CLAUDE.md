@@ -15,6 +15,7 @@ PWA estática, sin framework y sin build system. Backend: **Supabase** (Auth + P
 | `tests-v31.html` | harness de tests (iframe + `window.__appTest`) | LF |
 | `baseline-clasificacion.js` | línea base de clasificación (§6) | LF |
 | `ejercicios/anatomia/*` | láminas anatómicas | — |
+| `ejercicios/gifs/*` | 82 animaciones de ejecución, WebP animado (~40 MiB) | — |
 | `supabase-migration-v*.sql` | migraciones versionadas | LF |
 
 **Trampa de saltos de línea:** `index.html` usa **CRLF**. Un parche con `perl`/`sed` tiene que machear `\r\n` y convertir el contenido insertado (`s/\n/\r\n/g`), o falla **en silencio** sin cambiar nada. Verificar después de editar (`file index.html`).
@@ -52,7 +53,19 @@ Tablas: `profiles`, `rutinas`, `registros`, `entrenos`, `peso_corporal`. Nombres
 
 ## 3. Catálogo
 
-Un ejercicio **es un string**: su nombre canónico. No existe un objeto "ejercicio"; toda su información vive en diccionarios paralelos indexados por ese nombre (`EXERCISES`, `MUSCLE_MAP`, `EXERCISE_ALIASES`, `EXERCISE_PATTERN`, `EXERCISE_TIPS`, `EXERCISE_HOWTO_LINKS`, `EXERCISE_EQUIPMENT`, `EXERCISE_ANATOMY_IMAGES`, `EXERCISES_COMPOUND`, `EXERCISES_RISKY_50PLUS`). **Agregar un ejercicio implica tocar hasta 9 lugares** y no hay validación que avise si falta uno; los tests de la baseline (§6) cubren parte de eso.
+Un ejercicio **es un string**: su nombre canónico. No existe un objeto "ejercicio"; toda su información vive en diccionarios paralelos indexados por ese nombre (`EXERCISES`, `MUSCLE_MAP`, `EXERCISE_ALIASES`, `EXERCISE_PATTERN`, `EXERCISE_TIPS`, `EXERCISE_HOWTO_LINKS`, `EXERCISE_EQUIPMENT`, `EXERCISE_ANATOMY_IMAGES`, `EXERCISE_GIFS`, `EXERCISES_COMPOUND`, `EXERCISES_RISKY_50PLUS`). **Agregar un ejercicio implica tocar hasta 10 lugares** y no hay validación que avise si falta uno; los tests de la baseline (§6) cubren parte de eso.
+
+### Animaciones de ejecución (V44/V44.2) — CERRADO
+
+**82 de los 101 ejercicios mapeados tienen UNA animación. Un ejercicio = un solo medio.** No es una limitación técnica sino una regla de producto: `EXERCISE_GIFS` mapea nombre canónico → **una sola ruta** (string, nunca un array) y la estructura no soporta varias. **No reintroducir varios medios por ejercicio ni el botón "Ver otra"** que existió entre V44 y V44.1. Si alguna vez se quisieran dos, es una decisión de producto primero: no alcanza con poner un array, porque la ficha muestra uno.
+
+- `exerciseGifFor(nombre)` es la **única puerta de entrada**: devuelve una ruta o **`null`**. Ningún consumidor lee `EXERCISE_GIFS` directo. Resuelve por nombre canónico, así que los aliases la encuentran solos.
+- **Los 19 ejercicios mapeados sin animación funcionan igual**: `null` → la ficha no muestra el bloque de ejecución, sin hueco, sin placeholder y sin pedido de red. Lo mismo para el cardio y para los personalizados.
+- El nombre de archivo se **deriva** del nombre canónico (NFD sin diacríticos, minúsculas, no-alfanumérico → `-`): `Hip thrust con barra` → `hip-thrust-con-barra.webp`. Sin sufijos numéricos. Los 111 nombres del catálogo dan 111 slugs distintos, así que agregar medios no puede pisar un archivo existente.
+- **Formato vigente: WebP animado q75** (conserva resolución, bucle y duración del GIF de origen). Se mantiene `<img>` a propósito: WebP animado funciona con `loading="lazy"` y se cachea como cualquier imagen, mientras que pasar a `<video>` rompe las dos cosas — el navegador pide video con Range y el Cache Storage no puede guardar un 206 (medido).
+- **Carga diferida**: nada se precarga. No están en los `ASSETS` del Service Worker y el `<img>` recién se pide al abrir la ficha. La carga inicial de la app descarga **0 medios**. Las miniaturas de las listas siguen usando la lámina o el SVG, nunca la animación.
+- El Service Worker les da **rama propia cache-first SECA** (`/\.(gif|webp)$/i`), sin revalidación en segundo plano: la rama genérica rearma el fetch siempre y volvería a bajar el archivo entero con la copia ya guardada. Son inmutables por convención — pisar un medio manteniendo el nombre exige bumpear `CACHE`.
+- **No se agregó ninguna dependencia al repositorio.** La selección del medio de cada ejercicio y la conversión a WebP viven en una herramienta **fuera del repo** (`VodaFit-Clasificador-GIFS`), junto con la trazabilidad de qué archivo original quedó en cada ejercicio. El repo sólo tiene los 82 archivos finales y la tabla.
 
 Equipamiento — **7 valores cerrados**: `Barra`, `Cardio`, `Mancuernas`, `Máquina`, `Peso corporal`, `Peso libre`, `Polea`. No agregar un octavo sin decisión; en particular no reintroducir "Mancuerna" en singular.
 

@@ -107,6 +107,44 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // V44: las animaciones de ejecución salen de la estrategia de abajo.
+  //
+  // No se agregan a ASSETS (no se precargan: son ~40 MiB y la mayoría no se
+  // mira nunca), pero el problema no era el precache sino la REVALIDACIÓN: la
+  // rama de abajo arma `fetchPromise` SIEMPRE, incluso cuando ya hay copia en
+  // caché, y devuelve `cached || fetchPromise`. Para un ícono de 4 KB eso es
+  // gratis; para una animación de cientos de KB significa volver a bajar el
+  // archivo completo cada vez que se abre la ficha, con la copia al lado.
+  //
+  // Acá se hace cache-first SECO: si está en caché se sirve y no se pide nada.
+  // Es seguro porque estos archivos son INMUTABLES por convención — el nombre
+  // deriva del nombre canónico del ejercicio (hip-thrust-con-barra.webp), así
+  // que reemplazar el contenido exige cambiarle el nombre o bumpear CACHE. Si
+  // algún día se pisa una animación manteniendo el nombre, hay que bumpear.
+  //
+  // V44.2: el formato pasó de GIF a WebP animado. Se siguen cubriendo las dos
+  // extensiones a propósito — es una rama por TIPO DE RECURSO, no por formato,
+  // y un cliente con el Service Worker viejo todavía puede tener .gif en su
+  // caché. Las láminas anatómicas son .jpg/.png y no entran acá.
+  if (/\.(gif|webp)$/i.test(new URL(event.request.url).pathname)) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => cached || fetch(event.request)
+        .then((resp) => {
+          if (resp && resp.status === 200) {
+            const copy = resp.clone();
+            caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+          }
+          return resp;
+        })
+        // Sin caché y sin red: se responde un 504 vacío en vez de dejar que el
+        // fetch handler explote. El <img> dispara onerror y la ficha esconde la
+        // tarjeta de ejecución entera, que es el mismo camino que un archivo
+        // faltante. El resto de la ficha no se entera.
+        .catch(() => new Response("", { status: 504, statusText: "sin conexión" })))
+    );
+    return;
+  }
+
   // El resto de los archivos (íconos, manifest) sí puede servirse primero
   // desde caché y actualizarse en segundo plano — cambian muy poco.
   event.respondWith(

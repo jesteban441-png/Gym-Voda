@@ -548,6 +548,16 @@
     vertical-align:-1px; margin-right:4px; }
   .muscle-section{ display:flex; flex-direction:column; gap:6px; }
   .howto-photo{ width:100%; max-width:320px; height:auto; display:block; margin:0 auto; border-radius:var(--radius-s); background:var(--surface-2); }
+  /* V44: animación de ejecución (WebP animado). La caja tiene ALTO EXPLÍCITO y
+     la imagen va con object-fit:contain, por dos razones: (1) vienen en proporciones
+     distintas (de 0,56 vertical a 1,00 cuadrado) y así ninguno deforma ni
+     empuja el layout al cargar; (2) con alto fijo el loading="lazy" funciona
+     de verdad — es el mismo problema que está documentado arriba en
+     .anatomy-photo, donde height:auto dejaba la caja en 0px y el lazy no se
+     disparaba nunca. */
+  .exec-gif-box{ height:300px; display:flex; align-items:center; justify-content:center;
+    background:var(--surface-2); border-radius:var(--radius-s); overflow:hidden; }
+  .exec-gif{ max-width:100%; max-height:100%; width:auto; height:auto; display:block; }
   .tips-box{ background:var(--surface-2); border-radius:var(--radius-s); padding:12px 14px; }
   .tips-list{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13.5px; line-height:1.4; color:var(--text); }
 
@@ -2307,6 +2317,133 @@
     return EXERCISE_ANATOMY_IMAGES[canonicalExerciseName(exerciseName)] || null;
   }
 
+  // ---- V44: ANIMACIONES DE EJECUCIÓN (V44.2: WebP, una por ejercicio).
+  //
+  // Clave = nombre CANÓNICO del ejercicio, igual que todos los diccionarios
+  // paralelos del catálogo (§3): así los aliases la encuentran solos y no hay
+  // un segundo mapa de identidades que mantener. El nombre del archivo ORIGINAL
+  // no aparece en ningún lado — la trazabilidad de qué archivo crudo quedó en
+  // cada ejercicio vive fuera del repo, en mapa-gifs.json (la clasificación
+  // manual) y en trazabilidad-gifs.csv (qué se eligió y por qué).
+  //
+  // UN EJERCICIO = UN SOLO ARCHIVO. Regla de producto, no una limitación
+  // técnica: el valor es SIEMPRE un string y la estructura no soporta arrays.
+  // El mapa de clasificación conserva varias asignaciones para algunos
+  // ejercicios (es todo el trabajo de revisión); la integración elige una sola.
+  // Si alguna vez se quisieran dos, hay que decidirlo como producto primero —
+  // no alcanza con meter un array acá, porque la ficha muestra uno.
+  //
+  // El nombre de archivo se DERIVA del nombre canónico, no se elige a mano:
+  // NFD sin diacríticos, minúsculas, todo lo que no sea [a-z0-9] pasa a "-",
+  // guiones colapsados. "Hip thrust con barra" -> hip-thrust-con-barra.webp.
+  // Verificado: los 111 nombres del catálogo producen 111 slugs distintos, así
+  // que agregar animaciones más adelante no puede pisar un archivo existente.
+  //
+  // FORMATO: WebP animado q75. Son los mismos GIF de la clasificación
+  // convertidos (misma resolución, mismo bucle, misma duración), y pesan un
+  // 28 % de lo que pesaban: ~40 MiB en vez de ~150. Se mantiene <img> a
+  // propósito: WebP animado funciona con loading="lazy" y se cachea como
+  // cualquier imagen, mientras que pasar a <video> rompía las dos cosas (el
+  // navegador pide video con Range y el Cache Storage no puede guardar un 206).
+  //
+  // PESO: nada de esto se precarga. No están en los ASSETS del Service Worker
+  // y el <img> recién se pide cuando se abre la ficha del ejercicio (ver
+  // .exec-gif-box en el CSS y el bloque de ejecución en screenExerciseDetail).
+  // Una animación que nunca se abre nunca se baja.
+  const GIFS_DIR = "ejercicios/gifs/";
+  const EXERCISE_GIFS = {
+    "Abdominales crunch": "abdominales-crunch.webp",
+    "Aductores en máquina": "aductores-en-maquina.webp",
+    "Aperturas de pecho con mancuernas en banco inclinado": "aperturas-de-pecho-con-mancuernas-en-banco-inclinado.webp",
+    "Aperturas de pecho con mancuernas en banco plano": "aperturas-de-pecho-con-mancuernas-en-banco-plano.webp",
+    "Arnold press": "arnold-press.webp",
+    "Curl con barra": "curl-con-barra.webp",
+    "Curl con mancuernas": "curl-con-mancuernas.webp",
+    "Curl con mancuernas alternado": "curl-con-mancuernas-alternado.webp",
+    "Curl con mancuernas banco inclinado": "curl-con-mancuernas-banco-inclinado.webp",
+    "Curl concentrado": "curl-concentrado.webp",
+    "Curl de muñeca": "curl-de-muneca.webp",
+    "Curl de muñeca inverso": "curl-de-muneca-inverso.webp",
+    "Curl en polea": "curl-en-polea.webp",
+    "Curl martillo": "curl-martillo.webp",
+    "Curl Scott (predicador)": "curl-scott-predicador.webp",
+    "Dominadas": "dominadas.webp",
+    "Dominadas supinas": "dominadas-supinas.webp",
+    "Elevación de piernas colgado": "elevacion-de-piernas-colgado.webp",
+    "Elevación lateral en máquina": "elevacion-lateral-en-maquina.webp",
+    "Elevación lateral en polea": "elevacion-lateral-en-polea.webp",
+    "Encogimientos con barra": "encogimientos-con-barra.webp",
+    "Encogimientos con mancuernas": "encogimientos-con-mancuernas.webp",
+    "Encogimientos en máquina": "encogimientos-en-maquina.webp",
+    "Estocadas con mancuerna": "estocadas-con-mancuerna.webp",
+    "Extensión de piernas": "extension-de-piernas.webp",
+    "Extensión de tríceps con mancuerna": "extension-de-triceps-con-mancuerna.webp",
+    "Extensión de tríceps en polea": "extension-de-triceps-en-polea.webp",
+    "Extensión de tríceps en polea con barra": "extension-de-triceps-en-polea-con-barra.webp",
+    "Face Pull": "face-pull.webp",
+    "Flexiones de brazo": "flexiones-de-brazo.webp",
+    "Fondos de tríceps en banco": "fondos-de-triceps-en-banco.webp",
+    "Fondos inclinado": "fondos-inclinado.webp",
+    "Gemelos en máquina": "gemelos-en-maquina.webp",
+    "Gemelos en prensa": "gemelos-en-prensa.webp",
+    "Gemelos parado con mancuerna": "gemelos-parado-con-mancuerna.webp",
+    "Gemelos sentado en máquina": "gemelos-sentado-en-maquina.webp",
+    "Giro ruso (russian twist)": "giro-ruso-russian-twist.webp",
+    "Hip thrust con barra": "hip-thrust-con-barra.webp",
+    "Hiperextensiones": "hiperextensiones.webp",
+    "Isquio acostado": "isquio-acostado.webp",
+    "Isquio sentado": "isquio-sentado.webp",
+    "Jalón al pecho": "jalon-al-pecho.webp",
+    "Mountain climbers": "mountain-climbers.webp",
+    "Patada de glúteo en polea": "patada-de-gluteo-en-polea.webp",
+    "Patada de tríceps": "patada-de-triceps.webp",
+    "Pec Fly": "pec-fly.webp",
+    "Pec Fly invertido": "pec-fly-invertido.webp",
+    "Peso muerto con barra": "peso-muerto-con-barra.webp",
+    "Peso muerto con mancuernas": "peso-muerto-con-mancuernas.webp",
+    "Plancha": "plancha.webp",
+    "Plancha lateral": "plancha-lateral.webp",
+    "Prensa inclinada": "prensa-inclinada.webp",
+    "Press de banca con barra": "press-de-banca-con-barra.webp",
+    "Press de banca declinado en Smith": "press-de-banca-declinado-en-smith.webp",
+    "Press de banca inclinado con barra": "press-de-banca-inclinado-con-barra.webp",
+    "Press de banca inclinado con mancuernas": "press-de-banca-inclinado-con-mancuernas.webp",
+    "Press de banca inclinado en Smith": "press-de-banca-inclinado-en-smith.webp",
+    "Press de banca plano en Smith": "press-de-banca-plano-en-smith.webp",
+    "Press de hombros en máquina": "press-de-hombros-en-maquina.webp",
+    "Press de pecho en polea": "press-de-pecho-en-polea.webp",
+    "Press francés": "press-frances.webp",
+    "Press militar con barra": "press-militar-con-barra.webp",
+    "Press militar con mancuernas sentado": "press-militar-con-mancuernas-sentado.webp",
+    "Press tras nuca con barra": "press-tras-nuca-con-barra.webp",
+    "Pullover": "pullover.webp",
+    "Remo al mentón": "remo-al-menton.webp",
+    "Remo con barra": "remo-con-barra.webp",
+    "Remo con mancuerna unilateral": "remo-con-mancuerna-unilateral.webp",
+    "Remo en Hammer": "remo-en-hammer.webp",
+    "Remo en máquina": "remo-en-maquina.webp",
+    "Remo en máquina agarre ancho": "remo-en-maquina-agarre-ancho.webp",
+    "Remo en polea baja": "remo-en-polea-baja.webp",
+    "Remo en T": "remo-en-t.webp",
+    "Rueda abdominal": "rueda-abdominal.webp",
+    "Sentadilla búlgara": "sentadilla-bulgara.webp",
+    "Sentadilla con barra": "sentadilla-con-barra.webp",
+    "Sentadilla Hack": "sentadilla-hack.webp",
+    "Sentadilla Smith": "sentadilla-smith.webp",
+    "Sentadilla Sumo": "sentadilla-sumo.webp",
+    "Vuelos frontales": "vuelos-frontales.webp",
+    "Vuelos laterales con mancuerna": "vuelos-laterales-con-mancuerna.webp",
+    "Vuelos pájaro": "vuelos-pajaro.webp",
+  };
+  // Devuelve la ruta de la animación de un ejercicio, o null si no tiene.
+  // ÚNICA puerta de entrada: ningún consumidor debe leer EXERCISE_GIFS directo.
+  // Un nombre desconocido o un ejercicio personalizado devuelve null sin
+  // fallar: la ficha simplemente no muestra el bloque de ejecución.
+  function exerciseGifFor(exerciseName){
+    const f = EXERCISE_GIFS[canonicalExerciseName(exerciseName)];
+    return f ? GIFS_DIR + f : null;
+  }
+
   // V29: "Cómo hacerlo ↗" — enlace a una fuente externa (MuscleWiki) que
   // explica el ejercicio. SOLO enlaces: no se descarga, copia ni aloja
   // contenido externo. Cada URL de esta tabla fue abierta y verificada
@@ -2919,6 +3056,24 @@
         ${muscleLegendHtml(m.list)}
       </div>
     ` : (mediaUrl ? "" : `<p class="helptext" style="text-align:center">Todavía no hay datos de músculo cargados para este ejercicio.</p>`));
+    // V44: bloque de ejecución. Se arma SOLO si el ejercicio tiene animación; si
+    // no, gifBlock es "" y la ficha queda exactamente como antes (sin hueco, sin
+    // placeholder, sin pedido de red). El onerror esconde la tarjeta completa,
+    // así que un archivo faltante tampoco deja un recuadro vacío.
+    // V44.2: una sola animación por ejercicio, sin selector de variantes.
+    const gifUrl = exerciseGifFor(nombre);
+    const gifBlock = gifUrl ? `
+      <div class="card exec-gif-card" style="margin-top:10px">
+        <div class="section-title" style="margin-top:0">
+          <h2 style="font-size:15px">Ejecución</h2>
+        </div>
+        <div class="exec-gif-box" style="margin-top:8px">
+          <img class="exec-gif" src="${esc(gifUrl)}" alt="Animación de ejecución de ${esc(nombre)}"
+               loading="lazy" decoding="async"
+               onerror="this.closest('.exec-gif-card').style.display='none'">
+        </div>
+      </div>
+    ` : "";
     const tabContent = d.tab==="stats" ? exStatsTabHtml(history) : d.tab==="history" ? exHistoryTabHtml(history) : exTipsTabHtml(nombre);
 
     const catalog = exerciseLibraryCatalog();
@@ -2943,6 +3098,7 @@
           ${mediaUrl ? photoBlock : diagramBlock}
         </div>
         ${mediaUrl && m ? diagramBlock : ""}
+        ${gifBlock}
         ${(()=>{ const link = exerciseHowtoLinkFor(nombre); return link ? `
           <a class="btn btn-outline btn-block howto-link" id="btn-howto-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer" style="margin-top:10px; border-color:var(--accent); color:var(--accent)">Cómo hacerlo ↗</a>
           <p class="helptext" style="text-align:center; margin-top:4px">Se abre MuscleWiki, un sitio externo.</p>` : ""; })()}
@@ -9138,6 +9294,9 @@
     // v32 — anatomía cuerpo completo
     BODY_ART, REGION_VIEW, SHARED_REGIONS, VIEW_RELEVANCE_MIN,
     EXERCISE_ANATOMY_IMAGES, exerciseAnatomyImageFor,
+    // V44: animaciones de ejecución. exerciseGifFor es la única puerta de
+    // entrada y devuelve UNA ruta o null (V44.2: un medio por ejercicio).
+    EXERCISE_GIFS, exerciseGifFor, GIFS_DIR,
     viewWeights, dominantView, viewsForRegions, anatViewSvg, bodyDiagramSvg,
     regionFillCss, muscleTargets, muscleLegendHtml, exerciseThumbHtml,
     ANATOMY_BY_FILE, anchorSnapshotFor, restoreNavScroll, clearNavScroll,

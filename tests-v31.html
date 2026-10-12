@@ -5923,6 +5923,324 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
     });
 
+    /* ---------------- V44.2 · ANIMACIONES DE EJECUCIÓN ---------------- */
+    group("V44.2 — animaciones: un medio por ejercicio");
+
+    // Candados de cantidad, con el motivo escrito como pide el proceso.
+    // 88 asignaciones manuales en mapa-gifs.json
+    //  -1 excluida: el GIF anotado "Fondos en Maquina", que no es el bench dip
+    //     de "Fondos de tríceps en banco" (queda sin usar hasta que exista el
+    //     ejercicio oficial)
+    //  -5 descartadas por la regla de producto UN EJERCICIO = UN MEDIO
+    //  = 82 archivos para 82 ejercicios, uno a uno.
+    var MEDIOS_TOTAL = 82;
+    var MEDIOS_EJERCICIOS = 82;
+
+    function slugDe(nombre){
+      return nombre.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    }
+    var nombresConMedio = function(){ return Object.keys(A.EXERCISE_GIFS); };
+
+    test("hay exactamente " + MEDIOS_TOTAL + " medios para " + MEDIOS_EJERCICIOS + " ejercicios", function(){
+      assert(nombresConMedio().length === MEDIOS_EJERCICIOS, "ejercicios: " + nombresConMedio().length);
+      var archivos = nombresConMedio().map(function(n){ return A.EXERCISE_GIFS[n]; });
+      assert(archivos.length === MEDIOS_TOTAL, "archivos: " + archivos.length);
+    });
+
+    test("NINGÚN ejercicio tiene un array de medios", function(){
+      // Regla de producto V44.2: la estructura no soporta varios medios. Esto
+      // no es una preferencia de estilo — la ficha muestra UNO, así que un
+      // array acá dejaría archivos integrados que nadie puede ver.
+      var malos = nombresConMedio().filter(function(n){
+        var v = A.EXERCISE_GIFS[n];
+        return Array.isArray(v) || typeof v !== "string";
+      });
+      assert(malos.length === 0, "valores que no son string: " + malos.join(", "));
+    });
+
+    test("todos los medios son .webp", function(){
+      var malos = nombresConMedio().filter(function(n){ return !/\.webp$/.test(A.EXERCISE_GIFS[n]); });
+      assert(malos.length === 0, "no son .webp: " + malos.map(function(n){ return n + " -> " + A.EXERCISE_GIFS[n]; }).join(", "));
+    });
+
+    test("el mapa de medios no contiene ejercicios inexistentes", function(){
+      var fuera = nombresConMedio().filter(function(n){ return A.EXERCISES.indexOf(n) === -1; });
+      assert(fuera.length === 0, "claves que no están en EXERCISES: " + fuera.join(", "));
+    });
+
+    test("toda clave es un nombre CANÓNICO (ninguna es alias)", function(){
+      var malas = nombresConMedio().filter(function(n){ return A.canonicalExerciseName(n) !== n; });
+      assert(malas.length === 0, "claves no canónicas: " + malas.join(", "));
+    });
+
+    test("cada nombre de archivo se DERIVA del nombre canónico", function(){
+      // Esto es lo que garantiza que ningún medio quedó pegado a un ejercicio
+      // por su nombre original: el archivo no puede llamarse de otra forma.
+      // Sin sufijos numéricos, porque ya no hay varios por ejercicio.
+      var malos = [];
+      nombresConMedio().forEach(function(n){
+        var esperado = slugDe(n) + ".webp";
+        if(A.EXERCISE_GIFS[n] !== esperado) malos.push(n + ": esperaba " + esperado + ", hay " + A.EXERCISE_GIFS[n]);
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("ningún archivo se usa para dos ejercicios distintos", function(){
+      var vistos = {}, dup = [];
+      nombresConMedio().forEach(function(n){
+        var f = A.EXERCISE_GIFS[n];
+        if(vistos[f]) dup.push(f + " en " + vistos[f] + " y " + n);
+        vistos[f] = n;
+      });
+      assert(dup.length === 0, dup.join(" | "));
+    });
+
+    test("los 111 nombres del catálogo producen 111 slugs distintos", function(){
+      // Invariante, no tabla: alcanza también a lo que se agregue después.
+      // Si dos ejercicios colisionaran, el segundo pisaría el medio del primero.
+      var m = {}, choques = [];
+      A.EXERCISES.forEach(function(n){
+        var s = slugDe(n);
+        if(m[s]) choques.push(n + " vs " + m[s] + " -> " + s);
+        m[s] = n;
+      });
+      assert(choques.length === 0, choques.join(" | "));
+    });
+
+    test("exerciseGifFor devuelve UNA ruta completa, no un array", function(){
+      var r = A.exerciseGifFor("Hip thrust con barra");
+      assert(typeof r === "string", "devolvió " + (Array.isArray(r) ? "un array" : typeof r));
+      assert(r === A.GIFS_DIR + "hip-thrust-con-barra.webp", "ruta: " + r);
+    });
+
+    test("exerciseGifFor resuelve por ALIAS igual que la lámina", function(){
+      // "Press banca plano" -> "Press de banca con barra", que tiene medio.
+      assert(A.exerciseGifFor("Press banca plano") === A.exerciseGifFor("Press de banca con barra"),
+        "el alias explícito no da el mismo archivo");
+      // "Gemelos" es el alias confirmado a mano en V34.
+      assert(A.exerciseGifFor("Gemelos") === A.exerciseGifFor("Gemelos parado con mancuerna"), "alias Gemelos");
+    });
+
+    test("un ejercicio sin medio y uno inexistente devuelven null sin tirar error", function(){
+      // Los 19 mapeados sin medio + el cardio + un personalizado inventado.
+      ["Press de banca declinado", "Crunch en polea", "Step Up", "Bicicleta fija",
+       "Trineo (sled)", "Ejercicio que no existe 12345", "", null, undefined].forEach(function(n){
+        var r = A.exerciseGifFor(n);
+        assert(r === null, "para " + JSON.stringify(n) + " devolvió " + JSON.stringify(r));
+      });
+    });
+
+    test("los 19 ejercicios mapeados sin medio siguen siendo 19", function(){
+      // Candado del alcance: V44.2 no fue a buscar los que faltan.
+      var sin = Object.keys(A.MUSCLE_MAP).filter(function(n){ return !A.exerciseGifFor(n); });
+      assert(sin.length === 19, "sin medio: " + sin.length + " (" + sin.join(", ") + ")");
+    });
+
+    test("los 5 ejercicios que tenían dos candidatos quedaron con UNO", function(){
+      // La selección vive en el generador, fuera del repo; acá se verifica el
+      // resultado: uno solo, y el archivo que corresponde a cada nombre.
+      var esperados = {
+        "Arnold press": "arnold-press.webp",
+        "Curl con mancuernas alternado": "curl-con-mancuernas-alternado.webp",
+        "Mountain climbers": "mountain-climbers.webp",
+        "Press de banca inclinado con barra": "press-de-banca-inclinado-con-barra.webp",
+        "Remo con mancuerna unilateral": "remo-con-mancuerna-unilateral.webp"
+      };
+      var malos = [];
+      Object.keys(esperados).forEach(function(n){
+        var v = A.EXERCISE_GIFS[n];
+        if(typeof v !== "string") malos.push(n + ": no es string");
+        else if(v !== esperados[n]) malos.push(n + ": " + v);
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test('"Fondos de tríceps en banco" NO usa el medio anotado "Fondos en Maquina"', function(){
+      // El segundo archivo que el mapa le había asignado es un fondo EN MÁQUINA
+      // (nota del propio revisor), que es otro ejercicio y otro equipamiento
+      // (el oficial es Peso corporal, bench dips). Sigue en mapa-gifs.json pero
+      // no se integró.
+      var r = A.exerciseGifFor("Fondos de tríceps en banco");
+      assert(r === A.GIFS_DIR + "fondos-de-triceps-en-banco.webp", "archivo: " + r);
+      var archivos = nombresConMedio().map(function(n){ return A.EXERCISE_GIFS[n]; });
+      assert(archivos.indexOf("fondos-de-triceps-en-banco-2.webp") === -1, "se integró el medio excluido");
+    });
+
+    test("no quedó ningún archivo con sufijo numérico", function(){
+      // Los "-2" eran la marca del esquema de varios medios por ejercicio.
+      var conSufijo = nombresConMedio().filter(function(n){ return /-\d+\.webp$/.test(A.EXERCISE_GIFS[n]); });
+      assert(conSufijo.length === 0, "con sufijo: " + conSufijo.join(", "));
+    });
+
+    group("V44.2 — animaciones: archivos, ficha y carga");
+
+    // HEAD síncrono al mismo origen, igual criterio que el test de sw.js: es
+    // más honesto comprobar que el archivo está que asumirlo.
+    function existe(ruta){
+      try{
+        var x = new XMLHttpRequest();
+        x.open("HEAD", ruta, false);
+        x.send(null);
+        return x.status === 200;
+      }catch(e){ return false; }
+    }
+
+    test("los " + MEDIOS_TOTAL + " archivos del mapa existen en el repo", function(){
+      var faltan = [];
+      nombresConMedio().forEach(function(n){
+        var ruta = A.exerciseGifFor(n);
+        if(!existe(ruta)) faltan.push(ruta);
+      });
+      assert(faltan.length === 0, "no se encontraron (" + faltan.length + "): " + faltan.join(", "));
+    });
+
+    test("no quedó ningún .gif de la integración anterior", function(){
+      // V44.2 convirtió todo a WebP: si algún .gif sigue accesible, el borrado
+      // de la conversión quedó a medias y el repo carga peso muerto.
+      var sobran = [];
+      ["hip-thrust-con-barra", "plancha", "arnold-press", "mountain-climbers",
+       "press-de-banca-con-barra", "fondos-de-triceps-en-banco"].forEach(function(s){
+        if(existe(A.GIFS_DIR + s + ".gif")) sobran.push(s + ".gif");
+      });
+      assert(sobran.length === 0, "siguen en el repo: " + sobran.join(", "));
+    });
+
+    test("los medios descartados no quedaron en el repo", function(){
+      var sobran = [];
+      ["arnold-press-2.webp", "curl-con-mancuernas-alternado-2.webp", "mountain-climbers-2.webp",
+       "press-de-banca-inclinado-con-barra-2.webp", "remo-con-mancuerna-unilateral-2.webp",
+       "fondos-de-triceps-en-banco-2.webp"].forEach(function(f){
+        if(existe(A.GIFS_DIR + f)) sobran.push(f);
+      });
+      assert(sobran.length === 0, "siguen en el repo: " + sobran.join(", "));
+    });
+
+    test("la ficha de un ejercicio CON medio renderiza la animación", function(){
+      var prev = A.state.exDetail;
+      A.openExerciseDetail({ nombre:"Hip thrust con barra" }, { returnTab:"rutina" });
+      var html = A.screenExerciseDetail();
+      assert(html.indexOf("exec-gif-card") !== -1, "no está la tarjeta de ejecución");
+      assert(html.indexOf(A.GIFS_DIR + "hip-thrust-con-barra.webp") !== -1, "no está el src");
+      assert(html.indexOf("Ejecución") !== -1, "no está el título del bloque");
+      A.state.exDetail = prev;
+    });
+
+    test("el <img> va con lazy, decoding async y onerror que esconde la tarjeta", function(){
+      var prev = A.state.exDetail;
+      A.openExerciseDetail({ nombre:"Hip thrust con barra" }, { returnTab:"rutina" });
+      var html = A.screenExerciseDetail();
+      assert(/loading="lazy"/.test(html), "falta loading=lazy");
+      assert(/decoding="async"/.test(html), "falta decoding=async");
+      assert(/onerror="[^"]*exec-gif-card/.test(html), "el onerror no esconde la tarjeta");
+      A.state.exDetail = prev;
+    });
+
+    test("NINGUNA ficha ofrece alternar entre medios", function(){
+      // El botón "Ver otra" era del esquema viejo. Con un medio por ejercicio
+      // no tiene sentido, y en los 5 ex-múltiples es donde aparecería.
+      var prev = A.state.exDetail, malos = [];
+      ["Arnold press", "Curl con mancuernas alternado", "Mountain climbers",
+       "Press de banca inclinado con barra", "Remo con mancuerna unilateral",
+       "Hip thrust con barra"].forEach(function(n){
+        A.openExerciseDetail({ nombre:n }, { returnTab:"rutina" });
+        var html = A.screenExerciseDetail();
+        if(html.indexOf("data-gifnext") !== -1) malos.push(n + ": tiene botón");
+        if(/Ver otra/.test(html)) malos.push(n + ": dice 'Ver otra'");
+        var veces = html.split(A.GIFS_DIR).length - 1;
+        if(veces !== 1) malos.push(n + ": " + veces + " medios en la ficha");
+      });
+      A.state.exDetail = prev;
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("la ficha de un ejercicio SIN medio sigue funcionando y no deja hueco", function(){
+      var prev = A.state.exDetail;
+      A.openExerciseDetail({ nombre:"Press de banca declinado" }, { returnTab:"rutina" });
+      var html = A.screenExerciseDetail();
+      assert(html.indexOf("Press de banca declinado") !== -1, "no muestra el nombre");
+      assert(html.indexOf("exec-gif-card") === -1, "metió la tarjeta sin medio");
+      assert(html.indexOf(A.GIFS_DIR) === -1, "pidió un medio para un ejercicio sin medio");
+      assert(html.indexOf("anatomy-photo") !== -1 || html.indexOf("muscle-diagram") !== -1 || html.indexOf("howto-pic") !== -1,
+        "se perdió el diagrama/lámina de la ficha");
+      A.state.exDetail = prev;
+    });
+
+    test("la ficha de un cardio (sin medio ni MUSCLE_MAP) no rompe", function(){
+      var prev = A.state.exDetail;
+      A.openExerciseDetail({ nombre:"Bicicleta fija" }, { returnTab:"rutina" });
+      var html = A.screenExerciseDetail();
+      assert(html.indexOf("Bicicleta fija") !== -1, "no muestra el nombre");
+      assert(html.indexOf("exec-gif-card") === -1, "tarjeta de ejecución en un cardio");
+      A.state.exDetail = prev;
+    });
+
+    test("las LISTAS no piden medios: la ficha pide exactamente uno", function(){
+      // La columna Biblioteca de la ficha lista los 111 ejercicios con su
+      // miniatura. Si las miniaturas usaran la animación, abrir la ficha se
+      // bajaría decenas de archivos. La miniatura sigue siendo la lámina
+      // anatómica o el SVG, así que GIFS_DIR aparece UNA sola vez.
+      var prev = A.state.exDetail;
+      A.openExerciseDetail({ nombre:"Press de banca con barra" }, { returnTab:"rutina" });
+      var html = A.screenExerciseDetail();
+      var veces = html.split(A.GIFS_DIR).length - 1;
+      assert(veces === 1, "GIFS_DIR aparece " + veces + " veces en la ficha");
+      A.state.exDetail = prev;
+    });
+
+    test("fichas representativas de los 6 grupos muestran su animación", function(){
+      var muestra = {
+        Pecho: "Press de banca con barra",
+        Espalda: "Remo con barra",
+        Piernas: "Sentadilla con barra",
+        Hombros: "Press militar con barra",
+        Brazos: "Curl con barra",
+        Core: "Plancha"
+      };
+      var prev = A.state.exDetail, malos = [];
+      Object.keys(muestra).forEach(function(g){
+        var n = muestra[g];
+        A.openExerciseDetail({ nombre:n }, { returnTab:"rutina" });
+        var html = A.screenExerciseDetail();
+        if(html.indexOf("exec-gif-card") === -1) malos.push(g + "/" + n + ": sin tarjeta");
+        else if(html.indexOf(A.exerciseGifFor(n)) === -1) malos.push(g + "/" + n + ": src equivocado");
+      });
+      A.state.exDetail = prev;
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("sw.js NO precarga ningún medio en la instalación", function(){
+      assert(SW_SRC, "no se pudo traer sw.js");
+      var ini = SW_SRC.indexOf("const ASSETS = [");
+      assert(ini !== -1, "no se pudo leer ASSETS de sw.js");
+      var assets = SW_SRC.slice(ini, SW_SRC.indexOf("]", ini)).toLowerCase();
+      assert(assets.indexOf(".webp") === -1 && assets.indexOf(".gif") === -1,
+        "hay animaciones en los ASSETS que se precargan: " + assets);
+    });
+
+    test("sw.js cubre .webp y sirve los medios cache-first SIN revalidar", function(){
+      // La rama general arma el fetch SIEMPRE y devuelve "cached || fetchPromise",
+      // así que con la copia ya guardada igual vuelve a bajar el archivo entero.
+      // Los medios tienen rama propia, y desde V44.2 tiene que cubrir .webp.
+      assert(SW_SRC, "no se pudo traer sw.js");
+      var i = SW_SRC.indexOf("(gif|webp)");
+      assert(i !== -1, "sw.js no tiene una rama que cubra .webp");
+      var rama = SW_SRC.slice(i, i + 400);
+      assert(rama.indexOf("cached || fetch(event.request)") !== -1,
+        "la rama de medios no es cache-first seco");
+    });
+
+    test("nada de lo que ya existía cambió por las animaciones", function(){
+      assert(A.EXERCISES.length === 111, "EXERCISES: " + A.EXERCISES.length);
+      assert(Object.keys(A.MUSCLE_MAP).length === 101, "MUSCLE_MAP: " + Object.keys(A.MUSCLE_MAP).length);
+      assert(Object.keys(A.EXERCISE_ALIASES).length === 38, "aliases: " + Object.keys(A.EXERCISE_ALIASES).length);
+      // La lámina anatómica y la animación son dos cosas distintas y conviven.
+      assert(A.exerciseAnatomyImageFor("Hip thrust con barra") === null,
+        "apareció una lámina para Hip thrust con barra (seguía sin tener)");
+      assert(A.exerciseAnatomyImageFor("Press de banca con barra") !== null, "se perdió una lámina");
+      assert(A.exerciseGifFor("Press de banca con barra"), "se perdió la animación");
+    });
+
     finish();
   }
 
