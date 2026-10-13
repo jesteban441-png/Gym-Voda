@@ -1787,30 +1787,102 @@
   // `tipo` separa el estiramiento sostenido de la movilidad: gato-camello no se
   // mantiene, se repite, y por eso su duracion son repeticiones y no segundos.
   const ESTIRAMIENTOS = [
-    { id:"pectoral-marco-puerta", nombre:"Pectoral en marco de puerta", subgrupos:["pecho"], legFocus:null, tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Apoyá el antebrazo en el marco de una puerta con el codo a la altura del hombro. Dá un paso corto hacia adelante con la pierna del mismo lado, hasta sentir que el pecho se abre. El hombro no tiene que irse hacia adelante: si molesta, bajá el codo." },
-    { id:"apertura-manos-atras", nombre:"Apertura de pecho con manos entrelazadas atrás", subgrupos:["pecho"], legFocus:null, tipo:"estiramiento", duracion:"30 s, 2 veces", como:"De pie, entrelazá las manos detrás de la espalda y estirá los codos. Llevá los brazos hacia atrás y abajo abriendo el pecho, con los hombros lejos de las orejas y sin arquear la zona lumbar." },
-    { id:"dorsal-en-apoyo", nombre:"Dorsal en apoyo", subgrupos:["espalda"], legFocus:null, tipo:"estiramiento", duracion:"30 s por lado", como:"Agarrate con una mano de una barra o un soporte firme a la altura de la cadera. Dejá caer el peso del cuerpo hacia atrás con el brazo estirado y la cadera lejos del apoyo, hasta sentir el costado de la espalda." },
-    { id:"postura-del-nino", nombre:"Postura del niño con brazos extendidos", subgrupos:["espalda"], legFocus:null, tipo:"estiramiento", duracion:"45 s, 1 o 2 veces", como:"Arrodillado, sentate sobre los talones y caminá las manos hacia adelante hasta apoyar el pecho hacia el piso. Mantené los brazos estirados y respirá lento: la espalda se abre sola, no hay que empujar." },
-    { id:"cruce-brazo-pecho", nombre:"Cruce de brazo al pecho", subgrupos:["hombros"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado, 2 veces", como:"Llevá un brazo estirado cruzado por delante del pecho y sostenelo con el otro por encima del codo, nunca sobre la articulación. Mantené el hombro abajo, sin encogerlo hacia la oreja." },
-    { id:"trapecio-inclinacion", nombre:"Trapecio con inclinación de cabeza", subgrupos:["hombros"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado", como:"Sentado o de pie, dejá caer la cabeza hacia un hombro sin girarla, mientras el otro brazo cuelga relajado al costado. Es un movimiento suave y lento: no se empuja la cabeza con la mano ni se fuerza el cuello en ningún momento." },
-    { id:"biceps-contra-pared", nombre:"Bíceps contra la pared", subgrupos:["biceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado", como:"Parado de costado a una pared, apoyá la palma hacia atrás a la altura del hombro con el brazo estirado. Girá el torso despacio hacia el lado contrario hasta sentir el frente del brazo." },
-    { id:"flexores-codo-sentado", nombre:"Flexores de codo sentado", subgrupos:["biceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s, 2 veces", como:"Sentado en el piso con las rodillas flexionadas, apoyá las manos atrás con los dedos apuntando hacia afuera y los brazos estirados. Deslizá la cadera suavemente hacia adelante hasta sentir el bíceps y el antebrazo." },
-    { id:"triceps-sobre-cabeza", nombre:"Tríceps sobre la cabeza", subgrupos:["triceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado, 2 veces", como:"Llevá el codo arriba y detrás de la cabeza, dejando que la mano caiga entre los omóplatos. Acompañá el codo con la otra mano sin tirones, hasta sentir la parte de atrás del brazo." },
-    { id:"triceps-con-toalla", nombre:"Tríceps con toalla a la espalda", subgrupos:["triceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado", como:"Sostené una toalla con una mano por encima del hombro y la otra por detrás de la cintura. Acercá las manos apenas, tirando con suavidad, hasta sentir el tríceps del brazo de arriba." },
-    { id:"flexores-muneca", nombre:"Flexores de muñeca", subgrupos:["antebrazo"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado", como:"Estirá el brazo al frente con la palma hacia arriba y el codo derecho. Con la otra mano llevá los dedos despacio hacia abajo y hacia vos, hasta sentir la parte interna del antebrazo." },
-    { id:"extensores-muneca", nombre:"Extensores de muñeca", subgrupos:["antebrazo"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado", como:"Estirá el brazo al frente con la palma hacia abajo y el codo derecho. Con la otra mano llevá los dedos hacia abajo y hacia vos, hasta sentir la parte de arriba del antebrazo." },
-    { id:"extension-columna", nombre:"Extensión de columna boca abajo", subgrupos:["core"], legFocus:null, tipo:"estiramiento", duracion:"20 s, 2 o 3 veces", como:"Boca abajo, con las manos debajo de los hombros, empujá el torso hacia arriba dejando la cadera apoyada en el piso. Los codos quedan apenas flexionados y los hombros abajo. Si aparece molestia en la zona lumbar, subí menos." },
-    { id:"inclinacion-lateral", nombre:"Inclinación lateral de pie", subgrupos:["core"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado", como:"De pie con los pies al ancho de la cadera, subí un brazo por encima de la cabeza e inclinate hacia el lado contrario. El torso no gira y la cadera no se empuja al costado: el movimiento es solo lateral." },
-    { id:"gato-camello", nombre:"Gato-camello (movilidad)", subgrupos:["core"], legFocus:null, tipo:"movilidad", duracion:"8 a 10 repeticiones lentas", como:"En cuatro apoyos, con las manos debajo de los hombros y las rodillas debajo de la cadera, alterná redondear la espalda hacia arriba y hundirla hacia abajo. Es movilidad, no una posición sostenida: se acompaña con la respiración y se mueve despacio." },
-    { id:"cuadriceps-de-pie", nombre:"Cuádriceps de pie", subgrupos:["piernas"], legFocus:"quads", tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Parado, tomá el empeine y llevá el talón hacia el glúteo. Mantené las rodillas juntas y la cadera metida, sin arquear la zona lumbar. Apoyate de una pared si necesitás equilibrio." },
-    { id:"cuadriceps-acostado", nombre:"Cuádriceps acostado de lado", subgrupos:["piernas"], legFocus:"quads", tipo:"estiramiento", duracion:"30 s por lado", como:"Acostado de costado, tomá el empeine de la pierna de arriba y llevá el talón hacia el glúteo. La rodilla queda alineada con la cadera y el cuerpo en línea recta, sin rotar el torso." },
-    { id:"isquios-sentado", nombre:"Isquios sentado", subgrupos:["piernas"], legFocus:"hamstrings", tipo:"estiramiento", duracion:"35 s por lado, 2 veces", como:"Sentado en el piso con una pierna estirada y la otra flexionada hacia adentro, llevá el pecho hacia la rodilla de la pierna estirada. La espalda se mantiene larga: el movimiento sale de la cadera, no de redondear la columna." },
-    { id:"isquios-pie-elevado", nombre:"Isquios con pie elevado", subgrupos:["piernas"], legFocus:"hamstrings", tipo:"estiramiento", duracion:"30 s por lado", como:"Apoyá el talón en un banco bajo con la pierna estirada y la punta del pie hacia arriba. Llevá la cadera hacia adelante con la espalda recta, hasta sentir la parte de atrás del muslo." },
-    { id:"gluteo-figura-cuatro", nombre:"Glúteo sentado en figura cuatro", subgrupos:["piernas"], legFocus:"glutes", tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Sentado en una silla o en el piso, cruzá el tobillo sobre la rodilla contraria formando un cuatro. Llevá el pecho hacia adelante con la espalda recta, hasta sentir el glúteo de la pierna cruzada." },
-    { id:"gluteo-acostado", nombre:"Glúteo acostado", subgrupos:["piernas"], legFocus:"glutes", tipo:"estiramiento", duracion:"30 s por lado", como:"Boca arriba, cruzá un tobillo sobre la rodilla contraria y traé esa pierna hacia el pecho tomándola por detrás del muslo. La cabeza y los hombros quedan apoyados en el piso." },
-    { id:"gemelo-pared", nombre:"Gemelo contra la pared", subgrupos:["piernas"], legFocus:"calves", tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Manos apoyadas en la pared, una pierna atrás bien estirada con el talón en el piso y la punta del pie hacia adelante. Empujá la pared sin despegar ese talón ni girar el pie." },
-    { id:"soleo-rodilla-flexionada", nombre:"Sóleo con rodilla flexionada", subgrupos:["piernas"], legFocus:"calves", tipo:"estiramiento", duracion:"25 s por lado", como:"Misma posición que el gemelo contra la pared, pero flexionando la rodilla de la pierna de atrás y manteniendo el talón apoyado. El estiramiento se siente más abajo, cerca del tobillo." },
-    { id:"aductores-mariposa", nombre:"Aductores sentado (mariposa)", subgrupos:["piernas"], legFocus:"adductors", tipo:"estiramiento", duracion:"35 s, 2 veces", como:"Sentado en el piso, juntá las plantas de los pies y dejá caer las rodillas hacia los costados. Mantené la espalda erguida y dejá que las rodillas bajen por su propio peso, sin empujarlas con las manos." },
+    { id:"pectoral-marco-puerta", nombre:"Pectoral en marco de puerta", subgrupos:["pecho"], legFocus:null, tipo:"estiramiento", duracion:"30 s por lado, 2 veces",
+      inicio:"Parate en el vano de una puerta y apoyá el antebrazo en el marco, con el codo a la altura del hombro.",
+      movimiento:"Dá un paso corto hacia adelante con la pierna de ese mismo lado, hasta sentir que el pecho se abre.",
+      cuidado:"El hombro no tiene que irse hacia adelante. Si molesta la articulación, bajá el codo." },
+    { id:"apertura-manos-atras", nombre:"Apertura de pecho con manos entrelazadas atrás", subgrupos:["pecho"], legFocus:null, tipo:"estiramiento", duracion:"30 s, 2 veces",
+      inicio:"De pie, pies al ancho de la cadera, entrelazá las manos detrás de la espalda y estirá los codos.",
+      movimiento:"Llevá los brazos hacia atrás y hacia abajo, abriendo el pecho y juntando los omóplatos.",
+      cuidado:"Hombros lejos de las orejas y sin arquear la zona lumbar: el pecho se abre, la espalda no se dobla." },
+    { id:"dorsal-en-apoyo", nombre:"Dorsal en apoyo", subgrupos:["espalda"], legFocus:null, tipo:"estiramiento", duracion:"30 s por lado",
+      inicio:"Agarrate con una mano de una barra o un soporte firme a la altura de la cadera, con el brazo estirado.",
+      movimiento:"Dejá caer el peso del cuerpo hacia atrás, alejando la cadera del apoyo, hasta sentir el costado de la espalda.",
+      cuidado:"No tires con el brazo: el estiramiento sale de dejarse caer, no de hacer fuerza." },
+    { id:"postura-del-nino", nombre:"Postura del niño con brazos extendidos", subgrupos:["espalda"], legFocus:null, tipo:"estiramiento", duracion:"45 s, 1 o 2 veces",
+      inicio:"Arrodillado en el piso, sentate sobre los talones con las rodillas algo separadas.",
+      movimiento:"Caminá las manos hacia adelante hasta apoyar el pecho hacia el piso, con los brazos estirados.",
+      cuidado:"Respirá lento y no empujes: la espalda se abre sola con cada exhalación." },
+    { id:"cruce-brazo-pecho", nombre:"Cruce de brazo al pecho", subgrupos:["hombros"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado, 2 veces",
+      inicio:"De pie o sentado, llevá un brazo estirado cruzado por delante del pecho.",
+      movimiento:"Sostenelo con el otro brazo por encima del codo y acercalo al cuerpo, sin girar el torso.",
+      cuidado:"Nunca tomes sobre la articulación del codo, y mantené el hombro abajo, sin encogerlo hacia la oreja." },
+    { id:"trapecio-inclinacion", nombre:"Trapecio con inclinación de cabeza", subgrupos:["hombros"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado",
+      inicio:"Sentado o de pie, con la espalda recta y un brazo colgando relajado al costado.",
+      movimiento:"Dejá caer la cabeza despacio hacia el hombro contrario, sin girarla ni llevarla hacia adelante.",
+      cuidado:"El cuello nunca se fuerza: no se empuja la cabeza con la mano y el movimiento se detiene apenas aparece tensión." },
+    { id:"biceps-contra-pared", nombre:"Bíceps contra la pared", subgrupos:["biceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado",
+      inicio:"Parado de costado a una pared, apoyá la palma hacia atrás a la altura del hombro, con el brazo estirado.",
+      movimiento:"Girá el torso despacio hacia el lado contrario, alejando el pecho de la mano apoyada.",
+      cuidado:"Si sentís tirón en el hombro en vez del brazo, bajá la altura de la mano." },
+    { id:"flexores-codo-sentado", nombre:"Flexores de codo sentado", subgrupos:["biceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s, 2 veces",
+      inicio:"Sentado en el piso con las rodillas flexionadas, apoyá las manos atrás con los dedos mirando hacia afuera.",
+      movimiento:"Con los brazos estirados, deslizá la cadera suavemente hacia adelante hasta sentir el bíceps y el antebrazo.",
+      cuidado:"Avanzá de a poco: las muñecas soportan el peso y no conviene cargarlas de golpe." },
+    { id:"triceps-sobre-cabeza", nombre:"Tríceps sobre la cabeza", subgrupos:["triceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado, 2 veces",
+      inicio:"De pie o sentado, levantá un brazo y flexioná el codo llevando la mano entre los omóplatos.",
+      movimiento:"Acompañá el codo hacia atrás con la otra mano hasta sentir la parte de atrás del brazo.",
+      cuidado:"Sin tirones y sin arquear la zona lumbar para ganar recorrido." },
+    { id:"triceps-con-toalla", nombre:"Tríceps con toalla a la espalda", subgrupos:["triceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado",
+      inicio:"Sostené una toalla con una mano por encima del hombro y tomala con la otra por detrás de la cintura.",
+      movimiento:"Acercá las manos tirando con suavidad, hasta sentir el tríceps del brazo de arriba.",
+      cuidado:"El tirón lo da la mano de abajo, despacio: si el hombro molesta, aflojá." },
+    { id:"flexores-muneca", nombre:"Flexores de muñeca", subgrupos:["antebrazo"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado",
+      inicio:"Estirá un brazo al frente con el codo derecho y la palma hacia arriba.",
+      movimiento:"Con la otra mano llevá los dedos despacio hacia abajo y hacia vos, hasta sentir la parte interna del antebrazo.",
+      cuidado:"Presión suave y sostenida: la muñeca no rebota ni se fuerza al final del recorrido." },
+    { id:"extensores-muneca", nombre:"Extensores de muñeca", subgrupos:["antebrazo"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado",
+      inicio:"Estirá un brazo al frente con el codo derecho y la palma hacia abajo.",
+      movimiento:"Con la otra mano llevá los dedos hacia abajo y hacia vos, hasta sentir la parte de arriba del antebrazo.",
+      cuidado:"Igual que el anterior: presión suave, sin rebotes y sin bloquear el codo con fuerza." },
+    { id:"extension-columna", nombre:"Extensión de columna boca abajo", subgrupos:["core"], legFocus:null, tipo:"estiramiento", duracion:"20 s, 2 o 3 veces",
+      inicio:"Acostado boca abajo, con las manos apoyadas debajo de los hombros y los pies juntos.",
+      movimiento:"Empujá el torso hacia arriba dejando la cadera en el piso, con los codos apenas flexionados.",
+      cuidado:"Hombros abajo y lejos de las orejas. Si aparece molestia en la zona lumbar, subí menos." },
+    { id:"inclinacion-lateral", nombre:"Inclinación lateral de pie", subgrupos:["core"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado",
+      inicio:"De pie, pies al ancho de la cadera, subí un brazo por encima de la cabeza.",
+      movimiento:"Inclinate hacia el lado contrario, estirando el costado desde la cadera hasta la mano.",
+      cuidado:"El torso no gira y la cadera no se empuja al costado: el movimiento es sólo lateral." },
+    { id:"gato-camello", nombre:"Gato-camello (movilidad)", subgrupos:["core"], legFocus:null, tipo:"movilidad", duracion:"8 a 10 repeticiones lentas",
+      inicio:"En cuatro apoyos, con las manos debajo de los hombros y las rodillas debajo de la cadera.",
+      movimiento:"Alterná redondear la espalda hacia arriba y hundirla hacia abajo, acompañando con la respiración.",
+      cuidado:"Es movilidad, no una posición sostenida: se mueve despacio y se detiene antes de cualquier molestia." },
+    { id:"cuadriceps-de-pie", nombre:"Cuádriceps de pie", subgrupos:["piernas"], legFocus:"quads", tipo:"estiramiento", duracion:"30 s por lado, 2 veces",
+      inicio:"Parado, apoyate de una pared con una mano si necesitás equilibrio.",
+      movimiento:"Tomá el empeine y llevá el talón hacia el glúteo, manteniendo las rodillas juntas.",
+      cuidado:"Mantené la pelvis estable y evitá arquear la zona lumbar: si la espalda se curva, bajá un poco el talón." },
+    { id:"cuadriceps-acostado", nombre:"Cuádriceps acostado de lado", subgrupos:["piernas"], legFocus:"quads", tipo:"estiramiento", duracion:"30 s por lado",
+      inicio:"Acostado de costado, con el cuerpo en línea recta y la cabeza apoyada en el brazo de abajo.",
+      movimiento:"Tomá el empeine de la pierna de arriba y llevá el talón hacia el glúteo.",
+      cuidado:"La rodilla queda alineada con la cadera y el torso no rota para acompañar." },
+    { id:"isquios-sentado", nombre:"Isquios sentado", subgrupos:["piernas"], legFocus:"hamstrings", tipo:"estiramiento", duracion:"35 s por lado, 2 veces",
+      inicio:"Sentado en el piso con una pierna estirada y la otra flexionada hacia adentro.",
+      movimiento:"Llevá el pecho hacia la rodilla de la pierna estirada, girando desde la cadera.",
+      cuidado:"La espalda se mantiene larga: si tenés que redondear la columna para llegar, no bajes tanto." },
+    { id:"isquios-pie-elevado", nombre:"Isquios con pie elevado", subgrupos:["piernas"], legFocus:"hamstrings", tipo:"estiramiento", duracion:"30 s por lado",
+      inicio:"Apoyá el talón en un banco bajo, con la pierna estirada y la punta del pie hacia arriba.",
+      movimiento:"Llevá la cadera hacia adelante con la espalda recta, hasta sentir la parte de atrás del muslo.",
+      cuidado:"Cuanto más alto el apoyo, más exigente: empezá bajo y no fuerces la rodilla." },
+    { id:"gluteo-figura-cuatro", nombre:"Glúteo sentado en figura cuatro", subgrupos:["piernas"], legFocus:"glutes", tipo:"estiramiento", duracion:"30 s por lado, 2 veces",
+      inicio:"Sentado en una silla o en el piso, cruzá el tobillo sobre la rodilla contraria formando un cuatro.",
+      movimiento:"Llevá el pecho hacia adelante con la espalda recta, hasta sentir el glúteo de la pierna cruzada.",
+      cuidado:"No empujes la rodilla hacia abajo con la mano si la cadera o la rodilla molestan." },
+    { id:"gluteo-acostado", nombre:"Glúteo acostado", subgrupos:["piernas"], legFocus:"glutes", tipo:"estiramiento", duracion:"30 s por lado",
+      inicio:"Boca arriba, con la cabeza y los hombros apoyados, cruzá un tobillo sobre la rodilla contraria.",
+      movimiento:"Traé esa pierna hacia el pecho tomándola por detrás del muslo con las dos manos.",
+      cuidado:"La cabeza no se despega del piso para acercarse a la pierna: es la pierna la que viene." },
+    { id:"gemelo-pared", nombre:"Gemelo contra la pared", subgrupos:["piernas"], legFocus:"calves", tipo:"estiramiento", duracion:"30 s por lado, 2 veces",
+      inicio:"Manos apoyadas en la pared, una pierna atrás bien estirada y la punta del pie hacia adelante.",
+      movimiento:"Empujá la pared llevando la cadera hacia adelante, sin despegar el talón de atrás.",
+      cuidado:"El pie no gira hacia afuera para ganar recorrido: así se pierde el estiramiento." },
+    { id:"soleo-rodilla-flexionada", nombre:"Sóleo con rodilla flexionada", subgrupos:["piernas"], legFocus:"calves", tipo:"estiramiento", duracion:"25 s por lado",
+      inicio:"Misma posición que el gemelo contra la pared, con las manos apoyadas y una pierna atrás.",
+      movimiento:"Flexioná la rodilla de la pierna de atrás manteniendo el talón apoyado; el tirón baja hacia el tobillo.",
+      cuidado:"Es un recorrido corto: no hace falta bajar mucho para sentirlo." },
+    { id:"aductores-mariposa", nombre:"Aductores sentado (mariposa)", subgrupos:["piernas"], legFocus:"adductors", tipo:"estiramiento", duracion:"35 s, 2 veces",
+      inicio:"Sentado en el piso, juntá las plantas de los pies y acercá los talones a la cadera.",
+      movimiento:"Dejá caer las rodillas hacia los costados manteniendo la espalda erguida.",
+      cuidado:"Las rodillas bajan por su propio peso: no se empujan con las manos ni se rebota." },
   ];
 
   function estiramientoPorId(id){
@@ -1881,6 +1953,15 @@
       ronda++;
     }
     return out;
+  }
+
+  // V46.2: estiramientos de un DIA de la rutina, sin haber entrenado. Es el
+  // MISMO motor que usa el cierre de sesión (estiramientosParaEjercicios) con
+  // otra entrada: al finalizar entran los ejercicios con series completadas,
+  // acá entran todos los del día. No hay una segunda lógica de selección, así
+  // que los focos de pierna y el tope de 5 se respetan igual por los dos lados.
+  function estiramientosDeDia(day){
+    return estiramientosParaEjercicios(((day && day.exercises) || []).map(function(ex){ return ex.nombre; }));
   }
 
   // Ejercicios de un dia con AL MENOS una serie completada. Pura: recibe el dia
@@ -3924,6 +4005,9 @@
     // que sobrevivir a eso para poder consultarse despues desde la biblioteca.
     estiramientosSugeridos:[],
     estiramientoSelSug:null,
+    // V46.2: de dónde salieron esas sugerencias (día de la rutina o último
+    // entrenamiento). null = el texto por defecto, el de la sesión.
+    estiramientosContexto:null,
     tab:"rutina",
     dayOpen:{},          // which day cards are expanded
     dayEditMode:{},      // which day cards show editar/borrar por ejercicio
@@ -4767,6 +4851,7 @@
           <button class="btn btn-outline btn-sm" data-start-session="${day.id}" style="flex:1; border-color:var(--accent); color:var(--accent)">${icon("play")} Entrenar este día</button>
           ${exs.length>0 ? `<button class="btn ${editMode?"btn-primary":"btn-ghost"} btn-sm" data-toggle-editex="${day.id}">${icon("edit")} ${editMode?"Listo":"Editar ejercicios"}</button>` : ""}
         </div>
+        ${estiramientosDeDia(day).length ? `<button class="btn btn-ghost btn-sm btn-block" data-estir-day="${day.id}" style="margin-top:6px">${icon("info")} Estiramientos del día</button>` : ""}
         ${open ? `
           <div class="exlist">
             ${exs.length===0 ? `<p class="helptext">Sin ejercicios todavía.</p>` : exs.map(ex=>`
@@ -6658,6 +6743,11 @@
   // al tocar la fila: no hay una tercera pantalla.
   // `scope` separa la fila del bloque de sugeridos de la de la biblioteca: la
   // misma ficha aparece en los dos y cada uno abre y cierra por su cuenta.
+  //
+  // V46.2: la fila lleva un control VISIBLE ("Cómo se hace" + chevron). Antes
+  // el único indicio era un ícono info con pointer-events:none, que se leía
+  // como una insignia decorativa y no como algo que se pudiera tocar: las
+  // instrucciones existían desde V46 pero quedaban invisibles en producción.
   function estiramientoRowHtml(e, abierto, scope){
     const attr = scope==="sug" ? "data-estir-sugfila" : "data-estir";
     return '' +
@@ -6667,15 +6757,43 @@
             '<div class="exname">' + esc(e.nombre) + '</div>' +
             '<div class="helptext">' + esc(estiramientoZona(e)) + ' · ' + esc(e.duracion) + (e.tipo==="movilidad" ? ' · movilidad' : '') + '</div>' +
           '</div>' +
-          '<span class="iconbtn" style="pointer-events:none">' + icon("info") + '</span>' +
+          '<span class="row" style="gap:4px; align-items:center; flex:none; pointer-events:none">' +
+            '<span class="helptext" style="font-size:12px; color:var(--accent); white-space:nowrap">Cómo se hace</span>' +
+            '<span class="iconbtn" style="transform:rotate(' + (abierto?"180":"0") + 'deg)">' + icon("chevronDown") + '</span>' +
+          '</span>' +
         '</div>' +
-        (abierto ? '<p class="helptext" style="color:var(--text); line-height:1.5">' + esc(e.como) + '</p>' : '') +
+        (abierto ? estiramientoPasosHtml(e) : '') +
       '</div>';
+  }
+  // V46.2: las instrucciones se leen de pie y entre series, asi que van en tres
+  // pasos cortos y rotulados (posicion inicial / movimiento / precaucion) en vez
+  // del parrafo corrido que tenian en V46.
+  function estiramientoPasosHtml(e){
+    const paso = function(rotulo, texto){
+      return '<div style="margin-top:6px">' +
+        '<div class="helptext" style="font-size:11.5px; text-transform:uppercase; letter-spacing:.04em">' + esc(rotulo) + '</div>' +
+        '<div class="helptext" style="color:var(--text); line-height:1.5">' + esc(texto) + '</div>' +
+      '</div>';
+    };
+    return '<div style="border-top:1px solid var(--border); padding-top:4px">' +
+      paso("Posición inicial", e.inicio) +
+      paso("Movimiento", e.movimiento) +
+      paso("Precaución", e.cuidado) +
+    '</div>';
+  }
+  // Qué ficha está abierta en una lista. `null` = nadie eligió todavía, así que
+  // se abre la PRIMERA: el usuario ve de entrada que la ficha tiene contenido
+  // adentro. La cadena vacía es "el usuario cerró a propósito", y por eso no se
+  // puede usar null para las dos cosas.
+  function estiramientoAbiertoId(lista, sel){
+    if(sel === null || sel === undefined) return lista.length ? lista[0].id : null;
+    return sel || null;
   }
   function estiramientosListaHtml(){
     const lista = estiramientosFiltrados();
     if(!lista.length) return '<p class="helptext" style="padding:10px 0">Ningún estiramiento coincide con estos filtros.</p>';
-    return lista.map(function(e){ return estiramientoRowHtml(e, state.estiramientoSel===e.id); }).join("");
+    const abierto = estiramientoAbiertoId(lista, state.estiramientoSel);
+    return lista.map(function(e){ return estiramientoRowHtml(e, abierto===e.id); }).join("");
   }
   // Fichas sugeridas en el ultimo entrenamiento finalizado, resueltas desde los
   // ids guardados. Si alguna ya no existe (una ficha borrada en otra version),
@@ -6686,14 +6804,24 @@
   // Bloque de contexto arriba de la biblioteca: "Ver todos" no lleva a una
   // lista generica, lleva a ESTA sesion. Se oculta mientras hay busqueda o
   // filtro activos, para no mezclar el contexto con el resultado del filtro.
+  // V46.2: el título y el pie del bloque dependen del ORIGEN, porque ahora se
+  // llega desde dos lados: al finalizar un entrenamiento (sobre las series
+  // completadas) y desde un día de la rutina (sobre sus ejercicios, sin haber
+  // entrenado). Decir "tu último entrenamiento" en el segundo caso seria falso.
+  const ESTIRAMIENTOS_CONTEXTO_SESION = { titulo:"Sugeridos para tu último entrenamiento", pie:"Según los ejercicios que completaste. Son opcionales." };
+  function estiramientosContexto(){
+    return state.estiramientosContexto || ESTIRAMIENTOS_CONTEXTO_SESION;
+  }
   function estiramientosSugeridosHtml(){
     const sug = estiramientosSugeridosDeSesion();
     if(!sug.length) return "";
     if(state.estiramientosQuery || state.estiramientosGrupo) return "";
+    const ctx = estiramientosContexto();
+    const abierto = estiramientoAbiertoId(sug, state.estiramientoSelSug);
     return '' +
-      '<div class="section-title" style="margin-top:2px"><h2 style="font-size:15px">Sugeridos para tu último entrenamiento</h2><span class="muted">' + sug.length + '</span></div>' +
-      '<p class="helptext">Según los ejercicios que completaste. Son opcionales.</p>' +
-      '<div class="exlist">' + sug.map(function(e){ return estiramientoRowHtml(e, state.estiramientoSelSug===e.id, "sug"); }).join("") + '</div>' +
+      '<div class="section-title" style="margin-top:2px"><h2 style="font-size:15px">' + esc(ctx.titulo) + '</h2><span class="muted">' + sug.length + '</span></div>' +
+      '<p class="helptext">' + esc(ctx.pie) + '</p>' +
+      '<div class="exlist">' + sug.map(function(e){ return estiramientoRowHtml(e, abierto===e.id, "sug"); }).join("") + '</div>' +
       '<div class="section-title" style="margin-top:10px"><h2 style="font-size:15px">Toda la biblioteca</h2><span class="muted">' + ESTIRAMIENTOS.length + '</span></div>';
   }
   function screenEstiramientos(){
@@ -6706,6 +6834,7 @@
         '<div class="row" id="estir-chips" style="gap:6px; flex-wrap:wrap">' + estiramientosChipsHtml() + '</div>' +
       '</div>' +
       '<div id="estir-sug">' + estiramientosSugeridosHtml() + '</div>' +
+      '<p class="helptext" style="margin-bottom:2px">Tocá un estiramiento para ver cómo se hace.</p>' +
       '<div class="exlist" id="estir-list">' + estiramientosListaHtml() + '</div>';
   }
   function renderEstiramientos(){
@@ -6736,7 +6865,10 @@
       sugCont.querySelectorAll("[data-estir-sugfila]").forEach(function(row){
         row.onclick = function(){
           const id = row.dataset.estirSugfila;
-          state.estiramientoSelSug = (state.estiramientoSelSug===id) ? null : id;
+          const sug = estiramientosSugeridosDeSesion();
+          // Cerrar deja "" (cerrado a propósito), nunca null: null volvería a
+          // abrir la primera y la ficha no se podría cerrar nunca.
+          state.estiramientoSelSug = (estiramientoAbiertoId(sug, state.estiramientoSelSug)===id) ? "" : id;
           mountEstiramientosLista();
         };
       });
@@ -6747,7 +6879,7 @@
     cont.querySelectorAll("[data-estir]").forEach(function(row){
       row.onclick = function(){
         const id = row.dataset.estir;
-        state.estiramientoSel = (state.estiramientoSel===id) ? null : id;
+        state.estiramientoSel = (estiramientoAbiertoId(estiramientosFiltrados(), state.estiramientoSel)===id) ? "" : id;
         mountEstiramientosLista();
       };
     });
@@ -6784,6 +6916,8 @@
     // argumento NO borra las recomendaciones del ultimo entrenamiento, y
     // mandar [] explicitamente las limpia.
     if(o.sugeridos) state.estiramientosSugeridos = o.sugeridos.slice();
+    if(o.contexto) state.estiramientosContexto = o.contexto;
+    else if(o.sugeridos) state.estiramientosContexto = null; // vuelve al texto de sesión
     // Una ficha pedida desde el modal se abre en el bloque de sugeridos si
     // esta ahi, y si no en la biblioteca.
     if(o.id){
@@ -6910,6 +7044,24 @@
         const day = state.rutina.days.find(d=>d.id===dayId);
         const ex = day && day.exercises.find(x=>x.id===exId);
         if(ex) openExerciseDetail(ex, { returnTab:"rutina" });
+      };
+    });
+    // V46.2: acceso de LECTURA. No toca la sesión, ni las series, ni
+    // persistRutina: arma la lista con el motor y abre la biblioteca.
+    el.querySelectorAll("[data-estir-day]").forEach(b=>{
+      b.onclick = ()=>{
+        const day = ((state.rutina && state.rutina.days) || []).find(d=> d.id === b.dataset.estirDay);
+        if(!day) return;
+        const sug = estiramientosDeDia(day);
+        if(!sug.length) return;
+        abrirEstiramientos({
+          from: "rutina",
+          sugeridos: sug.map(e=>e.id),
+          contexto: {
+            titulo: "Estiramientos para " + (day.nombre || "este día"),
+            pie: "Según los ejercicios de este día. Son opcionales."
+          }
+        });
       };
     });
     el.querySelectorAll("[data-start-session]").forEach(b=>{
@@ -9657,7 +9809,8 @@
     // V46: Estiramientos. estiramientosParaEjercicios y ejerciciosConSerieCompletada
     // son PURAS (sin DOM, sin state, sin Supabase); el resto es presentación.
     ESTIRAMIENTOS, ESTIRAMIENTOS_MAX, ESTIRAMIENTOS_MODAL_MAX, ESTIRAMIENTOS_AVISO, ESTIRAMIENTO_FOCO_LABEL,
-    estiramientosSugeridosDeSesion, estiramientosSugeridosHtml,
+    estiramientosSugeridosDeSesion, estiramientosSugeridosHtml, estiramientosDeDia,
+    estiramientoPasosHtml, estiramientoAbiertoId, estiramientosContexto, ESTIRAMIENTOS_CONTEXTO_SESION,
     ESTIRAMIENTO_ZONA_LABEL,
     estiramientosParaEjercicios, ejerciciosConSerieCompletada, estiramientoClaveDeEjercicio,
     estiramientosDeClave, estiramientoPorId, estiramientoGrupo, estiramientoZona,

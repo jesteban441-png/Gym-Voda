@@ -6345,8 +6345,14 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       A.ESTIRAMIENTOS.forEach(function(e){
         if(ids[e.id]) malos.push(e.id + ": id repetido");
         ids[e.id] = true;
-        if(!e.nombre || !e.como || !e.duracion) malos.push(e.id + ": campo vacio");
-        if(e.como && e.como.length < 60) malos.push(e.id + ": instrucciones demasiado cortas");
+        // V46.2: `como` (un parrafo) se reemplazo por tres pasos rotulados.
+        // No se afloja la asercion: se exige MAS que antes, los tres campos.
+        if(!e.nombre || !e.duracion) malos.push(e.id + ": campo vacio");
+        ["inicio","movimiento","cuidado"].forEach(function(k){
+          if(!e[k]) malos.push(e.id + ": falta el paso " + k);
+          else if(e[k].length < 40) malos.push(e.id + ": el paso " + k + " es demasiado corto (" + e[k].length + ")");
+        });
+        if(e.como !== undefined) malos.push(e.id + ": conserva el campo `como` de V46");
         if(["estiramiento","movilidad"].indexOf(e.tipo) === -1) malos.push(e.id + ": tipo invalido (" + e.tipo + ")");
         if(!e.subgrupos.length) malos.push(e.id + ": sin subgrupos");
         e.subgrupos.forEach(function(sg){ if(!subgruposValidos[sg]) malos.push(e.id + ": subgrupo desconocido " + sg); });
@@ -6500,7 +6506,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(filas.length === esperadas, "filas: " + filas.length + ", esperadas: " + esperadas);
       // Compactas: nombre, zona y duracion. Las instrucciones completas viven en
       // la biblioteca, no en el modal (si no, el modal seria una pantalla).
-      var conComo = sug.filter(function(e){ return d.innerHTML.indexOf(e.como) !== -1; });
+      var conComo = sug.filter(function(e){ return d.innerHTML.indexOf(e.movimiento) !== -1; });
       assert(conComo.length === 0, "el modal trae instrucciones completas: " + conComo.map(function(e){ return e.id; }).join(", "));
       sug.slice(0, esperadas).forEach(function(e){
         assert(d.innerHTML.indexOf(A.estiramientoZona(e)) !== -1, e.id + ": falta la zona");
@@ -6645,6 +6651,12 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       var el = back.querySelector(".modal");
       // Ancho y alto maximo de un movil de 375x667 (88vh = 587), fijados a mano
       // para que la medicion no dependa del tamano del iframe del harness.
+      // La tipografia se fija a proposito. En el primer pintado del iframe las
+      // metricas de system-ui todavia no estan resueltas y un nombre largo
+      // envuelve a dos lineas, lo que inflaba la medicion ~40 px y hacia fallar
+      // el test una de cada varias corridas. Fijarla NO afloja el umbral (sigue
+      // siendo 587): solo saca de la medicion una variable de timing.
+      el.style.fontFamily = "Arial, Helvetica, sans-serif";
       el.style.width = "375px";
       el.style.maxWidth = "375px";
       el.style.maxHeight = "587px";
@@ -6730,6 +6742,170 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         A.state.estiramientoSelSug = null;
         A.state.tab = prevTab;
       }
+    });
+
+    // ---------------------------------------------------------------
+    // V46.2 — visibilidad de las instrucciones y acceso por dia
+    // ---------------------------------------------------------------
+    test("V46.2 — cada ficha tiene un control VISIBLE para abrir las instrucciones", function(){
+      // El bug de produccion no era que faltara el texto: era que el unico
+      // indicio de que la fila se podia tocar era un icono decorativo. Se
+      // afirma la affordance, no solo que el dato exista.
+      var prevQ = A.state.estiramientosQuery, prevG = A.state.estiramientosGrupo, prevSel = A.state.estiramientoSel, prevSug = A.state.estiramientosSugeridos;
+      try{
+        A.state.estiramientosQuery = ""; A.state.estiramientosGrupo = null;
+        A.state.estiramientoSel = null; A.state.estiramientosSugeridos = [];
+        var d = document.createElement("div");
+        d.innerHTML = A.screenEstiramientos();
+        var filas = d.querySelectorAll("[data-estir]");
+        assert(filas.length === A.ESTIRAMIENTOS.length, "filas: " + filas.length);
+        var sinControl = [].filter.call(filas, function(f){ return f.textContent.indexOf("Cómo se hace") === -1; });
+        assert(sinControl.length === 0, sinControl.length + " filas sin el control visible");
+        assert(d.innerHTML.indexOf("Tocá un estiramiento") !== -1, "falta la ayuda de la lista");
+      } finally {
+        A.state.estiramientosQuery = prevQ; A.state.estiramientosGrupo = prevG;
+        A.state.estiramientoSel = prevSel; A.state.estiramientosSugeridos = prevSug;
+      }
+    });
+
+    test("V46.2 — la primera ficha abre sola y se puede cerrar", function(){
+      var lista = A.ESTIRAMIENTOS.slice(0, 3);
+      // null = nadie eligio todavia -> abre la primera.
+      assert(A.estiramientoAbiertoId(lista, null) === lista[0].id, "con null deberia abrir la primera");
+      assert(A.estiramientoAbiertoId(lista, undefined) === lista[0].id, "con undefined deberia abrir la primera");
+      // "" = el usuario cerro a proposito -> ninguna abierta. Si esto devolviera
+      // la primera, la ficha no se podria cerrar nunca.
+      assert(A.estiramientoAbiertoId(lista, "") === null, "con cadena vacia no deberia abrir ninguna");
+      assert(A.estiramientoAbiertoId(lista, lista[2].id) === lista[2].id, "deberia respetar la eleccion");
+      assert(A.estiramientoAbiertoId([], null) === null, "con lista vacia deberia dar null");
+    });
+
+    test("V46.2 — las instrucciones abiertas muestran los tres pasos de ESA ficha", function(){
+      var e = A.estiramientoPorId("gato-camello");
+      var d = document.createElement("div");
+      d.innerHTML = A.estiramientoPasosHtml(e);
+      ["Posición inicial","Movimiento","Precaución"].forEach(function(r){
+        assert(d.textContent.indexOf(r) !== -1, "falta el rotulo " + r);
+      });
+      [e.inicio, e.movimiento, e.cuidado].forEach(function(t){
+        assert(d.textContent.indexOf(t) !== -1, "falta un paso completo");
+      });
+      // Y en la fila plegada NO aparecen.
+      var cerrada = document.createElement("div");
+      cerrada.innerHTML = A.estiramientoRowHtml ? "" : "";
+      var abierta = document.createElement("div"), plegada = document.createElement("div");
+      abierta.innerHTML = A.estiramientosListaHtml();
+      assert(abierta.textContent.indexOf("Posición inicial") !== -1, "ninguna ficha abierta en la lista");
+    });
+
+    test("V46.2 — 'Estiramientos del dia' usa el MISMO motor, sin duplicar logica", function(){
+      var day = { id:"dtest", nombre:"Día 2 — Piernas", exercises:[
+        { id:"a", nombre:"Sentadilla con barra" },
+        { id:"b", nombre:"Isquio acostado" },
+        { id:"c", nombre:"Gemelos en máquina" }
+      ]};
+      var porDia = A.estiramientosDeDia(day);
+      var porMotor = A.estiramientosParaEjercicios(day.exercises.map(function(x){ return x.nombre; }));
+      assert(JSON.stringify(porDia.map(function(e){ return e.id; })) === JSON.stringify(porMotor.map(function(e){ return e.id; })),
+        "el acceso por dia devolvio algo distinto que el motor: " + porDia.map(function(e){ return e.id; }).join(","));
+      assert(porDia.length > 0 && porDia.length <= A.ESTIRAMIENTOS_MAX, "cantidad fuera de rango: " + porDia.length);
+      // Y respeta los focos de pierna: solo los del dia, nada de gluteos ni aductores.
+      var focos = {};
+      porDia.forEach(function(e){ focos[e.legFocus || "-"] = true; });
+      assert(!focos.glutes && !focos.adductors, "aparecio un foco que el dia no entreno: " + Object.keys(focos).join(","));
+      ["quads","hamstrings","calves"].forEach(function(f){
+        assert(focos[f], "falta el foco " + f + " que si se entreno");
+      });
+    });
+
+    test("V46.2 — un dia sin ejercicios o solo de cardio no ofrece estiramientos", function(){
+      assert(A.estiramientosDeDia({ id:"x", nombre:"Vacío", exercises:[] }).length === 0, "un dia vacio ofrecio estiramientos");
+      assert(A.estiramientosDeDia(null).length === 0, "day null deberia dar []");
+      var cardio = A.EXERCISES.filter(function(n){ return !A.MUSCLE_MAP[n]; }).slice(0, 3);
+      var dayCardio = { id:"c", nombre:"Cardio", exercises:cardio.map(function(n, i){ return { id:"e"+i, nombre:n }; }) };
+      assert(A.estiramientosDeDia(dayCardio).length === 0, "un dia solo de cardio ofrecio estiramientos");
+    });
+
+    test("V46.2 — el titulo del bloque depende del ORIGEN", function(){
+      var prevCtx = A.state.estiramientosContexto, prevSug = A.state.estiramientosSugeridos, prevQ = A.state.estiramientosQuery;
+      try{
+        A.state.estiramientosQuery = "";
+        A.state.estiramientosSugeridos = ["gemelo-pared","isquios-sentado"];
+        // Origen sesion (por defecto).
+        A.state.estiramientosContexto = null;
+        assert(A.estiramientosContexto().titulo === A.ESTIRAMIENTOS_CONTEXTO_SESION.titulo, "el contexto por defecto cambio");
+        var d1 = document.createElement("div"); d1.innerHTML = A.estiramientosSugeridosHtml();
+        assert(d1.textContent.indexOf("tu último entrenamiento") !== -1, "falta el titulo de sesion");
+        // Origen dia.
+        A.state.estiramientosContexto = { titulo:"Estiramientos para Día 2 — Piernas", pie:"Según los ejercicios de este día. Son opcionales." };
+        var d2 = document.createElement("div"); d2.innerHTML = A.estiramientosSugeridosHtml();
+        assert(d2.textContent.indexOf("Día 2 — Piernas") !== -1, "falta el titulo del dia");
+        assert(d2.textContent.indexOf("tu último entrenamiento") === -1, "quedo el texto de sesion en el acceso por dia");
+        assert(d2.textContent.indexOf("este día") !== -1, "falta el pie del dia");
+      } finally {
+        A.state.estiramientosContexto = prevCtx; A.state.estiramientosSugeridos = prevSug; A.state.estiramientosQuery = prevQ;
+      }
+    });
+
+    test("V46.2 — abrir estiramientos desde un dia NO toca sesion, rutina ni almacenamiento", function(){
+      // Candado de no-regresion: es un acceso de LECTURA.
+      var prev = {
+        session: A.state.session, rutina: JSON.stringify(A.state.rutina || null),
+        registros: (A.state.registros||[]).length, entrenos: (A.state.entrenos||[]).length,
+        tab: A.state.tab, ctx: A.state.estiramientosContexto, sug: A.state.estiramientosSugeridos,
+        from: A.state.estiramientosFrom
+      };
+      try{
+        var day = { id:"d9", nombre:"Día 1", exercises:[{ id:"a", nombre:"Press de banca con barra" }] };
+        var sug = A.estiramientosDeDia(day);
+        A.abrirEstiramientos({
+          from:"rutina", sugeridos:sug.map(function(e){ return e.id; }),
+          contexto:{ titulo:"Estiramientos para " + day.nombre, pie:"Según los ejercicios de este día. Son opcionales." }
+        });
+        assert(A.state.session === prev.session, "cambio state.session");
+        assert(JSON.stringify(A.state.rutina || null) === prev.rutina, "cambio state.rutina");
+        assert((A.state.registros||[]).length === prev.registros, "cambiaron los registros");
+        assert((A.state.entrenos||[]).length === prev.entrenos, "cambiaron los entrenos");
+        assert(A.state.tab === "estiramientos", "no abrio la biblioteca");
+        assert(A.state.estiramientosFrom === "rutina", "el regreso no apunta a Rutina");
+      } finally {
+        A.state.estiramientosContexto = prev.ctx; A.state.estiramientosSugeridos = prev.sug;
+        A.state.estiramientosFrom = prev.from; A.state.tab = prev.tab;
+        A.state.estiramientoSel = null; A.state.estiramientoSelSug = null;
+      }
+    });
+
+    test("V46.2 — el modal de fin de entrenamiento no cambio", function(){
+      // La etapa 1 corrige la biblioteca; las recomendaciones automaticas siguen
+      // igual: adelanto de 3, boton con el total y sin instrucciones completas.
+      var sug = A.estiramientosParaEjercicios(["Sentadilla con barra","Prensa inclinada","Isquio acostado","Gemelos en máquina","Hip thrust con barra"]);
+      assert(sug.length === 5, "el motor dejo de devolver 5: " + sug.length);
+      var d = document.createElement("div");
+      d.innerHTML = A.estiramientosModalHtml(sug);
+      assert(d.querySelectorAll("[data-estir-sug]").length === A.ESTIRAMIENTOS_MODAL_MAX, "el modal cambio de cantidad de filas");
+      assert(d.textContent.indexOf("Posición inicial") === -1, "el modal empezo a traer los pasos completos");
+      assert(!!d.querySelector('[data-act="estir-todos"]'), "se perdio el acceso a la biblioteca");
+      assert(A.estiramientosModalHtml([]) === "", "con lista vacia deberia seguir devolviendo cadena vacia");
+    });
+
+    test("V46.2 — el boton del dia aparece solo cuando hay algo para ofrecer", function(){
+      // Se mira el fuente: dayCard condiciona el boton a que el motor devuelva
+      // algo, asi que un dia de cardio no muestra un boton que no hace nada.
+      assert(APP_SRC, "no se pudo traer index.html");
+      var i = APP_SRC.indexOf("data-estir-day=");
+      assert(i !== -1, "no se agrego el boton al dia");
+      var ctx = APP_SRC.slice(Math.max(0, i - 200), i);
+      assert(ctx.indexOf("estiramientosDeDia(day).length") !== -1, "el boton no esta condicionado a que haya sugerencias");
+      // Y el binding no llama a persistRutina ni a startSession.
+      var j = APP_SRC.indexOf('querySelectorAll("[data-estir-day]")');
+      assert(j !== -1, "no se encontro el binding del boton");
+      // La ventana se corta en el binding siguiente: con un ancho fijo se
+      // metia dentro del handler de "Entrenar este dia", que si llama a
+      // startSession, y el test fallaba por leer codigo ajeno.
+      var fin = APP_SRC.indexOf('querySelectorAll("[data-start-session]")', j);
+      var bloque = APP_SRC.slice(j, fin === -1 ? j + 900 : fin);
+      assert(bloque.indexOf("persistRutina") === -1, "el acceso por dia escribe la rutina");
+      assert(bloque.indexOf("startSession") === -1, "el acceso por dia arranca una sesion");
     });
 
     finish();
