@@ -1753,6 +1753,146 @@
     "Patada de glúteo en máquina": ["Apoyate firme en el aparato, torso ligeramente inclinado.", "Empujá con el pie hacia atrás y arriba apretando el glúteo.", "Volvé controlado, sin usar impulso."],
   };
 
+
+  /* ================= V46: ESTIRAMIENTOS ================= */
+  // Biblioteca PROPIA de VodaFit: 24 fichas escritas para la app. El material
+  // de referencia solo sirvio para decidir QUE zonas conviene cubrir; sus
+  // textos (traduccion automatica del portugues, con rotulos que no coinciden
+  // con lo que muestran) y sus ilustraciones (con prohibicion expresa de
+  // reproduccion y marca de agua de su autor) NO se usan. La ficha es texto:
+  // no se agrego ninguna imagen, ni aca ni en el repo.
+  const ESTIRAMIENTOS_AVISO = "Hacé los movimientos suavemente, sin rebotes y sin llegar al dolor. Las duraciones son orientativas.";
+  const ESTIRAMIENTOS_MAX = 5;
+  // El modal de fin de entrenamiento muestra un ADELANTO de 3, no las 5: con 5
+  // filas el contenido mide 672 px y en un movil de 375x667 el boton "Dale"
+  // queda abajo del borde (88vh = 587 px), obligando a deslizar para cerrar.
+  // Con 3 mide 553 px y entra entero. El motor sigue calculando hasta 5: las
+  // otras dos no se pierden, se ven completas en la biblioteca con "Ver todos".
+  const ESTIRAMIENTOS_MODAL_MAX = 3;
+  const ESTIRAMIENTO_FOCO_LABEL = { quads:"Cuádriceps", hamstrings:"Isquiosurales", glutes:"Glúteos", calves:"Gemelos", adductors:"Aductores" };
+  // Etiqueta de zona por SUBGRUPO: mas especifica que el grupo visual (un
+  // estiramiento de triceps dice "Tríceps", no "Brazos"). Los filtros siguen
+  // siendo los 6 grupos; esto es solo el rotulo de la fila.
+  const ESTIRAMIENTO_ZONA_LABEL = { pecho:"Pecho", espalda:"Espalda", hombros:"Hombros", biceps:"Bíceps", triceps:"Tríceps", antebrazo:"Antebrazo", core:"Core", piernas:"Piernas" };
+
+  // `subgrupos` usa las claves de REGION_SUBGROUP y `legFocus` los valores de
+  // exerciseLegFocus: NO se define una quinta taxonomia muscular.
+  //
+  // Para PIERNAS manda siempre legFocus. REGION_SUBGROUP colapsa todo el tren
+  // inferior en un unico subgrupo "piernas" (quads, glutes, hamstrings, calves
+  // y adductors caen todos ahi), asi que recomendar por subgrupo le ofreceria
+  // un estiramiento de gemelo a quien hizo sentadillas. Por eso las fichas de
+  // pierna declaran legFocus y las demas lo dejan en null.
+  //
+  // `tipo` separa el estiramiento sostenido de la movilidad: gato-camello no se
+  // mantiene, se repite, y por eso su duracion son repeticiones y no segundos.
+  const ESTIRAMIENTOS = [
+    { id:"pectoral-marco-puerta", nombre:"Pectoral en marco de puerta", subgrupos:["pecho"], legFocus:null, tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Apoyá el antebrazo en el marco de una puerta con el codo a la altura del hombro. Dá un paso corto hacia adelante con la pierna del mismo lado, hasta sentir que el pecho se abre. El hombro no tiene que irse hacia adelante: si molesta, bajá el codo." },
+    { id:"apertura-manos-atras", nombre:"Apertura de pecho con manos entrelazadas atrás", subgrupos:["pecho"], legFocus:null, tipo:"estiramiento", duracion:"30 s, 2 veces", como:"De pie, entrelazá las manos detrás de la espalda y estirá los codos. Llevá los brazos hacia atrás y abajo abriendo el pecho, con los hombros lejos de las orejas y sin arquear la zona lumbar." },
+    { id:"dorsal-en-apoyo", nombre:"Dorsal en apoyo", subgrupos:["espalda"], legFocus:null, tipo:"estiramiento", duracion:"30 s por lado", como:"Agarrate con una mano de una barra o un soporte firme a la altura de la cadera. Dejá caer el peso del cuerpo hacia atrás con el brazo estirado y la cadera lejos del apoyo, hasta sentir el costado de la espalda." },
+    { id:"postura-del-nino", nombre:"Postura del niño con brazos extendidos", subgrupos:["espalda"], legFocus:null, tipo:"estiramiento", duracion:"45 s, 1 o 2 veces", como:"Arrodillado, sentate sobre los talones y caminá las manos hacia adelante hasta apoyar el pecho hacia el piso. Mantené los brazos estirados y respirá lento: la espalda se abre sola, no hay que empujar." },
+    { id:"cruce-brazo-pecho", nombre:"Cruce de brazo al pecho", subgrupos:["hombros"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado, 2 veces", como:"Llevá un brazo estirado cruzado por delante del pecho y sostenelo con el otro por encima del codo, nunca sobre la articulación. Mantené el hombro abajo, sin encogerlo hacia la oreja." },
+    { id:"trapecio-inclinacion", nombre:"Trapecio con inclinación de cabeza", subgrupos:["hombros"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado", como:"Sentado o de pie, dejá caer la cabeza hacia un hombro sin girarla, mientras el otro brazo cuelga relajado al costado. Es un movimiento suave y lento: no se empuja la cabeza con la mano ni se fuerza el cuello en ningún momento." },
+    { id:"biceps-contra-pared", nombre:"Bíceps contra la pared", subgrupos:["biceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado", como:"Parado de costado a una pared, apoyá la palma hacia atrás a la altura del hombro con el brazo estirado. Girá el torso despacio hacia el lado contrario hasta sentir el frente del brazo." },
+    { id:"flexores-codo-sentado", nombre:"Flexores de codo sentado", subgrupos:["biceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s, 2 veces", como:"Sentado en el piso con las rodillas flexionadas, apoyá las manos atrás con los dedos apuntando hacia afuera y los brazos estirados. Deslizá la cadera suavemente hacia adelante hasta sentir el bíceps y el antebrazo." },
+    { id:"triceps-sobre-cabeza", nombre:"Tríceps sobre la cabeza", subgrupos:["triceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado, 2 veces", como:"Llevá el codo arriba y detrás de la cabeza, dejando que la mano caiga entre los omóplatos. Acompañá el codo con la otra mano sin tirones, hasta sentir la parte de atrás del brazo." },
+    { id:"triceps-con-toalla", nombre:"Tríceps con toalla a la espalda", subgrupos:["triceps"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado", como:"Sostené una toalla con una mano por encima del hombro y la otra por detrás de la cintura. Acercá las manos apenas, tirando con suavidad, hasta sentir el tríceps del brazo de arriba." },
+    { id:"flexores-muneca", nombre:"Flexores de muñeca", subgrupos:["antebrazo"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado", como:"Estirá el brazo al frente con la palma hacia arriba y el codo derecho. Con la otra mano llevá los dedos despacio hacia abajo y hacia vos, hasta sentir la parte interna del antebrazo." },
+    { id:"extensores-muneca", nombre:"Extensores de muñeca", subgrupos:["antebrazo"], legFocus:null, tipo:"estiramiento", duracion:"20 s por lado", como:"Estirá el brazo al frente con la palma hacia abajo y el codo derecho. Con la otra mano llevá los dedos hacia abajo y hacia vos, hasta sentir la parte de arriba del antebrazo." },
+    { id:"extension-columna", nombre:"Extensión de columna boca abajo", subgrupos:["core"], legFocus:null, tipo:"estiramiento", duracion:"20 s, 2 o 3 veces", como:"Boca abajo, con las manos debajo de los hombros, empujá el torso hacia arriba dejando la cadera apoyada en el piso. Los codos quedan apenas flexionados y los hombros abajo. Si aparece molestia en la zona lumbar, subí menos." },
+    { id:"inclinacion-lateral", nombre:"Inclinación lateral de pie", subgrupos:["core"], legFocus:null, tipo:"estiramiento", duracion:"25 s por lado", como:"De pie con los pies al ancho de la cadera, subí un brazo por encima de la cabeza e inclinate hacia el lado contrario. El torso no gira y la cadera no se empuja al costado: el movimiento es solo lateral." },
+    { id:"gato-camello", nombre:"Gato-camello (movilidad)", subgrupos:["core"], legFocus:null, tipo:"movilidad", duracion:"8 a 10 repeticiones lentas", como:"En cuatro apoyos, con las manos debajo de los hombros y las rodillas debajo de la cadera, alterná redondear la espalda hacia arriba y hundirla hacia abajo. Es movilidad, no una posición sostenida: se acompaña con la respiración y se mueve despacio." },
+    { id:"cuadriceps-de-pie", nombre:"Cuádriceps de pie", subgrupos:["piernas"], legFocus:"quads", tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Parado, tomá el empeine y llevá el talón hacia el glúteo. Mantené las rodillas juntas y la cadera metida, sin arquear la zona lumbar. Apoyate de una pared si necesitás equilibrio." },
+    { id:"cuadriceps-acostado", nombre:"Cuádriceps acostado de lado", subgrupos:["piernas"], legFocus:"quads", tipo:"estiramiento", duracion:"30 s por lado", como:"Acostado de costado, tomá el empeine de la pierna de arriba y llevá el talón hacia el glúteo. La rodilla queda alineada con la cadera y el cuerpo en línea recta, sin rotar el torso." },
+    { id:"isquios-sentado", nombre:"Isquios sentado", subgrupos:["piernas"], legFocus:"hamstrings", tipo:"estiramiento", duracion:"35 s por lado, 2 veces", como:"Sentado en el piso con una pierna estirada y la otra flexionada hacia adentro, llevá el pecho hacia la rodilla de la pierna estirada. La espalda se mantiene larga: el movimiento sale de la cadera, no de redondear la columna." },
+    { id:"isquios-pie-elevado", nombre:"Isquios con pie elevado", subgrupos:["piernas"], legFocus:"hamstrings", tipo:"estiramiento", duracion:"30 s por lado", como:"Apoyá el talón en un banco bajo con la pierna estirada y la punta del pie hacia arriba. Llevá la cadera hacia adelante con la espalda recta, hasta sentir la parte de atrás del muslo." },
+    { id:"gluteo-figura-cuatro", nombre:"Glúteo sentado en figura cuatro", subgrupos:["piernas"], legFocus:"glutes", tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Sentado en una silla o en el piso, cruzá el tobillo sobre la rodilla contraria formando un cuatro. Llevá el pecho hacia adelante con la espalda recta, hasta sentir el glúteo de la pierna cruzada." },
+    { id:"gluteo-acostado", nombre:"Glúteo acostado", subgrupos:["piernas"], legFocus:"glutes", tipo:"estiramiento", duracion:"30 s por lado", como:"Boca arriba, cruzá un tobillo sobre la rodilla contraria y traé esa pierna hacia el pecho tomándola por detrás del muslo. La cabeza y los hombros quedan apoyados en el piso." },
+    { id:"gemelo-pared", nombre:"Gemelo contra la pared", subgrupos:["piernas"], legFocus:"calves", tipo:"estiramiento", duracion:"30 s por lado, 2 veces", como:"Manos apoyadas en la pared, una pierna atrás bien estirada con el talón en el piso y la punta del pie hacia adelante. Empujá la pared sin despegar ese talón ni girar el pie." },
+    { id:"soleo-rodilla-flexionada", nombre:"Sóleo con rodilla flexionada", subgrupos:["piernas"], legFocus:"calves", tipo:"estiramiento", duracion:"25 s por lado", como:"Misma posición que el gemelo contra la pared, pero flexionando la rodilla de la pierna de atrás y manteniendo el talón apoyado. El estiramiento se siente más abajo, cerca del tobillo." },
+    { id:"aductores-mariposa", nombre:"Aductores sentado (mariposa)", subgrupos:["piernas"], legFocus:"adductors", tipo:"estiramiento", duracion:"35 s, 2 veces", como:"Sentado en el piso, juntá las plantas de los pies y dejá caer las rodillas hacia los costados. Mantené la espalda erguida y dejá que las rodillas bajen por su propio peso, sin empujarlas con las manos." },
+  ];
+
+  function estiramientoPorId(id){
+    for(let i=0;i<ESTIRAMIENTOS.length;i++){ if(ESTIRAMIENTOS[i].id===id) return ESTIRAMIENTOS[i]; }
+    return null;
+  }
+  // Grupo visual (los 6 de siempre) de una ficha, para los filtros de la
+  // biblioteca. Sale de SUBGROUP_TO_MUSCLEGROUP, no de una lista nueva.
+  function estiramientoGrupo(e){ return SUBGROUP_TO_MUSCLEGROUP[e.subgrupos[0]] || null; }
+  // Etiqueta de zona que ve el usuario: para pierna, el foco (Cuadriceps,
+  // Gluteos...); para el resto, el grupo visual.
+  function estiramientoZona(e){
+    if(e.legFocus) return (ESTIRAMIENTO_FOCO_LABEL[e.legFocus] || "Piernas");
+    return ESTIRAMIENTO_ZONA_LABEL[e.subgrupos[0]] || estiramientoGrupo(e) || "";
+  }
+
+  // Clave de recomendacion de UN ejercicio. Devuelve null cuando no se puede
+  // afirmar nada: el cardio y los personalizados no tienen MUSCLE_MAP, y una
+  // pierna sin legFocus no se degrada a "piernas" generico — antes de
+  // recomendar mal, no se recomienda.
+  function estiramientoClaveDeEjercicio(nombre){
+    const sg = exercisePrimarySubgroup(nombre);
+    if(!sg) return null;
+    if(sg !== "piernas") return sg;
+    const lf = exerciseLegFocus(nombre);
+    return lf ? ("pierna:" + lf) : null;
+  }
+  function estiramientosDeClave(clave){
+    if(clave.indexOf("pierna:")===0){
+      const lf = clave.slice(7);
+      return ESTIRAMIENTOS.filter(function(e){ return e.legFocus===lf; });
+    }
+    return ESTIRAMIENTOS.filter(function(e){ return !e.legFocus && e.subgrupos.indexOf(clave)!==-1; });
+  }
+
+  // MOTOR PURO (sin DOM, sin state, sin Supabase, sin azar), al estilo de
+  // muscleMapStats: recibe nombres de ejercicio y devuelve hasta
+  // ESTIRAMIENTOS_MAX fichas. Mismo input -> mismo output, siempre.
+  //
+  // Reparto: se cuenta cuantos ejercicios DISTINTOS tocaron cada clave, se
+  // ordena por esa cantidad (desempate alfabetico, para que sea determinista) y
+  // se reparte una ficha por clave en rondas. Nunca se completa la lista con
+  // zonas que no se entrenaron: si las claves trabajadas solo dan 2 fichas,
+  // devuelve 2.
+  function estiramientosParaEjercicios(nombres){
+    const vistos = {}, cuenta = {};
+    (nombres||[]).forEach(function(n){
+      const canon = canonicalExerciseName(n);
+      if(!canon || vistos[canon]) return;
+      vistos[canon] = true;
+      const clave = estiramientoClaveDeEjercicio(canon);
+      if(!clave) return;
+      cuenta[clave] = (cuenta[clave]||0) + 1;
+    });
+    const claves = Object.keys(cuenta).sort(function(a,b){ return (cuenta[b]-cuenta[a]) || (a<b?-1:(a>b?1:0)); });
+    const out = [], usados = {};
+    let ronda = 0, quedan = true;
+    while(out.length < ESTIRAMIENTOS_MAX && quedan){
+      quedan = false;
+      for(let i=0;i<claves.length && out.length<ESTIRAMIENTOS_MAX;i++){
+        const lista = estiramientosDeClave(claves[i]);
+        if(ronda < lista.length){
+          quedan = true;
+          const e = lista[ronda];
+          if(!usados[e.id]){ usados[e.id] = true; out.push(e); }
+        }
+      }
+      ronda++;
+    }
+    return out;
+  }
+
+  // Ejercicios de un dia con AL MENOS una serie completada. Pura: recibe el dia
+  // y el mapa de sets de la sesion, no los lee de state — asi se puede calcular
+  // ANTES de limpiar state.session al finalizar, y los tests la llaman sola.
+  function ejerciciosConSerieCompletada(day, sets){
+    const s = sets || {};
+    return ((day && day.exercises) || [])
+      .filter(function(ex){ return (s[ex.id]||[]).some(Boolean); })
+      .map(function(ex){ return ex.nombre; });
+  }
+
   /* ================= V32: ANATOMÍA CUERPO COMPLETO =================
      Dos vistas de cuerpo entero en lugar de 4 siluetas parciales. Motivo
      funcional: con las siluetas parciales, 21 ejercicios tenían músculos
@@ -3770,6 +3910,20 @@
     // nada con los períodos de Registro ni de Perfil.
     mapaPeriodo:"30d",
     mapaRegion:null,
+    // V46: Estiramientos. Pantalla propia (no es una pestaña de la barra) con
+    // buscador y filtro por grupo. `estiramientosFrom` recuerda desde dónde se
+    // entró para que el botón de volver no mande siempre a Perfil: al abrirla
+    // desde el modal de fin de entrenamiento hay que volver a Rutina.
+    estiramientosQuery:"",
+    estiramientosGrupo:null,
+    estiramientoSel:null,
+    estiramientosFrom:"perfil",
+    // V46: ids de los estiramientos sugeridos en el ultimo entrenamiento
+    // finalizado. Viven ACA y no en state.session a proposito: la sesion se
+    // limpia al finalizar (state.session = null) y las recomendaciones tienen
+    // que sobrevivir a eso para poder consultarse despues desde la biblioteca.
+    estiramientosSugeridos:[],
+    estiramientoSelSug:null,
     tab:"rutina",
     dayOpen:{},          // which day cards are expanded
     dayEditMode:{},      // which day cards show editar/borrar por ejercicio
@@ -3927,6 +4081,14 @@
     // la barra inferior (ya tiene 5 botones); se entra desde Perfil.
     if(state.tab==="mapa"){
       renderMuscleMap();
+      return;
+    }
+
+    // V46: Estiramientos. Misma figura que el Mapa muscular: pantalla propia,
+    // sin sexto botón en la barra inferior, con entrada desde Perfil y desde el
+    // modal de fin de entrenamiento.
+    if(state.tab==="estiramientos"){
+      renderEstiramientos();
       return;
     }
 
@@ -6462,6 +6624,198 @@
     });
   }
 
+
+  /* ================= V46: BIBLIOTECA DE ESTIRAMIENTOS ================= */
+  // Una sola fuente para los dos accesos: la biblioteca de Perfil y las
+  // recomendaciones del modal leen el MISMO array ESTIRAMIENTOS. No hay una
+  // segunda lista ni un subconjunto "recomendable".
+  function estiramientosFiltrados(){
+    const q = normalizeSearch(state.estiramientosQuery);
+    const g = state.estiramientosGrupo;
+    return ESTIRAMIENTOS.filter(function(e){
+      if(g && estiramientoGrupo(e) !== g) return false;
+      if(!q) return true;
+      return normalizeSearch(e.nombre + " " + estiramientoZona(e)).indexOf(q) !== -1;
+    });
+  }
+  // Grupos que realmente tienen fichas: se derivan de la biblioteca, así que
+  // agregar una ficha de un grupo nuevo no exige tocar los filtros.
+  function estiramientoGruposDisponibles(){
+    return MUSCLE_GROUPS.filter(function(g){
+      return ESTIRAMIENTOS.some(function(e){ return estiramientoGrupo(e)===g; });
+    });
+  }
+  function estiramientosChipsHtml(){
+    const g = state.estiramientosGrupo;
+    const countOf = function(x){ return ESTIRAMIENTOS.filter(function(e){ return estiramientoGrupo(e)===x; }).length; };
+    return [
+      '<button class="btn btn-sm ' + (!g?"btn-primary":"btn-ghost") + '" data-estir-grupo="">Todos (' + ESTIRAMIENTOS.length + ')</button>'
+    ].concat(estiramientoGruposDisponibles().map(function(x){
+      return '<button class="btn btn-sm ' + (g===x?"btn-primary":"btn-ghost") + '" data-estir-grupo="' + esc(x) + '">' + esc(x) + ' (' + countOf(x) + ')</button>';
+    })).join("");
+  }
+  // Fila de la biblioteca. La ficha completa (instrucciones) se abre acá mismo
+  // al tocar la fila: no hay una tercera pantalla.
+  // `scope` separa la fila del bloque de sugeridos de la de la biblioteca: la
+  // misma ficha aparece en los dos y cada uno abre y cierra por su cuenta.
+  function estiramientoRowHtml(e, abierto, scope){
+    const attr = scope==="sug" ? "data-estir-sugfila" : "data-estir";
+    return '' +
+      '<div class="exrow" ' + attr + '="' + esc(e.id) + '" style="cursor:pointer; flex-direction:column; align-items:stretch; gap:8px">' +
+        '<div class="row" style="justify-content:space-between; gap:10px; align-items:flex-start">' +
+          '<div style="min-width:0">' +
+            '<div class="exname">' + esc(e.nombre) + '</div>' +
+            '<div class="helptext">' + esc(estiramientoZona(e)) + ' · ' + esc(e.duracion) + (e.tipo==="movilidad" ? ' · movilidad' : '') + '</div>' +
+          '</div>' +
+          '<span class="iconbtn" style="pointer-events:none">' + icon("info") + '</span>' +
+        '</div>' +
+        (abierto ? '<p class="helptext" style="color:var(--text); line-height:1.5">' + esc(e.como) + '</p>' : '') +
+      '</div>';
+  }
+  function estiramientosListaHtml(){
+    const lista = estiramientosFiltrados();
+    if(!lista.length) return '<p class="helptext" style="padding:10px 0">Ningún estiramiento coincide con estos filtros.</p>';
+    return lista.map(function(e){ return estiramientoRowHtml(e, state.estiramientoSel===e.id); }).join("");
+  }
+  // Fichas sugeridas en el ultimo entrenamiento finalizado, resueltas desde los
+  // ids guardados. Si alguna ya no existe (una ficha borrada en otra version),
+  // se descarta sin romper nada.
+  function estiramientosSugeridosDeSesion(){
+    return (state.estiramientosSugeridos||[]).map(estiramientoPorId).filter(Boolean);
+  }
+  // Bloque de contexto arriba de la biblioteca: "Ver todos" no lleva a una
+  // lista generica, lleva a ESTA sesion. Se oculta mientras hay busqueda o
+  // filtro activos, para no mezclar el contexto con el resultado del filtro.
+  function estiramientosSugeridosHtml(){
+    const sug = estiramientosSugeridosDeSesion();
+    if(!sug.length) return "";
+    if(state.estiramientosQuery || state.estiramientosGrupo) return "";
+    return '' +
+      '<div class="section-title" style="margin-top:2px"><h2 style="font-size:15px">Sugeridos para tu último entrenamiento</h2><span class="muted">' + sug.length + '</span></div>' +
+      '<p class="helptext">Según los ejercicios que completaste. Son opcionales.</p>' +
+      '<div class="exlist">' + sug.map(function(e){ return estiramientoRowHtml(e, state.estiramientoSelSug===e.id, "sug"); }).join("") + '</div>' +
+      '<div class="section-title" style="margin-top:10px"><h2 style="font-size:15px">Toda la biblioteca</h2><span class="muted">' + ESTIRAMIENTOS.length + '</span></div>';
+  }
+  function screenEstiramientos(){
+    return '' +
+      '<p class="helptext">' + esc(ESTIRAMIENTOS_AVISO) + '</p>' +
+      '<div class="card stack">' +
+        '<div class="field"><label>Buscar</label>' +
+          '<input type="text" id="estir-search" placeholder="Buscar estiramientos" value="' + esc(state.estiramientosQuery) + '">' +
+        '</div>' +
+        '<div class="row" id="estir-chips" style="gap:6px; flex-wrap:wrap">' + estiramientosChipsHtml() + '</div>' +
+      '</div>' +
+      '<div id="estir-sug">' + estiramientosSugeridosHtml() + '</div>' +
+      '<div class="exlist" id="estir-list">' + estiramientosListaHtml() + '</div>';
+  }
+  function renderEstiramientos(){
+    app.classList.remove("app-wide");
+    app.innerHTML = '' +
+      '<div class="topbar">' +
+        '<span class="iconbtn" id="btn-estir-back">' + icon("back") + '</span>' +
+        '<h1 style="font-size:18px; flex:1; text-align:center">Estiramientos</h1>' +
+        '<span style="width:30px"></span>' +
+      '</div>' +
+      '<main><div class="screen" id="screen"></div></main>';
+    document.getElementById("btn-estir-back").onclick = function(){
+      const destino = state.estiramientosFrom === "rutina" ? "rutina" : "perfil";
+      state.estiramientoSel = null;
+      state.tab = destino;
+      if(destino === "perfil") state.perfilScrollPending = true;
+      render();
+    };
+    document.getElementById("screen").innerHTML = screenEstiramientos();
+    mountEstiramientos();
+  }
+  // El buscador NO re-renderiza la pantalla entera: sólo la lista. Si se
+  // rehiciera el <input> en cada tecla, el foco y el cursor se perderían.
+  function mountEstiramientosLista(){
+    const sugCont = document.getElementById("estir-sug");
+    if(sugCont){
+      sugCont.innerHTML = estiramientosSugeridosHtml();
+      sugCont.querySelectorAll("[data-estir-sugfila]").forEach(function(row){
+        row.onclick = function(){
+          const id = row.dataset.estirSugfila;
+          state.estiramientoSelSug = (state.estiramientoSelSug===id) ? null : id;
+          mountEstiramientosLista();
+        };
+      });
+    }
+    const cont = document.getElementById("estir-list");
+    if(!cont) return;
+    cont.innerHTML = estiramientosListaHtml();
+    cont.querySelectorAll("[data-estir]").forEach(function(row){
+      row.onclick = function(){
+        const id = row.dataset.estir;
+        state.estiramientoSel = (state.estiramientoSel===id) ? null : id;
+        mountEstiramientosLista();
+      };
+    });
+  }
+  function mountEstiramientos(){
+    const el = document.getElementById("screen");
+    if(!el) return;
+    const input = el.querySelector("#estir-search");
+    if(input) input.oninput = function(){
+      state.estiramientosQuery = input.value;
+      mountEstiramientosLista();
+    };
+    const chips = el.querySelector("#estir-chips");
+    if(chips) chips.querySelectorAll("[data-estir-grupo]").forEach(function(b){
+      b.onclick = function(){
+        state.estiramientosGrupo = b.dataset.estirGrupo || null;
+        chips.innerHTML = estiramientosChipsHtml();
+        mountEstiramientos();
+        mountEstiramientosLista();
+      };
+    });
+    mountEstiramientosLista();
+  }
+  // Abrir la biblioteca desde cualquier lado, opcionalmente con una ficha ya
+  // desplegada. Única puerta de entrada a la pantalla.
+  function abrirEstiramientos(opts){
+    const o = opts || {};
+    state.estiramientoSel = null;
+    state.estiramientoSelSug = null;
+    state.estiramientosQuery = "";
+    state.estiramientosGrupo = null;
+    state.estiramientosFrom = o.from || "perfil";
+    // `sugeridos` solo se pisa cuando lo mandan: entrar desde Perfil sin
+    // argumento NO borra las recomendaciones del ultimo entrenamiento, y
+    // mandar [] explicitamente las limpia.
+    if(o.sugeridos) state.estiramientosSugeridos = o.sugeridos.slice();
+    // Una ficha pedida desde el modal se abre en el bloque de sugeridos si
+    // esta ahi, y si no en la biblioteca.
+    if(o.id){
+      if((state.estiramientosSugeridos||[]).indexOf(o.id) !== -1) state.estiramientoSelSug = o.id;
+      else state.estiramientoSel = o.id;
+    }
+    state.tab = "estiramientos";
+    render();
+  }
+  // Bloque del modal de fin de entrenamiento. PURO: recibe la lista ya
+  // calculada y devuelve HTML (o "" si no hay nada que sugerir, en cuyo caso el
+  // modal queda exactamente como antes de V46, sin hueco ni título vacío).
+  function estiramientosModalHtml(sugeridos){
+    if(!sugeridos || !sugeridos.length) return "";
+    const visibles = sugeridos.slice(0, ESTIRAMIENTOS_MODAL_MAX);
+    const resto = sugeridos.length - visibles.length;
+    return '' +
+      '<div class="section-title" style="margin-top:2px"><h2 style="font-size:15px">Estiramientos sugeridos</h2><span class="muted">opcional</span></div>' +
+      '<p class="helptext">Según los ejercicios que completaste hoy. ' + esc(ESTIRAMIENTOS_AVISO) + '</p>' +
+      '<div class="exlist">' + visibles.map(function(e){
+        return '<div class="exrow" data-estir-sug="' + esc(e.id) + '" style="cursor:pointer">' +
+          '<div style="min-width:0">' +
+            '<div class="exname">' + esc(e.nombre) + '</div>' +
+            '<div class="helptext">' + esc(estiramientoZona(e)) + ' · ' + esc(e.duracion) + '</div>' +
+          '</div>' +
+          '<span class="iconbtn" style="pointer-events:none">' + icon("info") + '</span>' +
+        '</div>';
+      }).join("") + '</div>' +
+      '<button class="btn btn-ghost btn-block" data-act="estir-todos">' +
+        (resto > 0 ? 'Ver los ' + sugeridos.length + ' de esta sesión' : 'Ver todos los estiramientos') +
+      '</button>';
+  }
   function afterScreenMount(){
     if(state.tab==="rutina") mountRutina();
     else if(state.tab==="registro") mountRegistro();
@@ -6879,6 +7233,20 @@
       m.querySelector('[data-act="ok"]').onclick = closeModal;
       return;
     }
+    // V46: los estiramientos sugeridos se calculan ACÁ, antes de limpiar
+    // state.session, porque salen de las series completadas de esta sesión. Va
+    // envuelto en try/catch a propósito: el entrenamiento YA quedó registrado
+    // en `entrenos` unas líneas más arriba, así que un error calculando una
+    // sugerencia opcional no puede ensuciar un guardado que ya salió bien.
+    let estirSugeridos = [];
+    try {
+      estirSugeridos = estiramientosParaEjercicios(
+        ejerciciosConSerieCompletada(day, state.session && state.session.sets)
+      );
+    } catch(e){
+      console.error("V46: no se pudieron calcular los estiramientos sugeridos", e);
+      estirSugeridos = [];
+    }
     state.entrenos = await Store.listEntrenos(state.profile.id);
     state.session = null;
     await persistRutina();
@@ -6887,9 +7255,20 @@
     const m = openModal(`
       <h3>¡Entrenamiento registrado! 💪</h3>
       <p style="font-size:14px; color:var(--text)">${esc(fraseDelDia())}</p>
+      ${estiramientosModalHtml(estirSugeridos)}
       <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Dale</button></div>
     `);
     m.querySelector('[data-act="ok"]').onclick = closeModal;
+    // Los estiramientos son OPCIONALES: "Dale" sigue siendo la acción principal
+    // y cerrar el modal no exige pasar por ningún paso nuevo.
+    // El modal muestra 3, pero a la biblioteca viajan las 5 calculadas: "Ver
+    // todos" abre las recomendaciones DE ESTA SESION, no una lista generica.
+    const estirIds = estirSugeridos.map(e=>e.id);
+    const verTodos = m.querySelector('[data-act="estir-todos"]');
+    if(verTodos) verTodos.onclick = ()=>{ closeModal(); abrirEstiramientos({ from:"rutina", sugeridos:estirIds }); };
+    m.querySelectorAll("[data-estir-sug]").forEach(row=>{
+      row.onclick = ()=>{ closeModal(); abrirEstiramientos({ id:row.dataset.estirSug, from:"rutina", sugeridos:estirIds }); };
+    });
   }
 
   /* ================= REGISTRO ================= */
@@ -8997,6 +9376,11 @@
         <p class="helptext">Qué sectores anatómicos tuvieron actividad registrada en los últimos 7, 30 o 90 días.</p>
         <button class="btn btn-outline btn-block" id="btn-perfil-mapa">Mapa muscular</button>
       </div>
+
+      <div class="card stack">
+        <p class="helptext">24 estiramientos con instrucciones, buscador y filtro por grupo muscular.</p>
+        <button class="btn btn-outline btn-block" id="btn-perfil-estiramientos">Estiramientos</button>
+      </div>
     `;
   }
 
@@ -9087,6 +9471,14 @@
       state.mapaRegion = null;
       state.tab = "mapa";
       render();
+    };
+
+    // V46: Estiramientos. Misma mecánica que el Mapa muscular, incluido el
+    // guardado del scroll para volver al mismo lugar de Perfil.
+    const irEstir = el.querySelector("#btn-perfil-estiramientos");
+    if(irEstir) irEstir.onclick = ()=>{
+      state.perfilScrollY = window.scrollY;
+      abrirEstiramientos({ from:"perfil" });
     };
 
     // Perfil es largo: al volver se recupera la posición donde estaba. Solo la
@@ -9262,6 +9654,16 @@
     mapaRolesDeEjercicio, mapaEjercicioPopular, mapaFechaMenosDias, fmtMapaNum,
     muscleMapHtml, muscleMapBodyHtml, muscleMapResumenHtml, muscleMapRegionDetailHtml,
     muscleMapListHtml, screenMuscleMap, renderMuscleMap, mountMuscleMap, muscleMapContextoTexto,
+    // V46: Estiramientos. estiramientosParaEjercicios y ejerciciosConSerieCompletada
+    // son PURAS (sin DOM, sin state, sin Supabase); el resto es presentación.
+    ESTIRAMIENTOS, ESTIRAMIENTOS_MAX, ESTIRAMIENTOS_MODAL_MAX, ESTIRAMIENTOS_AVISO, ESTIRAMIENTO_FOCO_LABEL,
+    estiramientosSugeridosDeSesion, estiramientosSugeridosHtml,
+    ESTIRAMIENTO_ZONA_LABEL,
+    estiramientosParaEjercicios, ejerciciosConSerieCompletada, estiramientoClaveDeEjercicio,
+    estiramientosDeClave, estiramientoPorId, estiramientoGrupo, estiramientoZona,
+    estiramientosFiltrados, estiramientoGruposDisponibles, estiramientosListaHtml,
+    estiramientosChipsHtml, screenEstiramientos, renderEstiramientos, mountEstiramientos,
+    abrirEstiramientos, estiramientosModalHtml,
     // V42: dashboard de Perfil. Todo lee state, ninguna consulta nueva.
     screenPerfil, mountPerfil, perfilCuentaHtml, perfilResumenHtml, perfilPesoHtml,
     perfilEntrenamientoHtml, perfilConfigHtml, primerDatoFecha, ejerciciosDistintosCount,

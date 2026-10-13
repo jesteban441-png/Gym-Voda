@@ -20,7 +20,7 @@ PWA estática, sin framework y sin build system. Backend: **Supabase** (Auth + P
 
 **Trampa de saltos de línea:** `index.html` usa **CRLF**. Un parche con `perl`/`sed` tiene que machear `\r\n` y convertir el contenido insertado (`s/\n/\r\n/g`), o falla **en silencio** sin cambiar nada. Verificar después de editar (`file index.html`).
 
-**Navegación:** `state.tab` es el único selector de pantalla — `rutina`, `registro`, `timer`, `perfil`, más tres sin pestaña propia (`explorar`, `exdetail`, `mapa`) que se abren con topbar y botón de volver. `setTab()` es el único embudo. `render()` → `renderScreen()` → `screen*()` → `afterScreenMount()`.
+**Navegación:** `state.tab` es el único selector de pantalla — `rutina`, `registro`, `timer`, `perfil`, más cuatro sin pestaña propia (`explorar`, `exdetail`, `mapa`, `estiramientos`) que se abren con topbar y botón de volver. `setTab()` es el único embudo. `render()` → `renderScreen()` → `screen*()` → `afterScreenMount()`.
 
 **Service Worker:** `CACHE = "gymapp-v8"`. No-GET pasa derecho; navegación network-first con fallback al `index.html` cacheado; el resto cache-first con refresh en segundo plano. **Supabase se excluye por ORIGEN**, no por lista de endpoints: `isSupabaseUrl()` corta con un `return` seco **antes** de tocar Cache Storage. No agregar una estrategia de caché para Supabase.
 
@@ -190,6 +190,20 @@ Vive en la raíz, la carga **solo** `tests-v31.html` con un `<script src>` y que
 
 ---
 
+## 8-bis. Estiramientos (V46) — CERRADO
+
+Biblioteca **propia de VodaFit**: 24 fichas de texto escritas para la app, en `ESTIRAMIENTOS` dentro de `index.html`. El material de referencia (`BONOS 3`) sólo sirvió para decidir **qué zonas cubrir**: sus textos son una traducción automática del portugués con rótulos que no coinciden con lo que ilustran, y sus imágenes tienen **prohibición expresa de reproducción**. **No se usó ni un texto ni una imagen de ese PDF, y no se agregó ninguna imagen a la app.**
+
+- **Una sola biblioteca para los dos accesos**: la pantalla de Perfil y las sugerencias del modal leen el **mismo** array. No hay subconjunto "recomendable" ni segunda lista.
+- **`estiramientosParaEjercicios(nombres)` es el motor puro** (sin DOM, sin `state`, sin Supabase, sin azar), al estilo de `muscleMapStats`. Devuelve hasta `ESTIRAMIENTOS_MAX` = **5**.
+- **Para piernas manda `exerciseLegFocus`, NUNCA el subgrupo.** `REGION_SUBGROUP` colapsa quads, glutes, hamstrings, calves y adductors en un único `"piernas"`: recomendar por subgrupo le ofrecería un estiramiento de gemelo a quien hizo sentadillas. Por eso `estiramientoClaveDeEjercicio()` devuelve `"pierna:<foco>"` y **una pierna sin `legFocus` no se degrada a genérico: devuelve `null`**.
+- **Nunca se completa la lista con zonas no entrenadas.** Si las claves trabajadas dan 2 fichas, muestra 2. El reparto es una ronda por clave, ordenada por cantidad de ejercicios distintos y desempate alfabético — determinista.
+- **Cardio y personalizados no recomiendan nada** (sin `MUSCLE_MAP` → sin clave). Los 10 de cardio son exactamente los únicos ejercicios del catálogo sin clave.
+- **Aductores SÍ está cubierto**: el hueco D3 afecta a `exerciseSubgroup10`, no a `exerciseLegFocus`.
+- **La duración se ajusta al movimiento, no hay un 2×30 s universal.** `tipo:"movilidad"` (hoy sólo `gato-camello`) se mide en **repeticiones**, no en segundos.
+- **El cálculo vive en `finalizeSession`, no en `saveSessionProgress`**: se dispara al **finalizar**, una sola vez. Se calcula **antes** de `state.session = null` (si no, no habría series que mirar) y **dentro de un `try/catch`**: el entrenamiento ya quedó registrado en `entrenos`, así que una sugerencia opcional no puede ensuciar un guardado que salió bien.
+- **Son opcionales**: el modal conserva "Dale" como acción principal; omitir es no hacer nada. **Sin pantalla intermedia obligatoria y sin sexto botón en la barra inferior** — es pantalla propia (`state.tab = "estiramientos"`) con entrada desde Perfil, igual que el Mapa muscular.
+
 ## 9. Decisiones abiertas
 
 No resolverlas por cuenta propia. Si una aparece mientras trabajás en otra cosa, **documentala y seguí**.
@@ -201,6 +215,8 @@ No resolverlas por cuenta propia. Si una aparece mientras trabajás en otra cosa
 | **D4** | Abdomen y cardio. Los de cardio son huérfanos en toda la app (sin grupo, subgrupo, lámina ni Explorador), no solo en el mapa; "Cardio" es además un valor de **equipamiento**. |
 | **D5** | Ampliar el catálogo, sin llenarlo de variantes casi idénticas. |
 | **D6** | Huecos de contenido: ejercicios sin tips, sin link, `Hip thrust con barra` sin lámina, y links huérfanos en `EXERCISE_HOWTO_LINKS` que apuntan a ejercicios inexistentes. |
+| **D7** | **Múltiples rutinas guardadas.** Varias rutinas conviviendo sin sobrescribir la actual, con selección de rutina activa y conservación del historial. Hoy `persistRutina()` escribe un blob único y `state.activeSlot` elige el slot; `registros` y `entrenos` ya guardan `routine_origin`, así que la trazabilidad existe. Es la pendiente más grande: toca el núcleo de persistencia. Registrada el 2026-10-12, **no implementada en V46**. |
+| **D8** | **Zoom accidental en móvil.** Corregir el zoom involuntario (doble tap / pinch sobre controles) **respetando accesibilidad**: no se resuelve con `user-scalable=no`, que rompe el zoom legítimo de quien lo necesita. La salida es `touch-action` y tamaños de toque. Registrada el 2026-10-12, **no implementada en V46**. |
 
 Rumbo acordado para `MUSCLE_MAP`: **ampliar contenido manteniendo la estructura actual**. No hacen falta regiones nuevas, y el rendimiento no es un problema (`muscleMapStats` ~1 ms y `generateAutoRoutine` ~4 ms con 1000 registros: triplicar el catálogo sigue muy por debajo de un frame).
 

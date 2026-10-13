@@ -6324,6 +6324,414 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(malos.length === 0, malos.join(" | "));
     });
 
+    // ---------------------------------------------------------------
+    // V46 — Estiramientos
+    // ---------------------------------------------------------------
+    var APP_SRC = (function(){
+      try{
+        var x = new XMLHttpRequest();
+        x.open("GET", "index.html?test=" + Date.now(), false);
+        x.send(null);
+        return x.status === 200 ? x.responseText : null;
+      }catch(e){ return null; }
+    })();
+
+    test("V46 — la biblioteca es integra: ids unicos, campos completos y taxonomia conocida", function(){
+      // ESTIRAMIENTOS no puede inventar una quinta taxonomia: `subgrupos` usa
+      // claves de REGION_SUBGROUP y `legFocus` valores de exerciseLegFocus.
+      var subgruposValidos = {}, malos = [], ids = {};
+      Object.keys(A.REGION_SUBGROUP).forEach(function(r){ subgruposValidos[A.REGION_SUBGROUP[r]] = true; });
+      var focosValidos = { quads:true, hamstrings:true, glutes:true, calves:true, adductors:true };
+      A.ESTIRAMIENTOS.forEach(function(e){
+        if(ids[e.id]) malos.push(e.id + ": id repetido");
+        ids[e.id] = true;
+        if(!e.nombre || !e.como || !e.duracion) malos.push(e.id + ": campo vacio");
+        if(e.como && e.como.length < 60) malos.push(e.id + ": instrucciones demasiado cortas");
+        if(["estiramiento","movilidad"].indexOf(e.tipo) === -1) malos.push(e.id + ": tipo invalido (" + e.tipo + ")");
+        if(!e.subgrupos.length) malos.push(e.id + ": sin subgrupos");
+        e.subgrupos.forEach(function(sg){ if(!subgruposValidos[sg]) malos.push(e.id + ": subgrupo desconocido " + sg); });
+        if(e.legFocus && !focosValidos[e.legFocus]) malos.push(e.id + ": legFocus desconocido " + e.legFocus);
+        // Las fichas de pierna DEBEN declarar legFocus y las demas NO pueden.
+        if(e.subgrupos.indexOf("piernas") !== -1 && !e.legFocus) malos.push(e.id + ": ficha de pierna sin legFocus");
+        if(e.legFocus && e.subgrupos.indexOf("piernas") === -1) malos.push(e.id + ": legFocus en una ficha que no es de pierna");
+      });
+      assert(A.ESTIRAMIENTOS.length === 24, "la biblioteca deberia tener 24 fichas, tiene " + A.ESTIRAMIENTOS.length);
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("V46 — gato-camello es el unico marcado como movilidad y mide en repeticiones", function(){
+      // No se impone 2x30 s a todo: la duracion se ajusta al movimiento, y la
+      // movilidad se repite en vez de sostenerse.
+      var mov = A.ESTIRAMIENTOS.filter(function(e){ return e.tipo === "movilidad"; });
+      assert(mov.length === 1 && mov[0].id === "gato-camello", "movilidad: " + mov.map(function(e){ return e.id; }).join(", "));
+      assert(/repeticion/i.test(mov[0].duracion), "la movilidad deberia medirse en repeticiones: " + mov[0].duracion);
+      // Y las duraciones no son todas iguales: hay criterio por movimiento.
+      var distintas = {};
+      A.ESTIRAMIENTOS.forEach(function(e){ distintas[e.duracion] = true; });
+      assert(Object.keys(distintas).length >= 5, "solo hay " + Object.keys(distintas).length + " duraciones distintas");
+    });
+
+    test("V46 — cobertura REAL del catalogo: toda clave que produce un ejercicio tiene ficha", function(){
+      // Invariante, no tabla literal: se recorren los 111 ejercicios, se saca su
+      // clave de recomendacion y se exige que exista al menos una ficha. Si
+      // manana se agrega un ejercicio de una zona sin estiramiento, falla aca.
+      var claves = {}, sinFicha = [];
+      A.EXERCISES.forEach(function(n){
+        var k = A.estiramientoClaveDeEjercicio(n);
+        if(k) claves[k] = (claves[k] || 0) + 1;
+      });
+      Object.keys(claves).forEach(function(k){
+        if(A.estiramientosDeClave(k).length === 0) sinFicha.push(k + " (" + claves[k] + " ejercicios)");
+      });
+      assert(sinFicha.length === 0, "claves sin ficha: " + sinFicha.join(", "));
+      // Los cinco focos de pierna que pidio el producto estan cubiertos por el
+      // catalogo Y por la biblioteca. Aductores incluido: el hueco D3 afecta a
+      // exerciseSubgroup10, no a exerciseLegFocus.
+      ["quads","hamstrings","glutes","calves","adductors"].forEach(function(f){
+        assert(claves["pierna:" + f] > 0, "ningun ejercicio del catalogo cae en pierna:" + f);
+        assert(A.estiramientosDeClave("pierna:" + f).length > 0, "sin ficha para pierna:" + f);
+      });
+    });
+
+    test("V46 — los unicos ejercicios sin clave son los que no tienen MUSCLE_MAP", function(){
+      // Cardio y cualquier otro sin mapa muscular: no se recomienda nada antes
+      // que recomendar mal. El numero no se escribe a mano, se deriva.
+      var sinClave = A.EXERCISES.filter(function(n){ return !A.estiramientoClaveDeEjercicio(n); });
+      var sinMapa = A.EXERCISES.filter(function(n){ return !A.MUSCLE_MAP[n]; });
+      assert(sinClave.length === sinMapa.length,
+        "ejercicios sin clave: " + sinClave.length + ", sin MUSCLE_MAP: " + sinMapa.length + " -> " + sinClave.join(", "));
+    });
+
+    test("V46 — estiramientosParaEjercicios es pura y determinista", function(){
+      var entrada = ["Sentadilla con barra","Isquio acostado","Gemelos en máquina"];
+      var a = A.estiramientosParaEjercicios(entrada);
+      var b = A.estiramientosParaEjercicios(entrada.slice().reverse());
+      assert(JSON.stringify(a.map(function(e){ return e.id; })) === JSON.stringify(b.map(function(e){ return e.id; })),
+        "el orden de los ejercicios cambio el resultado: " + a.map(function(e){ return e.id; }).join(",") + " vs " + b.map(function(e){ return e.id; }).join(","));
+      // No toca state ni la biblioteca.
+      var antesTab = A.state.tab, antesLen = A.ESTIRAMIENTOS.length;
+      A.estiramientosParaEjercicios(entrada);
+      assert(A.state.tab === antesTab && A.ESTIRAMIENTOS.length === antesLen, "la funcion modifico estado global");
+    });
+
+    test("V46 — nunca recomienda un musculo que no se trabajo", function(){
+      // El test central del producto. Para CADA ejercicio del catalogo, las
+      // fichas sugeridas tienen que pertenecer a su propia clave.
+      var malos = [];
+      A.EXERCISES.forEach(function(n){
+        var k = A.estiramientoClaveDeEjercicio(n);
+        if(!k) return;
+        var permitidos = {};
+        A.estiramientosDeClave(k).forEach(function(e){ permitidos[e.id] = true; });
+        A.estiramientosParaEjercicios([n]).forEach(function(e){
+          if(!permitidos[e.id]) malos.push(n + " (" + k + ") -> " + e.id + " [" + A.estiramientoZona(e) + "]");
+        });
+      });
+      assert(malos.length === 0, malos.join(" | "));
+    });
+
+    test("V46 — una sesion de piernas no recibe estiramientos de otro foco", function(){
+      // Caso concreto del riesgo que tiene esta version: REGION_SUBGROUP mete
+      // cuadriceps, isquios, gluteos, gemelos y aductores en el MISMO subgrupo
+      // "piernas". Si la seleccion usara el subgrupo en vez de exerciseLegFocus,
+      // una sesion de sentadillas recibiria un estiramiento de gemelo.
+      var soloCuads = A.estiramientosParaEjercicios(["Sentadilla con barra","Extensión de piernas","Prensa inclinada"]);
+      var focos = {};
+      soloCuads.forEach(function(e){ focos[e.legFocus || "-"] = true; });
+      assert(Object.keys(focos).length === 1 && focos.quads,
+        "una sesion de cuadriceps recibio: " + soloCuads.map(function(e){ return e.id + "/" + e.legFocus; }).join(", "));
+      var soloGemelos = A.estiramientosParaEjercicios(["Gemelos en máquina","Gemelos en prensa"]);
+      assert(soloGemelos.every(function(e){ return e.legFocus === "calves"; }),
+        "una sesion de gemelos recibio: " + soloGemelos.map(function(e){ return e.id + "/" + e.legFocus; }).join(", "));
+    });
+
+    test("V46 — tope de 5, sin piso artificial y sin repetidos", function(){
+      var muchos = A.estiramientosParaEjercicios([
+        "Press de banca con barra","Remo con barra","Sentadilla con barra","Curl con barra",
+        "Press francés","Plancha","Gemelos en máquina","Hip thrust con barra","Isquio acostado"
+      ]);
+      assert(muchos.length === A.ESTIRAMIENTOS_MAX, "con 9 ejercicios de 8 zonas deberia dar 5, dio " + muchos.length);
+      var ids = {}, rep = [];
+      muchos.forEach(function(e){ if(ids[e.id]) rep.push(e.id); ids[e.id] = true; });
+      assert(rep.length === 0, "fichas repetidas: " + rep.join(", "));
+      // Piso: con una sola zona devuelve lo que esa zona tenga, NO cinco.
+      var unaZona = A.estiramientosParaEjercicios(["Curl con barra"]);
+      assert(unaZona.length === A.estiramientosDeClave("biceps").length,
+        "biceps tiene " + A.estiramientosDeClave("biceps").length + " fichas y devolvio " + unaZona.length);
+      assert(unaZona.every(function(e){ return e.subgrupos.indexOf("biceps") !== -1; }), "se colo una ficha de otra zona");
+    });
+
+    test("V46 — cardio, personalizados y sesion sin series completadas no recomiendan nada", function(){
+      assert(A.estiramientosParaEjercicios([]).length === 0, "lista vacia deberia dar 0");
+      assert(A.estiramientosParaEjercicios(["Ejercicio que el usuario invento"]).length === 0, "un personalizado no deberia recomendar nada");
+      var cardio = A.EXERCISES.filter(function(n){ return !A.MUSCLE_MAP[n]; });
+      assert(cardio.length > 0, "no se encontro ningun ejercicio sin MUSCLE_MAP para probar");
+      assert(A.estiramientosParaEjercicios(cardio).length === 0, "una sesion solo de cardio recomendo estiramientos");
+      // Y si no se completo ninguna serie, no hay ejercicios que mirar.
+      var day = { exercises:[{ id:"a", nombre:"Sentadilla con barra" }, { id:"b", nombre:"Curl con barra" }] };
+      assert(A.ejerciciosConSerieCompletada(day, { a:[false,false], b:[false] }).length === 0, "conto un ejercicio sin series hechas");
+      assert(A.estiramientosParaEjercicios(A.ejerciciosConSerieCompletada(day, { a:[false], b:[false] })).length === 0, "recomendo sin series completadas");
+    });
+
+    test("V46 — solo cuentan los ejercicios con al menos una serie completada", function(){
+      var day = { exercises:[
+        { id:"a", nombre:"Sentadilla con barra" },
+        { id:"b", nombre:"Press de banca con barra" },
+        { id:"c", nombre:"Curl con barra" }
+      ]};
+      var hechos = A.ejerciciosConSerieCompletada(day, { a:[true,false,false], b:[false,false], c:[false] });
+      assert(JSON.stringify(hechos) === JSON.stringify(["Sentadilla con barra"]), "devolvio: " + hechos.join(", "));
+      var sug = A.estiramientosParaEjercicios(hechos);
+      assert(sug.length > 0 && sug.every(function(e){ return e.legFocus === "quads"; }),
+        "deberia sugerir solo cuadriceps: " + sug.map(function(e){ return e.id; }).join(", "));
+      // Sin sets (sesion rota o day sin ejercicios) no explota.
+      assert(A.ejerciciosConSerieCompletada(null, null).length === 0, "day null deberia dar []");
+      assert(A.ejerciciosConSerieCompletada(day, null).length === 0, "sets null deberia dar []");
+    });
+
+    test("V46 — el modal muestra filas compactas y no se renderiza si no hay sugerencias", function(){
+      var sug = A.estiramientosParaEjercicios(["Sentadilla con barra","Gemelos en máquina"]);
+      var d = document.createElement("div");
+      d.innerHTML = A.estiramientosModalHtml(sug);
+      var filas = d.querySelectorAll("[data-estir-sug]");
+      // El modal muestra un ADELANTO de ESTIRAMIENTOS_MODAL_MAX, no las 5: con 5
+      // filas el boton "Dale" cae abajo del borde en un movil de 375x667.
+      var esperadas = Math.min(A.ESTIRAMIENTOS_MODAL_MAX, sug.length);
+      assert(filas.length === esperadas, "filas: " + filas.length + ", esperadas: " + esperadas);
+      // Compactas: nombre, zona y duracion. Las instrucciones completas viven en
+      // la biblioteca, no en el modal (si no, el modal seria una pantalla).
+      var conComo = sug.filter(function(e){ return d.innerHTML.indexOf(e.como) !== -1; });
+      assert(conComo.length === 0, "el modal trae instrucciones completas: " + conComo.map(function(e){ return e.id; }).join(", "));
+      sug.slice(0, esperadas).forEach(function(e){
+        assert(d.innerHTML.indexOf(A.estiramientoZona(e)) !== -1, e.id + ": falta la zona");
+        assert(d.innerHTML.indexOf(e.duracion) !== -1, e.id + ": falta la duracion");
+      });
+      assert(!!d.querySelector('[data-act="estir-todos"]'), "falta el acceso a la biblioteca completa");
+      // Sin sugerencias el bloque no existe: ni hueco, ni titulo vacio.
+      assert(A.estiramientosModalHtml([]) === "", "con lista vacia deberia devolver cadena vacia");
+      assert(A.estiramientosModalHtml(null) === "", "con null deberia devolver cadena vacia");
+    });
+
+    test("V46 — finalizar calcula los estiramientos ANTES de limpiar la sesion y no puede romper el guardado", function(){
+      // No se puede llamar a finalizeSession en el test (escribiria en Supabase),
+      // asi que se verifica el ORDEN en el fuente, que es lo que importa: si el
+      // calculo quedara despues de "state.session = null" no habria series que
+      // mirar, y si no estuviera en try/catch un error tiraria abajo el cierre
+      // de un entrenamiento YA guardado.
+      assert(APP_SRC, "no se pudo traer index.html (¿servidor estatico?)");
+      var ini = APP_SRC.indexOf("async function finalizeSession");
+      assert(ini !== -1, "no se encontro finalizeSession en el fuente");
+      var cuerpo = APP_SRC.slice(ini, ini + 4000);
+      var iCalc = cuerpo.indexOf("estiramientosParaEjercicios(");
+      var iNull = cuerpo.indexOf("state.session = null;");
+      var iAdd = cuerpo.indexOf("Store.addEntreno(");
+      assert(iCalc !== -1, "finalizeSession no calcula estiramientos");
+      assert(iAdd !== -1 && iAdd < iCalc, "el calculo quedo ANTES de registrar el entrenamiento");
+      assert(iCalc < iNull, "el calculo quedo DESPUES de limpiar state.session");
+      assert(/try\s*\{[\s\S]{0,200}estiramientosParaEjercicios\(/.test(cuerpo), "el calculo no esta dentro de un try/catch");
+    });
+
+    test("V46 — la biblioteca es UNA sola: los dos accesos leen el mismo array", function(){
+      // Perfil y el modal no pueden tener catalogos distintos.
+      var d = document.createElement("div");
+      d.innerHTML = A.screenEstiramientos();
+      var enPantalla = d.querySelectorAll("[data-estir]").length;
+      assert(enPantalla === A.ESTIRAMIENTOS.length, "la pantalla muestra " + enPantalla + " de " + A.ESTIRAMIENTOS.length);
+      var sug = A.estiramientosParaEjercicios(["Plancha"]);
+      sug.forEach(function(e){
+        assert(A.estiramientoPorId(e.id) === e, e.id + ": la sugerencia no es la misma ficha de la biblioteca");
+      });
+      // El aviso general aparece en los dos accesos.
+      assert(d.innerHTML.indexOf(A.ESTIRAMIENTOS_AVISO) !== -1, "la pantalla no muestra el aviso general");
+      assert(A.estiramientosModalHtml(sug).indexOf(A.ESTIRAMIENTOS_AVISO) !== -1, "el modal no muestra el aviso general");
+      assert(/sin rebotes/i.test(A.ESTIRAMIENTOS_AVISO) && /dolor/i.test(A.ESTIRAMIENTOS_AVISO), "el aviso perdio su contenido: " + A.ESTIRAMIENTOS_AVISO);
+    });
+
+    test("V46 — buscador y filtros de la biblioteca", function(){
+      var prevQ = A.state.estiramientosQuery, prevG = A.state.estiramientosGrupo;
+      try{
+        // Buscador tolerante a tildes, reusando normalizeSearch (no se duplico).
+        A.state.estiramientosGrupo = null;
+        A.state.estiramientosQuery = "gluteo";
+        var r = A.estiramientosFiltrados();
+        assert(r.length === 2 && r.every(function(e){ return e.legFocus === "glutes"; }),
+          "buscar 'gluteo' sin tilde dio: " + r.map(function(e){ return e.id; }).join(", "));
+        // Se puede buscar por zona, no solo por nombre.
+        A.state.estiramientosQuery = "isquiosurales";
+        assert(A.estiramientosFiltrados().every(function(e){ return e.legFocus === "hamstrings"; }), "buscar por zona fallo");
+        // Filtro por grupo visual.
+        A.state.estiramientosQuery = "";
+        A.state.estiramientosGrupo = "Core";
+        var core = A.estiramientosFiltrados();
+        assert(core.length === 3 && core.every(function(e){ return e.subgrupos.indexOf("core") !== -1; }),
+          "filtro Core dio: " + core.map(function(e){ return e.id; }).join(", "));
+        // Filtro + busqueda combinados, y sin resultados no rompe.
+        A.state.estiramientosQuery = "pectoral";
+        assert(A.estiramientosFiltrados().length === 0, "Core + 'pectoral' deberia dar 0");
+        // Todos los grupos ofrecidos tienen al menos una ficha.
+        A.state.estiramientosQuery = "";
+        A.estiramientoGruposDisponibles().forEach(function(g){
+          A.state.estiramientosGrupo = g;
+          assert(A.estiramientosFiltrados().length > 0, "el filtro " + g + " no tiene fichas");
+        });
+      } finally {
+        A.state.estiramientosQuery = prevQ;
+        A.state.estiramientosGrupo = prevG;
+      }
+    });
+
+    test("V46 — no se agregaron imagenes ni recursos externos a la biblioteca", function(){
+      // Restriccion de derechos: las fichas son texto. Ninguna puede traer una
+      // ruta de imagen ni un enlace.
+      var malos = A.ESTIRAMIENTOS.filter(function(e){
+        return /<img|\.jpg|\.jpeg|\.png|\.webp|\.gif|https?:/i.test(JSON.stringify(e));
+      });
+      assert(malos.length === 0, "fichas con recursos externos: " + malos.map(function(e){ return e.id; }).join(", "));
+      var d = document.createElement("div");
+      d.innerHTML = A.screenEstiramientos();
+      assert(d.querySelectorAll("img").length === 0, "la pantalla de estiramientos trae imagenes");
+    });
+
+    test("V46 — nada de lo anterior cambio", function(){
+      // Guardado, historial, Dia Especial y catalogo: V46 no los toca.
+      assert(A.EXERCISES.length === 111, "EXERCISES: " + A.EXERCISES.length);
+      assert(Object.keys(A.MUSCLE_MAP).length === 101, "MUSCLE_MAP: " + Object.keys(A.MUSCLE_MAP).length);
+      assert(Object.keys(A.EXERCISE_GIFS).length === 82, "EXERCISE_GIFS: " + Object.keys(A.EXERCISE_GIFS).length);
+      assert(typeof A.sessionProgress === "function" && typeof A.sessionDay === "function", "se perdio la API de sesion");
+      assert(APP_SRC && APP_SRC.indexOf("is_special") !== -1, "desaparecio is_special del fuente");
+      // La barra inferior sigue teniendo 5 botones: Estiramientos es pantalla
+      // propia con entrada desde Perfil, no una sexta pestaña.
+      // Se cuenta DENTRO del <nav>: fuera esta la definicion de navBtn, que no
+      // es un boton.
+      var nav = APP_SRC.slice(APP_SRC.indexOf('<nav class="bottomnav">'), APP_SRC.indexOf("</nav>"));
+      assert((nav.match(/navBtn\(/g) || []).length === 5, "la barra inferior cambio de cantidad de botones");
+    });
+
+    test("V46.1 — el modal muestra como maximo 3 y el motor sigue calculando 5", function(){
+      var entrada = ["Sentadilla con barra","Prensa inclinada","Isquio acostado","Gemelos en máquina","Hip thrust con barra"];
+      var sug = A.estiramientosParaEjercicios(entrada);
+      assert(sug.length === 5, "el motor deberia seguir devolviendo 5, devolvio " + sug.length);
+      assert(A.ESTIRAMIENTOS_MODAL_MAX === 3, "el tope del modal deberia ser 3, es " + A.ESTIRAMIENTOS_MODAL_MAX);
+      var d = document.createElement("div");
+      d.innerHTML = A.estiramientosModalHtml(sug);
+      assert(d.querySelectorAll("[data-estir-sug]").length === 3, "el modal muestra " + d.querySelectorAll("[data-estir-sug]").length + " filas");
+      // Y avisa que hay mas, con el total real de la sesion.
+      var btn = d.querySelector('[data-act="estir-todos"]');
+      assert(btn && btn.textContent.indexOf("5") !== -1, "el boton no nombra las 5 de la sesion: " + (btn && btn.textContent));
+      // Con 3 o menos no promete un resto que no existe.
+      var d2 = document.createElement("div");
+      d2.innerHTML = A.estiramientosModalHtml(sug.slice(0,2));
+      assert(d2.querySelector('[data-act="estir-todos"]').textContent.indexOf("2") === -1, "promete un resto inexistente");
+    });
+
+    test("V46.1 — el modal con 3 filas entra sin scroll en 375x667", function(){
+      // Se mide el modal REAL (misma estructura que arma finalizeSession) contra
+      // el max-height efectivo de .modal (88vh). El boton "Dale" tiene que
+      // quedar dentro del alto visible, sin obligar a deslizar para cerrar.
+      var sug = A.estiramientosParaEjercicios(["Sentadilla con barra","Prensa inclinada","Isquio acostado","Gemelos en máquina","Hip thrust con barra"]);
+      // Se mide DENTRO del documento de la app (A.openModal), no en el del
+      // harness: el CSS de .modal, .exrow y .btn vive en index.html. Midiendo
+      // en esta pagina el numero no significa nada.
+      var doc = frame.contentDocument;
+      var back = doc.createElement("div");
+      back.className = "modal-back";
+      back.innerHTML = '<div class="modal">' +
+        '<h3>¡Entrenamiento registrado! 💪</h3>' +
+        '<p style="font-size:14px">Frase del dia de ejemplo para medir el alto.</p>' +
+        A.estiramientosModalHtml(sug) +
+        '<div class="modal-actions"><button class="btn btn-primary btn-block">Dale</button></div>' +
+        '</div>';
+      doc.body.appendChild(back);
+      var el = back.querySelector(".modal");
+      // Ancho y alto maximo de un movil de 375x667 (88vh = 587), fijados a mano
+      // para que la medicion no dependa del tamano del iframe del harness.
+      el.style.width = "375px";
+      el.style.maxWidth = "375px";
+      el.style.maxHeight = "587px";
+      var alto = el.scrollHeight;
+      var acciones = el.querySelector(".modal-actions");
+      var dentro = acciones.offsetTop + acciones.offsetHeight;
+      back.remove();
+      assert(alto <= 587, "el modal mide " + alto + " px y el maximo visible en 375x667 es 587");
+      assert(dentro <= 587, "el boton Dale queda a " + dentro + " px, fuera del alto visible");
+    });
+
+    test("V46.1 — las recomendaciones sobreviven al cierre de la sesion", function(){
+      // state.session se limpia al finalizar; los sugeridos viven en una clave
+      // propia de state, asi que se pueden consultar despues.
+      var prev = A.state.estiramientosSugeridos, prevSesion = A.state.session;
+      try{
+        var sug = A.estiramientosParaEjercicios(["Sentadilla con barra","Gemelos en máquina"]);
+        A.state.estiramientosSugeridos = sug.map(function(e){ return e.id; });
+        A.state.session = null;
+        var vivos = A.estiramientosSugeridosDeSesion();
+        assert(vivos.length === sug.length, "se perdieron recomendaciones al cerrar la sesion: " + vivos.length + " de " + sug.length);
+        assert(vivos.every(function(e, i){ return e.id === sug[i].id; }), "cambio el orden o el contenido");
+        // Un id que ya no existe se descarta sin romper.
+        A.state.estiramientosSugeridos = ["no-existe"].concat(A.state.estiramientosSugeridos);
+        assert(A.estiramientosSugeridosDeSesion().length === sug.length, "un id invalido rompio la lista");
+      } finally {
+        A.state.estiramientosSugeridos = prev;
+        A.state.session = prevSesion;
+      }
+    });
+
+    test("V46.1 — 'Ver todos' abre las recomendaciones DE ESA SESION, no una lista generica", function(){
+      var prevSug = A.state.estiramientosSugeridos, prevQ = A.state.estiramientosQuery, prevG = A.state.estiramientosGrupo;
+      try{
+        var sug = A.estiramientosParaEjercicios(["Sentadilla con barra","Prensa inclinada","Isquio acostado","Gemelos en máquina","Hip thrust con barra"]);
+        A.state.estiramientosSugeridos = sug.map(function(e){ return e.id; });
+        A.state.estiramientosQuery = "";
+        A.state.estiramientosGrupo = null;
+        var d = document.createElement("div");
+        d.innerHTML = A.screenEstiramientos();
+        var filasSug = d.querySelectorAll("[data-estir-sugfila]");
+        assert(filasSug.length === 5, "la biblioteca muestra " + filasSug.length + " sugeridos de 5");
+        assert(d.innerHTML.indexOf("Sugeridos para tu último entrenamiento") !== -1, "falta el titulo de contexto");
+        // La biblioteca completa sigue abajo, intacta.
+        assert(d.querySelectorAll("[data-estir]").length === A.ESTIRAMIENTOS.length, "la biblioteca completa se achico");
+        // Con busqueda o filtro activos el bloque de contexto se oculta, para no
+        // mezclarlo con el resultado del filtro.
+        A.state.estiramientosQuery = "gemelo";
+        var d2 = document.createElement("div");
+        d2.innerHTML = A.screenEstiramientos();
+        assert(d2.querySelectorAll("[data-estir-sugfila]").length === 0, "el bloque de contexto no se oculto al buscar");
+        // Sin sugeridos no hay bloque: entrar desde Perfil no inventa contexto.
+        A.state.estiramientosQuery = "";
+        A.state.estiramientosSugeridos = [];
+        assert(A.estiramientosSugeridosHtml() === "", "sin sugeridos deberia no renderizar el bloque");
+      } finally {
+        A.state.estiramientosSugeridos = prevSug;
+        A.state.estiramientosQuery = prevQ;
+        A.state.estiramientosGrupo = prevG;
+      }
+    });
+
+    test("V46.1 — entrar desde Perfil no borra ni inventa las recomendaciones", function(){
+      var prevSug = A.state.estiramientosSugeridos, prevTab = A.state.tab, prevFrom = A.state.estiramientosFrom;
+      try{
+        A.state.estiramientosSugeridos = ["gemelo-pared"];
+        A.abrirEstiramientos({ from:"perfil" });
+        assert(A.state.estiramientosSugeridos.length === 1, "entrar desde Perfil borro las recomendaciones");
+        assert(A.state.estiramientosFrom === "perfil", "from: " + A.state.estiramientosFrom);
+        // Desde el modal: llegan las 5 y el regreso apunta a Rutina.
+        A.abrirEstiramientos({ from:"rutina", sugeridos:["gemelo-pared","isquios-sentado"], id:"isquios-sentado" });
+        assert(A.state.estiramientosSugeridos.length === 2, "no llegaron las recomendaciones del modal");
+        assert(A.state.estiramientosFrom === "rutina", "el regreso no apunta a Rutina");
+        assert(A.state.estiramientoSelSug === "isquios-sentado", "la ficha pedida no se abrio en el bloque de sugeridos");
+        // Una ficha que NO esta entre las sugeridas se abre en la biblioteca.
+        A.abrirEstiramientos({ from:"rutina", sugeridos:["gemelo-pared"], id:"plancha-inexistente" });
+        assert(A.state.estiramientoSel === "plancha-inexistente", "no se abrio en la biblioteca");
+        assert(A.state.estiramientoSelSug === null, "se abrio en el bloque equivocado");
+      } finally {
+        A.state.estiramientosSugeridos = prevSug;
+        A.state.estiramientosFrom = prevFrom;
+        A.state.estiramientoSel = null;
+        A.state.estiramientoSelSug = null;
+        A.state.tab = prevTab;
+      }
+    });
+
     finish();
   }
 
