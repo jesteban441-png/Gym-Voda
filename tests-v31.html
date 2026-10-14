@@ -3891,13 +3891,17 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     group("V42 — Perfil: estructura y cuenta");
 
-    test("el dashboard tiene las seis secciones, en orden", function(){
+    test("el dashboard tiene las siete secciones, en orden", function(){
+      // V47.1: son SIETE. El Mapa muscular dejó de ser una pantalla aparte a la
+      // que Perfil linkeaba con un botón y pasó a verse directo acá, entre "Tu
+      // entrenamiento" y "Configuración". La aserción no se afloja: sigue
+      // exigiendo el conjunto exacto y el orden exacto, con una sección más.
       conPerfil({}, function(){
         var html = A.screenPerfil();
         var d = frame.contentWindow.document.createElement("div");
         d.innerHTML = html;
         var titulos = [].map.call(d.querySelectorAll(".section-title h2"), function(h){ return h.textContent; });
-        assert(titulos.join(" | ") === "Tu cuenta | Resumen | Esta semana | Tu peso | Tu entrenamiento | Configuración",
+        assert(titulos.join(" | ") === "Tu cuenta | Resumen | Esta semana | Tu peso | Tu entrenamiento | Mapa muscular | Configuración",
           "dio: " + titulos.join(" | "));
       });
     });
@@ -4239,16 +4243,20 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
           "Volumen", "volumen total",
           "Tiempo entrenado", "Tiempo total",
           "Fuerza relativa",
-          // V43: "Mapa muscular" salió de esta lista. El mapa dejó de estar
-          // postergado y existe como PANTALLA propia (tab "mapa"), a la que
-          // Perfil solo linkea con un botón. Lo que este test sigue cuidando
-          // es que Perfil no muestre métricas musculares inline.
-          "Músculos trabajados", "Sector más trabajado", "puntos / semana"
+          // V43 sacó "Mapa muscular" de esta lista porque el mapa pasó a ser una
+          // pantalla propia. V47.1 va un paso más: el mapa se ve DIRECTO en
+          // Perfil, así que sus métricas musculares ("Sector más trabajado",
+          // "puntos / semana") ahora SÍ aparecen y salieron de esta lista.
+          // Lo que el test sigue cuidando es lo de siempre: que Perfil no
+          // invente métricas que los datos no permiten calcular.
+          "Fuerza relativa"
         ].forEach(function(t){
           assert(html.indexOf(t) === -1, "Perfil no debería mostrar: " + t);
         });
-        // El botón al mapa sí tiene que estar, y ser solo un acceso.
-        assert(html.indexOf('id="btn-perfil-mapa"') !== -1, "falta el acceso al mapa muscular");
+        // El mapa está embebido, y es el MISMO: no una copia ni un resumen.
+        assert(html.indexOf('class="perfil-mapa"') !== -1, "el mapa debería estar embebido en Perfil");
+        assert(html.indexOf('id="btn-perfil-mapa"') === -1, "el botón al mapa quedó duplicando el acceso");
+        assert(html.indexOf(A.screenMuscleMap()) !== -1, "Perfil no está usando screenMuscleMap tal cual");
       });
     });
 
@@ -4897,16 +4905,29 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     test("el cuerpo se pinta con las 26 regiones, cada una con su color", function(){
       var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7);
       var html = A.muscleMapBodyHtml(s);
-      // Las dos siluetas.
-      assert((html.match(/<svg/g)||[]).length === 2, "deberían ser dos vistas");
-      assert(html.indexOf('data-view="front"') !== -1 && html.indexOf('data-view="back"') !== -1, "faltan las vistas");
-      // Pecho medio activo, pecho superior e inferior apagados: los tres
-      // sectores del pecho se pintan por separado.
-      assert(/data-region="chest-mid" fill="color-mix/.test(html), "pecho medio debería ir con color");
-      assert(/data-region="chest-upper" fill="var\(--muscle-off\)"/.test(html), "pecho superior debería ir apagado");
-      assert(/data-region="chest-lower" fill="var\(--muscle-off\)"/.test(html), "pecho inferior debería ir apagado");
-      // base y head nunca son músculo.
-      assert(/data-region="base" fill="var\(--muscle-base\)"/.test(html), "la silueta base cambió");
+      var d = document.createElement("div"); d.innerHTML = html;
+      // V47: el mapa dejo de dibujar una silueta propia y usa las laminas
+      // anatomicas reales. Se afirma lo MISMO que antes (dos vistas, cada
+      // sector del pecho con su color), pero contra el DOM en vez de contra el
+      // orden en que se serializan los atributos.
+      var vistas = d.querySelectorAll("svg[data-view]");
+      assert(vistas.length === 2, "deberían ser dos vistas, hay " + vistas.length);
+      assert(!!d.querySelector('svg[data-view="front"]') && !!d.querySelector('svg[data-view="back"]'), "faltan las vistas");
+      // V47.1: sobre la lámina el tinte se expresa como OPACIDAD del acento
+      // (ver mapaTinteOpacidad). La exigencia no cambia: pecho medio activo,
+      // superior e inferior apagados, cada uno por separado.
+      function tinteDe(r){
+        var p = d.querySelector('.mapa-zona[data-region="'+r+'"]');
+        return p ? +p.getAttribute("fill-opacity") : null;
+      }
+      assert(tinteDe("chest-mid") > 0, "pecho medio debería ir con color: " + tinteDe("chest-mid"));
+      assert(tinteDe("chest-upper") === 0, "pecho superior debería ir apagado: " + tinteDe("chest-upper"));
+      assert(tinteDe("chest-lower") === 0, "pecho inferior debería ir apagado: " + tinteDe("chest-lower"));
+      // La base ya no es una forma dibujada: es la lámina. Se exige que cada
+      // vista traiga su imagen y que ninguna zona pintada sea base ni head.
+      assert(d.querySelectorAll("image").length === 2, "cada vista debería traer su lámina");
+      assert(!d.querySelector('[data-region="base"]') && !d.querySelector('[data-region="head"]'),
+        "el mapa no debería dibujar base ni head: ahora son parte de la lámina");
     });
 
     test("cada sector del pecho mantiene su propio puntaje", function(){
@@ -4972,9 +4993,24 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(A.MAPA_REGIONS.join(",") === Object.keys(A.REGION_VIEW).join(","), "MAPA_REGIONS debería ser REGION_VIEW");
       // Y todas están dibujadas en el arte.
       var html = A.muscleMapBodyHtml(mmStats([], 7));
+      // V47: las tres cabezas del tríceps se DIBUJAN juntas (a tamaño móvil no
+      // se distinguen) pero siguen siendo tres claves de datos. La exigencia no
+      // baja: cada una de las 26 tiene que estar representada —directamente o
+      // por su región dibujada— y un grupo no puede agrupar algo que no sea una
+      // región de datos.
+      var faltan = [];
       A.MAPA_REGIONS.forEach(function(r){
-        assert(html.indexOf('data-region="'+r+'"') !== -1, "la región " + r + " no está en el SVG");
+        var dibujada = A.mapaRegionDibujada(r);
+        if(html.indexOf('data-region="'+dibujada+'"') === -1) faltan.push(r + " (se dibuja como " + dibujada + ")");
       });
+      assert(faltan.length === 0, "sin representación en el mapa: " + faltan.join(", "));
+      var raras = [];
+      Object.keys(A.MAPA_ANATOMIA.grupos).forEach(function(g){
+        A.MAPA_ANATOMIA.grupos[g].forEach(function(k){
+          if(A.MAPA_REGIONS.indexOf(k) === -1) raras.push(g + " agrupa " + k + ", que no es una región de datos");
+        });
+      });
+      assert(raras.length === 0, raras.join(" | "));
     });
 
     group("V43 — Mapa muscular: independencia del orden y escala");
@@ -5080,8 +5116,23 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(d.intensidad === A.mapaIntensidad(d.puntosSemana), "la región no usa mapaIntensidad");
       // La silueta pinta con regionFillCss(esa intensidad).
       var body = A.muscleMapBodyHtml(s);
-      assert(body.indexOf('data-region="chest-mid" fill="' + A.regionFillCss(d.intensidad) + '"') !== -1,
-        "la silueta no usa la misma intensidad");
+      // V47: se lee el atributo desde el DOM en vez de exigir que `fill` venga
+      // pegado a `data-region` en el string. La invariante es la misma —mapa,
+      // barra y fila pintan con regionFillCss(mapaIntensidad(...))— y ahora no
+      // depende del orden de serialización de los atributos.
+      var cont = document.createElement("div"); cont.innerHTML = body;
+      var zona = cont.querySelector('.mapa-zona[data-region="chest-mid"]');
+      assert(!!zona, "no se encontró la zona chest-mid en el mapa");
+      // V47.1: la INTENSIDAD es la misma en los tres lugares (mapaIntensidad);
+      // lo que cambia es cómo se expresa. Sobre un fondo plano (barra y lista)
+      // se expresa como mezcla de color; sobre la lámina se expresa como
+      // opacidad del acento puro, porque mix-blend-mode:color toma la
+      // SATURACIÓN del relleno y una mezcla con --border llega desaturada.
+      assert(zona.getAttribute("fill") === "var(--accent)", "el mapa debería teñir con el acento puro");
+      assert(Math.abs(+zona.getAttribute("fill-opacity") - A.mapaTinteOpacidad(d.intensidad)) < 5e-4,
+        "la opacidad no sale de la misma intensidad: " + zona.getAttribute("fill-opacity"));
+      // Y la intensidad de la que sale es exactamente la del motor.
+      assert(A.mapaTinteOpacidad(0) === 0, "intensidad 0 debería no teñir");
       // La barra de escala toma muestras de la misma función.
       var escala = A.muscleMapHtml(s, "7d", null, "");
       assert(escala.indexOf(A.regionFillCss(A.mapaIntensidad(5))) !== -1, "la barra no usa mapaIntensidad");
@@ -5157,6 +5208,15 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         lista: lista,
         elegido: null,
         escribir: function(v){
+          // El input se enfoca ANTES de escribir, como hace cualquier persona:
+          // para teclear hay que estar parado en el campo. No es un detalle
+          // cosmético. Al expandir "Ver X más...", attachAutocomplete llama a
+          // input.focus(), y el listener de `focus` corre update(), que vuelve
+          // a colapsar la lista. Con el input ya enfocado, focus() es un no-op
+          // y no dispara nada — que es el caso real. Si el campo NO estaba
+          // enfocado, la expansión se deshace sola: eso es una fragilidad de
+          // attachAutocomplete, anterior a V47, documentada acá.
+          input.focus();
           input.value = v;
           input.dispatchEvent(new frame.contentWindow.Event("input", { bubbles:true }));
         },
@@ -6906,6 +6966,202 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       var bloque = APP_SRC.slice(j, fin === -1 ? j + 900 : fin);
       assert(bloque.indexOf("persistRutina") === -1, "el acceso por dia escribe la rutina");
       assert(bloque.indexOf("startSession") === -1, "el acceso por dia arranca una sesion");
+    });
+
+    // ---------------------------------------------------------------
+    // V47 — anatomía real del mapa muscular
+    // ---------------------------------------------------------------
+    function mapaDom(stats){
+      var d = document.createElement("div");
+      d.innerHTML = A.muscleMapBodyHtml(stats || mmStats([], 30));
+      return d;
+    }
+
+    test("V47 — las dos vistas usan las láminas del repo, sin modificarlas", function(){
+      var d = mapaDom();
+      var imgs = [].map.call(d.querySelectorAll("image"), function(i){ return i.getAttribute("href"); });
+      assert(imgs.length === 2, "deberían ser dos láminas, hay " + imgs.length);
+      assert(imgs[0] === "ejercicios/anatomia/deltoide-posterior-anatomia.jpg", "frontal: " + imgs[0]);
+      assert(imgs[1] === "ejercicios/anatomia/curl-muneca-anatomia.jpg", "posterior: " + imgs[1]);
+      // Son las mismas que ya usa la biblioteca de ejercicios: si alguien las
+      // renombra o las borra, este test lo caza antes que el usuario.
+      var enFichas = Object.keys(A.EXERCISE_ANATOMY_IMAGES).map(function(k){ return A.EXERCISE_ANATOMY_IMAGES[k]; });
+      imgs.forEach(function(src){
+        assert(enFichas.indexOf(src) !== -1, src + " ya no está referenciada por ninguna ficha");
+      });
+      // El recorte se hace con el viewBox, no tocando el archivo.
+      ["front","back"].forEach(function(v){
+        var cfg = A.MAPA_ANATOMIA.vistas[v];
+        var img = d.querySelector('svg[data-view="' + v + '"] image');
+        assert(+img.getAttribute("width") === 960 && +img.getAttribute("height") === 640,
+          v + ": la lámina debería ir a tamaño completo y recortarse con el viewBox");
+        assert(+img.getAttribute("x") === -cfg.ox && +img.getAttribute("y") === -cfg.oy, v + ": desplazamiento del recorte");
+      });
+    });
+
+    test("V47 — intensidad 0 no tiñe; la escala sale de mapaIntensidad", function(){
+      var vacio = mapaDom(mmStats([], 30));
+      var pintadas = [].filter.call(vacio.querySelectorAll(".mapa-zona"), function(p){
+        return +p.getAttribute("fill-opacity") > 0;
+      });
+      assert(pintadas.length === 0, "con 0 actividad no debería haber tinte, hay " + pintadas.length);
+      // Con actividad, la opacidad sale de la intensidad del motor, y crece.
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7);
+      var d = mapaDom(s);
+      var zona = d.querySelector('.mapa-zona[data-region="chest-mid"]');
+      var i = s.regiones["chest-mid"].intensidad;
+      assert(i > 0, "el caso de prueba debería dejar el pecho activo");
+      assert(zona.getAttribute("fill") === "var(--accent)", "debería teñir con el acento de VodaFit");
+      assert(Math.abs(+zona.getAttribute("fill-opacity") - A.mapaTinteOpacidad(i)) < 5e-4, "opacidad fuera de la fórmula");
+      // Monótona: más puntos, más tinte; y nunca más de 1.
+      assert(A.mapaTinteOpacidad(A.mapaIntensidad(5)) > A.mapaTinteOpacidad(A.mapaIntensidad(1)), "la escala no crece");
+      assert(A.mapaTinteOpacidad(A.mapaIntensidad(5)) <= 1, "la opacidad se pasa de 1");
+      // El apagado del resto de la UI no cambió.
+      assert(A.regionFillCss(0) === "var(--muscle-off)", "el color de apagado cambió: " + A.regionFillCss(0));
+    });
+
+    test("V47 — el tríceps se dibuja unido y conserva sus tres cabezas", function(){
+      var cabezas = ["triceps-long","triceps-lateral","triceps-medial"];
+      cabezas.forEach(function(k){
+        assert(A.MAPA_REGIONS.indexOf(k) !== -1, k + " dejó de ser una región de datos");
+        assert(A.mapaRegionDibujada(k) === "triceps", k + " no se dibuja como triceps");
+      });
+      var s = mmStats([], 30);
+      cabezas.forEach(function(k){ assert(s.regiones[k], k + " no tiene estadística propia"); });
+      var d = mapaDom();
+      assert(d.querySelectorAll('.mapa-zona[data-region="triceps"]').length > 0, "no se dibuja el tríceps");
+      cabezas.forEach(function(k){
+        assert(d.querySelectorAll('.mapa-zona[data-region="' + k + '"]').length === 0, k + " se dibuja suelta");
+      });
+      // El color del grupo es el MÁXIMO de las tres, no la suma ni el promedio.
+      var mapa = { "triceps-long":0.9, "triceps-lateral":0.3, "triceps-medial":0.1 };
+      assert(A.mapaIntensidadDeRegion("triceps", mapa) === 0.9, "debería pintar con el máximo");
+      assert(A.mapaIntensidadDeRegion("abs", { abs:0.4 }) === 0.4, "una región sin grupo debería usar su propio valor");
+    });
+
+    test("V47.2 — la cobertura va solo al frente, es opaca y no tapa músculos", function(){
+      // V47.2: el short deportivo se reemplazó por una cobertura MÍNIMA. Para
+      // leerse como prenda, el short tenía que llegar a medio muslo y terminaba
+      // tapando el tercio alto de aductores y recto femoral. La exigencia sube:
+      // antes se toleraba que tapara algo; ahora no puede tapar NADA.
+      var d = mapaDom();
+      var front = d.querySelector('svg[data-view="front"]');
+      var back = d.querySelector('svg[data-view="back"]');
+      assert(front.querySelectorAll(".mapa-cobertura").length === 1, "falta la cobertura en la figura frontal");
+      assert(back.querySelectorAll(".mapa-cobertura").length === 0, "la figura posterior no debería llevar cobertura");
+      assert(!A.MAPA_ANATOMIA.cobertura.back, "no debería haber geometría de cobertura para la espalda");
+      // No es una región: sin data-region, mountMuscleMap no le engancha clics.
+      assert(!d.querySelector(".mapa-cobertura[data-region]"), "la cobertura no puede ser una región seleccionable");
+      // Opaca y neutra: nada de transparencia, que dejaría distinguir lo que tapa.
+      var cob = front.querySelector(".mapa-cobertura");
+      assert(cob.getAttribute("fill") === "#2E2B28", "la cobertura debería ser gris oscuro neutro: " + cob.getAttribute("fill"));
+      assert(cob.getAttribute("fill-opacity") === null, "la cobertura no puede ser semitransparente");
+      assert(/mapaCoberturaBorde/.test(cob.getAttribute("filter") || ""), "falta el suavizado del borde");
+      // Mínima: acotada a la zona genital medida sobre la lámina. Los límites
+      // se calculan desde la GEOMETRÍA, no con getBBox(): el SVG de prueba está
+      // desprendido del documento y getBBox() devolvería 0.
+      var pts = A.MAPA_ANATOMIA.cobertura.front;
+      var xs = pts.map(function(p){ return p[0]; }), ys = pts.map(function(p){ return p[1]; });
+      var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+      var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+      assert((x1-x0) <= 40 && (y1-y0) <= 45, "la cobertura creció: " + (x1-x0) + "x" + (y1-y0));
+      assert(y0 >= 290 && y1 <= 335, "la cobertura se salió de la zona genital (y " + y0 + ".." + y1 + ")");
+      // Y las regiones que la rodean siguen enteras y seleccionables.
+      ["abs","obliques","adductors","quads-front","quads-inner","quads-outer"].forEach(function(r){
+        assert(d.querySelectorAll('.mapa-hit[data-region="' + r + '"]').length > 0, r + " perdió su área de toque");
+      });
+    });
+
+    test("V47 — áreas de toque ampliadas y núcleo de selección", function(){
+      var d = mapaDom();
+      var zonas = d.querySelectorAll(".mapa-zona").length;
+      var hits = d.querySelectorAll(".mapa-hit").length;
+      // Por cada zona pintada hay DOS áreas de toque: la ampliada y el núcleo.
+      assert(hits === zonas * 2, "esperaba " + (zonas*2) + " áreas de toque, hay " + hits);
+      var chica = [[0,0],[10,0],[10,4],[0,4]];
+      assert(A.mapaLadoCorto(chica) === 4, "lado corto mal calculado");
+      assert(A.mapaLadoCorto(A.mapaEscalarPts(chica, 2.2)) > A.mapaLadoCorto(chica), "el área de toque no se amplió");
+      assert(A.mapaLadoCorto(A.mapaEscalarPts(chica, A.MAPA_NUCLEO)) < A.mapaLadoCorto(chica),
+        "el núcleo debería ser más chico que el dibujo");
+      assert(A.MAPA_NUCLEO < 1 && A.MAPA_TOQUE_MAX > 1, "las constantes de toque se invirtieron");
+    });
+
+    test("V47 — las curvas son curvas y las compartidas van en las dos vistas", function(){
+      var d = mapaDom();
+      var rectas = [].filter.call(d.querySelectorAll(".mapa-zona"), function(p){
+        return p.getAttribute("d").indexOf("C") === -1;
+      });
+      assert(rectas.length === 0, rectas.length + " regiones siguen dibujadas con segmentos rectos");
+      var porVista = { front:{}, back:{} };
+      ["front","back"].forEach(function(v){
+        [].forEach.call(d.querySelectorAll('svg[data-view="' + v + '"] .mapa-zona'), function(p){
+          porVista[v][p.getAttribute("data-region")] = true;
+        });
+      });
+      var malas = [];
+      A.SHARED_REGIONS.forEach(function(r){
+        if(!porVista.front[r] || !porVista.back[r]) malas.push(r + " debería dibujarse en las dos vistas");
+      });
+      assert(malas.length === 0, malas.join(" | "));
+    });
+
+    test("V47 — la ficha de ejercicio NO cambió", function(){
+      var html = A.bodyDiagramSvg(["front"], [["chest-mid", 1]]);
+      assert(html.indexOf("<svg") !== -1, "bodyDiagramSvg se rompió");
+      assert(/data-region="chest-mid" fill="color-mix/.test(html), "la ficha dejó de pintar como antes");
+      assert(new RegExp('data-region="base" fill="var\\(--muscle-base\\)"').test(html), "la silueta de la ficha cambió");
+      assert(html.indexOf("mapa-zona") === -1 && html.indexOf("<image") === -1, "la anatomía del mapa se filtró a la ficha");
+      assert(A.BODY_ART && A.BODY_ART.viewBox === "0 0 200 480", "BODY_ART cambió");
+    });
+
+    test("V47 — el motor de estadísticas y la clasificación no se tocaron", function(){
+      assert(A.MAPA_REGIONS.join(",") === Object.keys(A.REGION_VIEW).join(","), "MAPA_REGIONS dejó de salir de REGION_VIEW");
+      assert(A.MAPA_REGIONS.length === 26, "regiones: " + A.MAPA_REGIONS.length);
+      assert(Object.keys(A.MUSCLE_MAP).length === 101, "MUSCLE_MAP: " + Object.keys(A.MUSCLE_MAP).length);
+      assert(typeof A.muscleMapStats === "function" && typeof A.mapaIntensidad === "function", "se perdió el motor");
+      // La lista sigue siendo la vía de selección precisa. Ojo con la
+      // exigencia: desde antes de V47, SOLO las regiones con actividad son
+      // filas clicables; las que están en cero se nombran en una línea de
+      // texto. Se afirma ese comportamiento, que V47 no cambió.
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7);
+      var lista = A.muscleMapListHtml(s);
+      var activas = A.MAPA_REGIONS.filter(function(r){ return s.regiones[r].puntos > 0; });
+      assert(activas.length > 0, "el caso de prueba debería dejar alguna región activa");
+      var faltan = activas.filter(function(r){ return lista.indexOf('data-mapa-region="' + r + '"') === -1; });
+      assert(faltan.length === 0, "la lista perdió regiones activas: " + faltan.join(", "));
+      // Y las inactivas siguen apareciendo nombradas, aunque no sean filas.
+      A.MAPA_REGIONS.filter(function(r){ return s.regiones[r].puntos === 0; }).forEach(function(r){
+        assert(lista.indexOf(s.regiones[r].label) !== -1, r + " desapareció de la lista");
+      });
+    });
+
+    test("V47.2 — la cobertura no se superpone con NINGUNA región muscular", function(){
+      // No alcanza con mirar el porcentaje de una sola región: se recorre el
+      // interior de cada zona pintada punto por punto y se exige cero
+      // intersección con la cobertura. Si alguien la agranda para "que tape
+      // mejor", este test lo caza.
+      var host = frame.contentWindow.document.createElement("div");
+      host.style.cssText = "position:absolute;left:-9999px;width:400px";
+      host.innerHTML = A.muscleMapBodyHtml(mmStats([], 30));
+      frame.contentWindow.document.body.appendChild(host);
+      try{
+        var svg = host.querySelector('svg[data-view="front"]');
+        var cob = svg.querySelector(".mapa-cobertura");
+        assert(!!cob, "no se encontró la cobertura");
+        var tapadas = [];
+        [].forEach.call(svg.querySelectorAll(".mapa-zona"), function(z){
+          var b = z.getBBox(), dentro = 0;
+          // Paso de 2 unidades: con paso 1 el barrido sobre las 47 zonas tarda
+          // demasiado y vuelve lentísima toda la suite. A 2 unidades sigue
+          // detectando cualquier invasión real (la cobertura mide 32x37).
+          for(var y=b.y; y<b.y+b.height; y+=2) for(var x=b.x; x<b.x+b.width; x+=2){
+            var p = svg.createSVGPoint(); p.x = x; p.y = y;
+            if(z.isPointInFill(p) && cob.isPointInFill(p)) dentro++;
+          }
+          if(dentro) tapadas.push(z.getAttribute("data-region") + " (" + dentro + " puntos)");
+        });
+        assert(tapadas.length === 0, "la cobertura pisa regiones musculares: " + tapadas.join(", "));
+      } finally { host.remove(); }
     });
 
     finish();
