@@ -43,12 +43,16 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
   var summary = document.getElementById("summary");
   var pass = 0, fail = 0, failures = [];
   var currentGroup = "";
+  var params = new URLSearchParams(location.search);
+  var selectedGroup = params.get("group");
+  var suiteStartedAt = performance.now(), testStartedAt = 0, completedTests = 0, skippedTests = 0;
+  var testQueue = [], queueIndex = 0;
+  var TEST_TIMEOUT_MS = Math.max(1000, Number(params.get("timeoutMs")) || 15000);
 
   function group(name){
     currentGroup = name;
-    var d = document.createElement("div");
-    d.className = "grp"; d.textContent = name;
-    out.appendChild(d);
+    if(selectedGroup && selectedGroup !== name) return;
+    testQueue.push({ kind:"group", name:name });
   }
   function record(ok, name, msg){
     var d = document.createElement("div");
@@ -64,12 +68,43 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
   }
   // Una aserción que lanza no debe cortar el resto del harness.
   function test(name, fn){
-    try{
-      var r = fn();
-      if(r === false) record(false, name, "devolvió false");
-      else if(typeof r === "string") record(false, name, r);
-      else record(true, name);
-    }catch(e){ record(false, name, (e && e.message) || String(e)); }
+    if(selectedGroup && selectedGroup !== currentGroup){ skippedTests++; return; }
+    testQueue.push({ kind:"test", group:currentGroup, name:name, fn:fn });
+  }
+  function withTimeout(fn){
+    return new Promise(function(resolve, reject){
+      var timer = setTimeout(function(){ reject(new Error("superó el límite de " + TEST_TIMEOUT_MS + " ms")); }, TEST_TIMEOUT_MS);
+      Promise.resolve().then(fn).then(function(value){ clearTimeout(timer); resolve(value); }, function(error){ clearTimeout(timer); reject(error); });
+    });
+  }
+  function runNext(){
+    if(queueIndex >= testQueue.length){ finish(); return; }
+    var item = testQueue[queueIndex++];
+    if(item.kind === "group"){
+      currentGroup = item.name;
+      var d = document.createElement("div");
+      d.className = "grp"; d.textContent = item.name;
+      out.appendChild(d);
+      setTimeout(runNext, 0);
+      return;
+    }
+    currentGroup = item.group;
+    testStartedAt = performance.now();
+    // Un test síncrono no se puede interrumpir desde setTimeout sin cambiar su
+    // ejecución. Este estado y el log permiten que un runner externo aplique
+    // un límite de tiempo real y diga exactamente en qué prueba quedó.
+    window.__v31Progress = { status:"running", group:currentGroup, name:item.name, completed:completedTests, startedAt:testStartedAt };
+    document.title = "V31 en curso — " + currentGroup + " > " + item.name;
+    console.log("V31_START", currentGroup, ">", item.name);
+    withTimeout(item.fn).then(function(r){
+      if(r === false) record(false, item.name, "devolvió false");
+      else if(typeof r === "string") record(false, item.name, r);
+      else record(true, item.name);
+    }, function(e){ record(false, item.name, (e && e.message) || String(e)); }).then(function(){
+      completedTests++;
+      window.__v31Progress = { status:"completed", group:currentGroup, name:item.name, completed:completedTests, elapsedMs:performance.now()-testStartedAt };
+      setTimeout(runNext, 0);
+    });
   }
   function assert(cond, msg){ if(!cond) throw new Error(msg || "assert falló"); }
 
@@ -79,7 +114,9 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     summary.textContent = (fail ? "FALLAN " + fail + " de " + total : "TODO OK — " + pass + "/" + total) +
       "  (pasados: " + pass + ", fallidos: " + fail + ")";
     // Para leer el resultado desde afuera (consola / automatización).
-    window.__v31Results = { pass: pass, fail: fail, total: total, failures: failures };
+    window.__v31Results = { pass: pass, fail: fail, total: total, failures: failures,
+      selectedGroup: selectedGroup, skippedTests: skippedTests, elapsedMs: performance.now()-suiteStartedAt };
+    document.title = "V31 " + (fail ? "con fallos" : "completo") + " — " + total + " pruebas";
     if(failures.length) console.error("FALLOS V31:\n" + failures.join("\n"));
     console.log("V31 tests:", pass + "/" + total + " pasados");
   }
@@ -4971,10 +5008,24 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       ["descuidado","te falta","equilibrado","insuficiente","deberías","mal entrenado","bien entrenado"].forEach(function(t){
         assert(html.toLowerCase().indexOf(t) === -1, "no debería aparecer: " + t);
       });
-      // Ni rojo ni verde: la escala usa el acento de la marca.
+      // Ni rojo ni verde: lo que importa es que NO haya semáforo.
       assert(html.indexOf("--danger") === -1, "no debería usar el color de peligro");
       assert(html.indexOf("--success") === -1, "no debería usar el color de éxito");
-      assert(html.indexOf("--accent") !== -1, "debería usar el acento de Voda Fit");
+      // V47.1: la escala dejó de ser var(--accent) con opacidad variable y pasó
+      // a una rampa propia de tono y saturación (ver mapaTinteCapas), con
+      // colores literales. El motivo: la tarjeta del mapa es SIEMPRE blanca,
+      // también en tema oscuro, así que seguir a --accent hacía que el mapa
+      // cambiara de color sobre una tarjeta que no cambia. La exigencia de
+      // fondo es la misma —la escala es monocroma y naranja, sin semáforo— y
+      // ahora se verifica sobre el tono, que es lo que se ve.
+      var tonos = (html.match(/hsl\((\d+(?:\.\d+)?) /g) || []).map(function(t){ return parseFloat(t.slice(4)); });
+      var naranjas = tonos.concat(A.mapaTinteCapas(A.mapaIntensidad(3)).map(function(c){
+        var m = c.fill.match(/hsl\(([\d.]+) /); return m ? parseFloat(m[1]) : 20;
+      }));
+      assert(naranjas.length > 0, "la escala debería tener al menos un tono declarado");
+      naranjas.forEach(function(h){
+        assert(h >= 10 && h <= 45, "la escala se fue del naranja: tono " + h + " grados");
+      });
     });
 
     test("el mapa avisa que mide lo registrado, no todo lo entrenado", function(){
@@ -5123,22 +5174,25 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       var cont = document.createElement("div"); cont.innerHTML = body;
       var zona = cont.querySelector('.mapa-zona[data-region="chest-mid"]');
       assert(!!zona, "no se encontró la zona chest-mid en el mapa");
-      // V47.1: la INTENSIDAD es la misma en los tres lugares (mapaIntensidad);
-      // lo que cambia es cómo se expresa. Sobre un fondo plano (barra y lista)
-      // se expresa como mezcla de color; sobre la lámina se expresa como
-      // opacidad del acento puro, porque mix-blend-mode:color toma la
-      // SATURACIÓN del relleno y una mezcla con --border llega desaturada.
-      assert(zona.getAttribute("fill") === "var(--accent)", "el mapa debería teñir con el acento puro");
-      assert(Math.abs(+zona.getAttribute("fill-opacity") - A.mapaTinteOpacidad(d.intensidad)) < 5e-4,
+      // V47.1: la INTENSIDAD sigue siendo la misma en los tres lugares
+      // (mapaIntensidad); lo que cambia es cómo se expresa. Sobre la lámina,
+      // mapaTinteCapas; sobre un fondo plano (barra y lista), mapaTinteCss, que
+      // compone ESAS MISMAS capas sobre blanco. La invariante es la de siempre:
+      // los tres salen de una sola intensidad y no pueden discrepar.
+      var capas = A.mapaTinteCapas(d.intensidad);
+      assert(capas.length >= 1, "una región activa debería tener al menos una capa de tinte");
+      assert(zona.getAttribute("fill") === capas[0].fill,
+        "el relleno no sale de mapaTinteCapas: " + zona.getAttribute("fill") + " vs " + capas[0].fill);
+      assert(Math.abs(+zona.getAttribute("fill-opacity") - capas[0].op) < 5e-4,
         "la opacidad no sale de la misma intensidad: " + zona.getAttribute("fill-opacity"));
       // Y la intensidad de la que sale es exactamente la del motor.
-      assert(A.mapaTinteOpacidad(0) === 0, "intensidad 0 debería no teñir");
+      assert(A.mapaTinteCapas(0).length === 0, "intensidad 0 debería no teñir");
       // La barra de escala toma muestras de la misma función.
       var escala = A.muscleMapHtml(s, "7d", null, "");
-      assert(escala.indexOf(A.regionFillCss(A.mapaIntensidad(5))) !== -1, "la barra no usa mapaIntensidad");
+      assert(escala.indexOf(A.mapaTinteCss(A.mapaIntensidad(5))) !== -1, "la barra no usa mapaIntensidad");
       // Y el punto de la fila de la lista, también.
       var lista = A.muscleMapListHtml(s);
-      assert(lista.indexOf(A.regionFillCss(d.intensidad)) !== -1, "la fila no usa la misma intensidad");
+      assert(lista.indexOf(A.mapaTinteCss(d.intensidad)) !== -1, "la fila no usa la misma intensidad");
     });
 
     group("V43 — Mapa muscular: no se tocó nada existente");
@@ -6139,45 +6193,48 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     group("V44.2 — animaciones: archivos, ficha y carga");
 
-    // HEAD síncrono al mismo origen, igual criterio que el test de sw.js: es
-    // más honesto comprobar que el archivo está que asumirlo.
-    function existe(ruta){
-      try{
-        var x = new XMLHttpRequest();
-        x.open("HEAD", ruta, false);
-        x.send(null);
-        return x.status === 200;
-      }catch(e){ return false; }
+    // Se conserva el mismo criterio (HEAD y estado HTTP 200), pero se hace
+    // asíncrono. Ochenta y dos XHR síncronos bloqueaban el hilo principal de
+    // Chrome: el harness parecía colgado y ni siquiera podía informar cuál era
+    // la prueba en curso. Cada petición tiene límite propio y la cola del
+    // harness conserva el orden de las pruebas.
+    function rutasFaltantes(rutas){
+      return Promise.all(rutas.map(function(ruta){
+        var controller = new AbortController();
+        var timer = setTimeout(function(){ controller.abort(); }, 5000);
+        return fetch(ruta, { method:"HEAD", cache:"no-store", signal:controller.signal })
+          .then(function(resp){ return resp.status === 200 ? null : ruta; })
+          .catch(function(){ return ruta; })
+          .then(function(resultado){ clearTimeout(timer); return resultado; });
+      })).then(function(resultados){ return resultados.filter(Boolean); });
     }
 
     test("los " + MEDIOS_TOTAL + " archivos del mapa existen en el repo", function(){
-      var faltan = [];
-      nombresConMedio().forEach(function(n){
-        var ruta = A.exerciseGifFor(n);
-        if(!existe(ruta)) faltan.push(ruta);
+      var rutas = nombresConMedio().map(function(n){ return A.exerciseGifFor(n); });
+      return rutasFaltantes(rutas).then(function(faltan){
+        assert(faltan.length === 0, "no se encontraron (" + faltan.length + "): " + faltan.join(", "));
       });
-      assert(faltan.length === 0, "no se encontraron (" + faltan.length + "): " + faltan.join(", "));
     });
 
     test("no quedó ningún .gif de la integración anterior", function(){
       // V44.2 convirtió todo a WebP: si algún .gif sigue accesible, el borrado
       // de la conversión quedó a medias y el repo carga peso muerto.
-      var sobran = [];
-      ["hip-thrust-con-barra", "plancha", "arnold-press", "mountain-climbers",
-       "press-de-banca-con-barra", "fondos-de-triceps-en-banco"].forEach(function(s){
-        if(existe(A.GIFS_DIR + s + ".gif")) sobran.push(s + ".gif");
+      var archivos = ["hip-thrust-con-barra", "plancha", "arnold-press", "mountain-climbers",
+       "press-de-banca-con-barra", "fondos-de-triceps-en-banco"];
+      return rutasFaltantes(archivos.map(function(s){ return A.GIFS_DIR + s + ".gif"; })).then(function(ausentes){
+        var sobran = archivos.filter(function(s){ return ausentes.indexOf(A.GIFS_DIR + s + ".gif") === -1; }).map(function(s){ return s + ".gif"; });
+        assert(sobran.length === 0, "siguen en el repo: " + sobran.join(", "));
       });
-      assert(sobran.length === 0, "siguen en el repo: " + sobran.join(", "));
     });
 
     test("los medios descartados no quedaron en el repo", function(){
-      var sobran = [];
-      ["arnold-press-2.webp", "curl-con-mancuernas-alternado-2.webp", "mountain-climbers-2.webp",
+      var archivos = ["arnold-press-2.webp", "curl-con-mancuernas-alternado-2.webp", "mountain-climbers-2.webp",
        "press-de-banca-inclinado-con-barra-2.webp", "remo-con-mancuerna-unilateral-2.webp",
-       "fondos-de-triceps-en-banco-2.webp"].forEach(function(f){
-        if(existe(A.GIFS_DIR + f)) sobran.push(f);
+       "fondos-de-triceps-en-banco-2.webp"];
+      return rutasFaltantes(archivos.map(function(f){ return A.GIFS_DIR + f; })).then(function(ausentes){
+        var sobran = archivos.filter(function(f){ return ausentes.indexOf(A.GIFS_DIR + f) === -1; });
+        assert(sobran.length === 0, "siguen en el repo: " + sobran.join(", "));
       });
-      assert(sobran.length === 0, "siguen en el repo: " + sobran.join(", "));
     });
 
     test("la ficha de un ejercicio CON medio renderiza la animación", function(){
@@ -7011,11 +7068,16 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       var zona = d.querySelector('.mapa-zona[data-region="chest-mid"]');
       var i = s.regiones["chest-mid"].intensidad;
       assert(i > 0, "el caso de prueba debería dejar el pecho activo");
-      assert(zona.getAttribute("fill") === "var(--accent)", "debería teñir con el acento de VodaFit");
-      assert(Math.abs(+zona.getAttribute("fill-opacity") - A.mapaTinteOpacidad(i)) < 5e-4, "opacidad fuera de la fórmula");
+      // V47.1: el relleno ya no es fijo. Sale de mapaTinteCapas, que hace girar
+      // el tono y subir la saturación junto con la intensidad.
+      var capas = A.mapaTinteCapas(i);
+      assert(zona.getAttribute("fill") === capas[0].fill, "el relleno no sale de mapaTinteCapas");
+      assert(Math.abs(+zona.getAttribute("fill-opacity") - capas[0].op) < 5e-4, "opacidad fuera de la fórmula");
       // Monótona: más puntos, más tinte; y nunca más de 1.
-      assert(A.mapaTinteOpacidad(A.mapaIntensidad(5)) > A.mapaTinteOpacidad(A.mapaIntensidad(1)), "la escala no crece");
-      assert(A.mapaTinteOpacidad(A.mapaIntensidad(5)) <= 1, "la opacidad se pasa de 1");
+      var op5 = A.mapaTinteCapas(A.mapaIntensidad(5))[0].op;
+      var op1 = A.mapaTinteCapas(A.mapaIntensidad(1))[0].op;
+      assert(op5 > op1, "la escala no crece");
+      assert(op5 <= 1, "la opacidad se pasa de 1");
       // El apagado del resto de la UI no cambió.
       assert(A.regionFillCss(0) === "var(--muscle-off)", "el color de apagado cambió: " + A.regionFillCss(0));
     });
@@ -7164,7 +7226,278 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       } finally { host.remove(); }
     });
 
-    finish();
+    group("V47.1 — escala de intensidad y geometría de las regiones");
+
+    test("V47.1 — la rampa es continua y estrictamente creciente", function(){
+      // El requisito es que NO haya cinco escalones rígidos: cada valor
+      // distinto tiene que dar un tinte distinto. Se recorre la escala en
+      // pasos finos y se exige que la opacidad crezca siempre.
+      var prev = -1, fallos = [];
+      for(var v = 0.05; v <= 5; v += 0.05){
+        var capas = A.mapaTinteCapas(A.mapaIntensidad(v));
+        assert(capas.length >= 1, "a " + v.toFixed(2) + " puntos debería haber tinte");
+        if(capas[0].op <= prev) fallos.push(v.toFixed(2) + " (" + capas[0].op.toFixed(4) + " <= " + prev.toFixed(4) + ")");
+        prev = capas[0].op;
+      }
+      assert(fallos.length === 0, "la rampa no crece en: " + fallos.join(", "));
+    });
+
+    test("V47.1 — el tono y la saturación acompañan a la intensidad", function(){
+      // Esto es lo que arregla V47.1: antes el relleno era SIEMPRE el mismo
+      // color y sólo variaba la opacidad, que bajo mix-blend-mode:color satura
+      // enseguida. Ahora el tono gira y la saturación sube.
+      function hs(v){
+        var m = A.mapaTinteCapas(A.mapaIntensidad(v))[0].fill.match(/hsl\(([\d.]+) ([\d.]+)%/);
+        return { h: parseFloat(m[1]), s: parseFloat(m[2]) };
+      }
+      var bajo = hs(0.5), medio = hs(2), alto = hs(5);
+      assert(bajo.h > medio.h && medio.h > alto.h, "el tono no gira hacia el rojo: " + bajo.h + " / " + medio.h + " / " + alto.h);
+      assert(bajo.s < medio.s && medio.s < alto.s, "la saturación no sube: " + bajo.s + " / " + medio.s + " / " + alto.s);
+      // Y no se escapa del naranja en ningún punto de la escala.
+      for(var v = 0.1; v <= 5; v += 0.1){
+        var x = hs(v);
+        assert(x.h >= A.MAPA_TONO_MAX && x.h <= A.MAPA_TONO_MIN, "tono fuera de rango a " + v.toFixed(1) + ": " + x.h);
+      }
+    });
+
+    test("V47.1 — la capa de profundidad sólo entra arriba, y acotada", function(){
+      // La segunda capa es la que da la sensación de "más profundo". Si entrara
+      // desde abajo, las intensidades bajas se verían oscuras en vez de
+      // pálidas; si subiera de opacidad, aplastaría el relieve de la lámina
+      // (medido: a 0,60 los pectorales quedaban manchas planas).
+      assert(A.mapaTinteCapas(A.mapaIntensidad(1)).length === 1, "a 1 punto no debería haber capa de profundidad");
+      var alta = A.mapaTinteCapas(A.mapaIntensidad(5));
+      assert(alta.length === 2, "a 5 puntos deberían ser dos capas, son " + alta.length);
+      assert(alta[1].prof === true, "la segunda capa debería ser la de profundidad");
+      assert(alta[1].op <= A.MAPA_PROF_MAX + 1e-9, "la profundidad se pasó de " + A.MAPA_PROF_MAX + ": " + alta[1].op);
+      // Y crece de forma continua desde su umbral, sin salto.
+      var umbral = A.MAPA_PROF_DESDE;
+      var justoAbajo = A.mapaTinteCapas(A.MAPA_TINTE_MIN + (1 - A.MAPA_TINTE_MIN) * (umbral - 0.001));
+      var justoArriba = A.mapaTinteCapas(A.MAPA_TINTE_MIN + (1 - A.MAPA_TINTE_MIN) * (umbral + 0.001));
+      assert(justoAbajo.length === 1, "debajo del umbral no debería haber profundidad");
+      assert(justoArriba.length === 2 && justoArriba[1].op < 0.01, "la profundidad debería entrar desde 0, entró en " + (justoArriba[1] && justoArriba[1].op));
+    });
+
+    test("V47.1 — intensidad 0 deja el gris neutro, en los tres lugares", function(){
+      assert(A.mapaTinteCapas(0).length === 0, "intensidad 0 no debería generar capas");
+      assert(A.mapaTinteCss(0) === "var(--muscle-off)", "el chip de 0 debería ser el gris neutro: " + A.mapaTinteCss(0));
+      var vacio = mapaDom(mmStats([], 30));
+      var pintadas = [].filter.call(vacio.querySelectorAll(".mapa-zona"), function(p){
+        return +p.getAttribute("fill-opacity") > 0;
+      });
+      assert(pintadas.length === 0, "sin actividad no debería haber tinte, hay " + pintadas.length);
+      assert(vacio.querySelectorAll(".mapa-prof").length === 0, "sin actividad no debería haber capa de profundidad");
+      // Pero el path igual existe: el DOM no cambia según los datos.
+      assert(vacio.querySelectorAll('.mapa-zona[data-region="chest-mid"]').length > 0, "la región debería existir aunque no tenga actividad");
+    });
+
+    test("V47.1 — el color NO depende del tema", function(){
+      // La tarjeta del mapa es siempre blanca, también en tema oscuro. Si el
+      // tinte siguiera a var(--accent) el mapa cambiaría de color sobre una
+      // tarjeta que no cambia. Los colores tienen que ser literales.
+      var capas = A.mapaTinteCapas(A.mapaIntensidad(3));
+      capas.forEach(function(c){
+        assert(c.fill.indexOf("var(") === -1, "el tinte no puede depender de una variable CSS: " + c.fill);
+      });
+      assert(A.mapaTinteCss(A.mapaIntensidad(3)).indexOf("var(") === -1, "el chip tampoco: " + A.mapaTinteCss(A.mapaIntensidad(3)));
+      // Y la ficha de ejercicio, que SÍ sigue al tema, no se tocó.
+      assert(A.regionFillCss(0) === "var(--muscle-off)", "regionFillCss cambió: " + A.regionFillCss(0));
+      assert(A.regionFillCss(0.5).indexOf("var(--accent)") !== -1, "la ficha debería seguir usando el acento: " + A.regionFillCss(0.5));
+    });
+
+    test("V47.1 — la barra de escala es una muestra real de la rampa", function(){
+      // No un degradé dibujado aparte: cada tramo tiene que ser exactamente
+      // mapaTinteCss de su valor, para que no pueda desincronizarse.
+      var html = A.muscleMapHtml(mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7), "7d", null, "");
+      var cont = document.createElement("div"); cont.innerHTML = html;
+      var tramos = [].map.call(cont.querySelectorAll(".mapa-escala-barra span"), function(n){ return n.style.background; });
+      assert(tramos.length === 6, "la barra debería tener 6 tramos, tiene " + tramos.length);
+      var esperado = [0,1,2,3,4,5].map(function(p){ return A.mapaTinteCss(A.mapaIntensidad(p)); });
+      var malos = [];
+      tramos.forEach(function(t, i){
+        var e = esperado[i];
+        // El navegador normaliza "#rrggbb" a "rgb(r, g, b)": se compara el color
+        // resuelto, no el texto.
+        var a = document.createElement("i"); a.style.background = e;
+        if(t.replace(/\s/g, "") !== a.style.background.replace(/\s/g, "")) malos.push(i + ": " + t + " ≠ " + a.style.background);
+      });
+      assert(malos.length === 0, "la barra no coincide con la rampa: " + malos.join(" | "));
+    });
+
+    test("V47.1 — las zonas se pintan de la más grande a la más chica", function(){
+      // Si una región grande se pinta después, repinta a su vecina chica. Esa
+      // era la causa de que el deltoides lateral desapareciera bajo el tríceps
+      // (23,6%) y los trapecios bajo el pectoral superior (14,6%).
+      var d = mapaDom(mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)], 7));
+      ["front","back"].forEach(function(v){
+        var svg = d.querySelector('svg[data-view="' + v + '"]');
+        var areas = [].map.call(svg.querySelectorAll(".mapa-zona"), function(p){
+          var b = p.getBBox(); return b.width * b.height;
+        });
+        var fallos = [];
+        for(var i = 1; i < areas.length; i++){
+          // Tolerancia: dos regiones del mismo tamaño pueden ir en cualquier
+          // orden; lo que no puede pasar es que una claramente más grande vaya
+          // después de una claramente más chica.
+          if(areas[i] > areas[i-1] * 1.05) fallos.push(v + " posición " + i);
+        }
+        assert(fallos.length === 0, "el orden de pintado no va de mayor a menor: " + fallos.join(", "));
+      });
+    });
+
+    test("V47.1 — ninguna región pintada queda tapada por otra posterior", function(){
+      // Verificación real con isPointInFill, no con bounding boxes: se recorre
+      // el interior de cada zona y se mira si alguna región que se pinta
+      // DESPUÉS la cubre. El límite es generoso (12%) porque algunos músculos
+      // se tocan de verdad en la lámina; lo que no se tolera es que una región
+      // pierda un tercio o la mitad, como pasaba con los aductores (51%) y el
+      // deltoides lateral de la espalda (23,6%).
+      var host = frame.contentWindow.document.createElement("div");
+      host.style.cssText = "position:absolute;left:-9999px;width:400px";
+      host.innerHTML = A.muscleMapBodyHtml(mmStats([], 30));
+      frame.contentWindow.document.body.appendChild(host);
+      try{
+        var malos = [];
+        ["front","back"].forEach(function(v){
+          var svg = host.querySelector('svg[data-view="' + v + '"]');
+          var zonas = [].slice.call(svg.querySelectorAll(".mapa-zona"));
+          // La cuadrícula y el criterio siguen siendo exactamente los mismos.
+          // Sólo se evita llamar isPointInFill sobre una región posterior cuyo
+          // bounding box ni siquiera toca el de la región actual: ese par no
+          // puede cubrir ningún punto y era la causa del tiempo excesivo.
+          var cajas = zonas.map(function(z){ return z.getBBox(); });
+          zonas.forEach(function(z, i){
+            var b = cajas[i], tot = 0, tap = 0, p = svg.createSVGPoint();
+            var posteriores = [];
+            for(var o = i + 1; o < zonas.length; o++){
+              var c = cajas[o];
+              if(!(b.x + b.width < c.x || c.x + c.width < b.x || b.y + b.height < c.y || c.y + c.height < b.y)) posteriores.push(zonas[o]);
+            }
+            // Sin una caja posterior que toque ésta, el numerador es
+            // necesariamente 0: no hay nada que medir para esta región.
+            if(!posteriores.length) return;
+            for(var y = b.y; y <= b.y + b.height; y += 0.8)
+            for(var x = b.x; x <= b.x + b.width; x += 0.8){
+              p.x = x; p.y = y;
+              if(!z.isPointInFill(p)) continue;
+              tot++;
+              for(var j = 0; j < posteriores.length; j++) if(posteriores[j].isPointInFill(p)){ tap++; break; }
+            }
+            if(tot && tap / tot > 0.12) malos.push(v + "/" + z.getAttribute("data-region") + " " + Math.round(100*tap/tot) + "%");
+          });
+        });
+        assert(malos.length === 0, "regiones repintadas por una vecina: " + malos.join(", "));
+      } finally { host.remove(); }
+    });
+
+    test("V47.1 — los aductores son dos lóbulos, uno por muslo", function(){
+      // Eran UNA mancha a horcajadas de la línea media: un tercio caía sobre el
+      // hueco blanco entre las piernas, donde mix-blend-mode:color no pinta
+      // nada, y la mitad la repintaba el vasto interno.
+      var d = mapaDom(mmStats([mmReg("Aductores en máquina", MM_HOY, 3, 40)], 7));
+      var lobulos = d.querySelectorAll('.mapa-zona[data-region="adductors"]');
+      assert(lobulos.length === 2, "deberían ser dos lóbulos, hay " + lobulos.length);
+      // Uno a cada lado de la línea media de la figura (x ≈ 164). El centro se
+      // calcula de la geometría y no con getBBox(), que devuelve 0 mientras el
+      // SVG no está en el documento.
+      var geo = A.MAPA_ANATOMIA.vistas.front.regiones;
+      var centros = ["adductors", "adductors2"].map(function(k){
+        assert(!!geo[k], "falta la geometría de " + k);
+        var xs = geo[k].map(function(p){ return p[0]; });
+        return xs.reduce(function(a,b){ return a+b; }, 0) / xs.length;
+      }).sort(function(a,b){ return a-b; });
+      assert(centros[0] < 164 && centros[1] > 164, "los dos lóbulos deberían caer a distinto lado: " + centros.map(function(c){ return c.toFixed(0); }).join(", "));
+      // Siguen siendo UNA sola clave de datos, y los dos se tiñen igual.
+      var ops = [].map.call(lobulos, function(p){ return +p.getAttribute("fill-opacity"); });
+      assert(Math.abs(ops[0] - ops[1]) < 1e-9, "los dos lóbulos deberían tener el mismo tinte: " + ops.join(" / "));
+      assert(ops[0] > 0, "con aductores entrenados el sector debería teñirse");
+      // Y se siguen pudiendo tocar.
+      assert(d.querySelectorAll('.mapa-hit[data-region="adductors"]').length >= 2, "los aductores perdieron área de toque");
+    });
+
+    test("V47.1 — los sóleos posteriores siguen la pantorrilla sin tocar los gastrocnemios", function(){
+      var geo = A.MAPA_ANATOMIA.vistas.back.regiones;
+      var izq = geo["calves-soleus"], der = geo["calves-soleus2"];
+      assert(izq && der, "faltan los dos sóleos posteriores");
+      assert(izq.length === der.length, "los sóleos dejaron de ser simétricos");
+      izq.forEach(function(p, i){
+        assert(der[i][0] === 298 - p[0] && der[i][1] === p[1], "simetría rota en el punto " + i);
+      });
+      // Bandas de la silueta de las dos pantorrillas medidas sobre la lámina
+      // posterior (coordenadas del viewBox, no bounding boxes del SVG). Cada
+      // vértice cae dentro de la pierna correspondiente, incluido el tobillo.
+      var bandasIzq = { 504:[72,103], 510:[64,103], 520:[64,101], 533:[67,97], 540:[69,94], 548:[69,93] };
+      [izq, der].forEach(function(pts, lado){
+        pts.forEach(function(p){
+          var ys = Object.keys(bandasIzq).map(Number);
+          var y = ys.reduce(function(a,b){ return Math.abs(b-p[1]) < Math.abs(a-p[1]) ? b : a; });
+          var lim = bandasIzq[y], esperado = lado ? [298-lim[1],298-lim[0]] : lim;
+          assert(p[0] >= esperado[0] && p[0] <= esperado[1], "sóleo " + (lado ? "derecho" : "izquierdo") + " fuera de la silueta en (" + p.join(",") + ")");
+        });
+      });
+      var fondoGastro = Math.max.apply(null, geo["calves-gastro"].concat(geo["calves-gastro2"]).map(function(p){ return p[1]; }));
+      var techoSoleo = Math.min.apply(null, izq.concat(der).map(function(p){ return p[1]; }));
+      assert(fondoGastro < techoSoleo, "los sóleos se solapan con los gastrocnemios");
+    });
+
+    test("V47.1 — ningún punto de ninguna región cae fuera de la silueta", function(){
+      // mix-blend-mode:color sobre el fondo blanco es invisible POR DEFINICIÓN
+      // (toma la luminosidad del fondo). Una región que se sale del cuerpo
+      // pierde esa superficie sin aviso: al deltoides lateral de la espalda le
+      // pasaba con 2 de sus 7 puntos, un 30% del área.
+      //
+      // ALCANCE: sólo las regiones que V47.1 rehizo. La medición encontró que
+      // otras regiones anteriores también se salen —back/triceps y
+      // back/hamstrings son las peores, y back/obliques pierde un 74% del área
+      // sobre el fondo—, pero corregirlas es un cambio de geometría que no
+      // estaba en el alcance de V47.1 y se informó aparte para decidirlo. Este
+      // test impide que las regiones YA corregidas vuelvan atrás; ampliar la
+      // lista es el paso siguiente cuando se decida rehacer las otras.
+      var ALCANCE = ["adductors", "quads-inner", "shoulder-lateral", "calves-soleus"];
+      // La silueta se aproxima con un margen generoso por vista; lo que se caza
+      // es un punto claramente afuera, no un píxel de antialias.
+      var limites = {
+        // y: [xMin, xMax] admisibles para el cuerpo, medidos sobre la lámina.
+        front: { 112:[66,264], 130:[62,268], 150:[60,270], 340:[86,244], 380:[84,246], 420:[90,240] },
+        back:  { 112:[72,258], 130:[62,268], 150:[59,271], 340:[80,250], 380:[78,252], 420:[86,244] }
+      };
+      var malos = [];
+      ["front","back"].forEach(function(v){
+        var regs = A.MAPA_ANATOMIA.vistas[v].regiones;
+        Object.keys(regs).filter(function(k){
+          var base = k.replace(/2$/, "");
+          return ALCANCE.indexOf(base) !== -1;
+        }).forEach(function(k){
+          regs[k].forEach(function(p){
+            var ys = Object.keys(limites[v]).map(Number);
+            var y = ys.reduce(function(a,b){ return Math.abs(b - p[1]) < Math.abs(a - p[1]) ? b : a; });
+            if(Math.abs(y - p[1]) > 14) return;   // sin referencia cerca: no se juzga
+            var lim = limites[v][y];
+            if(p[0] < lim[0] || p[0] > lim[1]) malos.push(v + "/" + k + " (" + p[0] + "," + p[1] + ") fuera de [" + lim[0] + "," + lim[1] + "] a y≈" + y);
+          });
+        });
+      });
+      assert(malos.length === 0, "puntos fuera del cuerpo: " + malos.join(", "));
+    });
+
+    test("V47.1 — el motor, las regiones y los períodos no cambiaron", function(){
+      // V47.1 es un cambio de REPRESENTACIÓN. Nada de lo que se calcula puede
+      // haberse movido.
+      assert(A.MAPA_REGIONS.length === 26, "las regiones cambiaron: " + A.MAPA_REGIONS.length);
+      assert(A.MAPA_VISUAL_MAX === 5, "el tope de la escala cambió: " + A.MAPA_VISUAL_MAX);
+      assert(A.MAPA_TINTE_MIN === 0.12, "el tinte mínimo cambió: " + A.MAPA_TINTE_MIN);
+      assert(A.MAPA_PERIODS.map(function(p){ return p.dias; }).join(",") === "7,30,90", "los períodos cambiaron");
+      // La puntuación de referencia de V43, intacta.
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)]);
+      assert(s.regiones["chest-mid"].puntos === 1, "1 principal debería dar 1 punto, dio " + s.regiones["chest-mid"].puntos);
+      assert(s.regiones["shoulder-front"].puntos === 0.5, "1 secundaria debería dar 0,5, dio " + s.regiones["shoulder-front"].puntos);
+      // Y la fórmula de intensidad, también.
+      assert(Math.abs(A.mapaIntensidad(5) - 1) < 1e-9, "mapaIntensidad(5) debería ser 1");
+      assert(A.mapaIntensidad(0) === 0, "mapaIntensidad(0) debería ser 0");
+      assert(Math.abs(A.mapaIntensidad(1) - 0.296) < 1e-3, "mapaIntensidad(1) cambió: " + A.mapaIntensidad(1));
+    });
+
+    runNext();
   }
 
   var frame = document.getElementById("app");
