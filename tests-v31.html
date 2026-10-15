@@ -7228,6 +7228,97 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     group("V47.1 — escala de intensidad y geometría de las regiones");
 
+    // Estos checks se montan dentro del iframe de la app, no en un div del
+    // harness: así getComputedStyle ve las reglas CSS reales de index.html.
+    function mapaMontado(stats){
+      var host = frame.contentWindow.document.createElement("div");
+      host.style.cssText = "position:absolute;left:-9999px;width:400px";
+      host.innerHTML = A.muscleMapBodyHtml(stats);
+      frame.contentWindow.document.body.appendChild(host);
+      return host;
+    }
+    function opacidadEfectiva(path){
+      return parseFloat(frame.contentWindow.getComputedStyle(path).fillOpacity);
+    }
+    function assertOpacidadDeRegion(host, region, esperada){
+      var paths = host.querySelectorAll('.mapa-zona[data-region="' + region + '"]');
+      assert(paths.length > 0, "no se encontró la región " + region);
+      [].forEach.call(paths, function(path){
+        var real = opacidadEfectiva(path);
+        assert(Math.abs(real - esperada) < 5e-4,
+          region + " tiene opacidad computada " + real + ", esperaba " + esperada);
+      });
+    }
+
+    test("V47.1.1 — intensidad 0 queda realmente transparente en ambos temas", function(){
+      var doc = frame.contentWindow.document;
+      var anterior = doc.documentElement.getAttribute("data-theme");
+      try{
+        ["light", "dark"].forEach(function(theme){
+          doc.documentElement.setAttribute("data-theme", theme);
+          var host = mapaMontado(mmStats([], 7));
+          try{
+            var zonas = host.querySelectorAll(".mapa-zona");
+            assert(zonas.length > 0, "no se dibujaron zonas en " + theme);
+            [].forEach.call(zonas, function(path){
+              assert(opacidadEfectiva(path) === 0,
+                theme + ": " + path.getAttribute("data-region") + " debería ser transparente, dio " + opacidadEfectiva(path));
+            });
+            assert(host.querySelectorAll(".mapa-prof").length === 0,
+              theme + ": una intensidad 0 no debería emitir profundidad");
+          } finally { host.remove(); }
+        });
+      } finally {
+        if(anterior == null) doc.documentElement.removeAttribute("data-theme");
+        else doc.documentElement.setAttribute("data-theme", anterior);
+      }
+    });
+
+    test("V47.1.1 — solo aductores pinta exclusivamente sus dos lóbulos", function(){
+      var rows = [0,1,2,3,4].map(function(d){ return mmReg("Aductores en máquina", mmDia(d), 3, 40); });
+      var stats = mmStats(rows, 7);
+      assert(stats.regiones.adductors.puntosSemana === 5, "el caso debería dar 5 puntos a aductores");
+      var host = mapaMontado(stats);
+      try{
+        var esperada = A.mapaTinteCapas(stats.regiones.adductors.intensidad)[0].op;
+        assertOpacidadDeRegion(host, "adductors", esperada);
+        [].forEach.call(host.querySelectorAll(".mapa-zona"), function(path){
+          if(path.getAttribute("data-region") !== "adductors"){
+            assert(opacidadEfectiva(path) === 0,
+              path.getAttribute("data-region") + " no debería colorearse en el caso de aductores");
+          }
+        });
+      } finally { host.remove(); }
+    });
+
+    test("V47.1.1 — cada región usa su opacidad calculada y profundidad solo cuando corresponde", function(){
+      var rows = [];
+      // Intensidades distintas y conocidas: pecho=1, hombro frontal=0,5,
+      // aductores=2 y sóleos=3 puntos/semana.
+      rows.push(mmReg("Press de banca con barra", mmDia(0), 3, 80));
+      [0,1].forEach(function(d){ rows.push(mmReg("Aductores en máquina", mmDia(d), 3, 40)); });
+      [0,1,2].forEach(function(d){ rows.push(mmReg("Gemelos sentado en máquina", mmDia(d), 3, 40)); });
+      var stats = mmStats(rows, 7);
+      var esperados = ["chest-mid", "shoulder-front", "adductors", "calves-soleus"];
+      var host = mapaMontado(stats);
+      try{
+        esperados.forEach(function(region){
+          var capas = A.mapaTinteCapas(stats.regiones[region].intensidad);
+          assertOpacidadDeRegion(host, region, capas[0].op);
+          var prof = host.querySelectorAll('.mapa-prof[data-region="' + region + '"]');
+          if(capas.length === 1) assert(prof.length === 0, region + " no debería tener profundidad");
+          else {
+            assert(prof.length > 0, region + " debería tener profundidad");
+            [].forEach.call(prof, function(path){
+              assert(Math.abs(opacidadEfectiva(path) - capas[1].op) < 5e-4,
+                region + " tiene profundidad con opacidad incorrecta");
+            });
+          }
+        });
+        assertOpacidadDeRegion(host, "abs", 0);
+      } finally { host.remove(); }
+    });
+
     test("V47.1 — la rampa es continua y estrictamente creciente", function(){
       // El requisito es que NO haya cinco escalones rígidos: cada valor
       // distinto tiene que dar un tinte distinto. Se recorre la escala en

@@ -410,14 +410,17 @@
   .mapa-fig{ flex:1; max-width:50%; }
   .mapa-fig svg{ width:100%; height:auto; display:block; }
   .mapa-cap{ text-align:center; font-size:11.5px; color:#6E675F; margin-top:2px; }
-  /* Capa pintada: solo tine, nunca recibe el clic. */
+  /* Capa pintada: solo tiñe, nunca recibe el clic.
+     La opacidad es un atributo de CADA path, calculado por mapaTinteCapas().
+     No se declara acá: una regla CSS ganaría al atributo SVG y haría visibles
+     incluso las regiones con fill-opacity="0". */
   /* `multiply` es el piso: funciona en todos lados, aunque oscurece un poco. */
-  .mapa-zona{ mix-blend-mode:multiply; fill-opacity:.55; pointer-events:none; }
+  .mapa-zona{ mix-blend-mode:multiply; pointer-events:none; }
   /* `color` toma el TONO del naranja y la LUMINOSIDAD de la lamina, asi que el
      musculo queda tenido conservando sus sombras en vez de tapado. Donde el
      navegador no lo soporte queda el multiply de arriba. */
   @supports (mix-blend-mode: color){
-    .mapa-zona{ mix-blend-mode:color; fill-opacity:1; }
+    .mapa-zona{ mix-blend-mode:color; }
   }
   /* V47.1. Segunda capa, solo para las intensidades altas. multiply es
      MULTIPLICATIVO: oscurece respetando el dibujo de abajo, asi que las sombras
