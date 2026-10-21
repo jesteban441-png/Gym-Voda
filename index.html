@@ -21,9 +21,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="./vendor/fonts/fonts.css" rel="stylesheet">
 <style>
   :root{
     --bg:#F1F0EC;
@@ -39,6 +37,7 @@
     --secondary:#2A5FD9;
     --secondary-soft:#DCE6FB;
     --success:#2E9E5B;
+    --success-on:#1B1210;
     --success-soft:#DCF3E6;
     --danger:#C13B3B;
     --danger-soft:#FBE0DF;
@@ -72,6 +71,7 @@
       --secondary:#7EA0FF;
       --secondary-soft:#1E2740;
       --success:#59C68A;
+      --success-on:#1B1210;
       --success-soft:#173425;
       --danger:#FF8A80;
       --danger-soft:#3A1F1E;
@@ -102,6 +102,7 @@
     --secondary:#7EA0FF;
     --secondary-soft:#1E2740;
     --success:#59C68A;
+    --success-on:#1B1210;
     --success-soft:#173425;
     --danger:#FF8A80;
     --danger-soft:#3A1F1E;
@@ -253,7 +254,10 @@
   .field label{ font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
   .field input, .field select, .field textarea{
     background:var(--surface-2); border:1px solid var(--border); color:var(--text);
-    border-radius:10px; padding:10px 12px; font-size:15px; width:100%;
+    /* M1: 16px es el mínimo que evita el zoom automático de Safari iOS al
+       enfocar un input (D8). No cambia el ancho de las cajas, así que .field-row
+       sigue entrando igual en pantallas angostas. */
+    border-radius:10px; padding:10px 12px; font-size:16px; width:100%;
   }
   .field input:focus, .field select:focus, .field textarea:focus{ outline:2px solid var(--accent); outline-offset:1px; }
   .field-row{ display:flex; gap:10px; }
@@ -491,7 +495,12 @@
     display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;
     color:var(--text-muted); cursor:pointer; background:var(--surface-2); flex:none;
   }
-  .setdot.done{ background:var(--success); border-color:var(--success); color:#fff; }
+  /* A5: el número de la serie usa --success-on (tinta oscura sobre el verde)
+     en lugar de un #fff fijo. El blanco no llegaba al 4,5:1 de WCAG en ninguno
+     de los dos temas — 3,41:1 en claro y 2,09:1 en oscuro, donde --success es
+     un verde claro (#59C68A) — y 13px bold no califica como texto grande.
+     Ahora da 5,40:1 en claro y 8,65:1 en oscuro. Los verdes de marca no cambian. */
+  .setdot.done{ background:var(--success); border-color:var(--success); color:var(--success-on); }
   .setdot:active{ transform:scale(.93); }
   /* V28: dentro de cada ejercicio, .next resalta la próxima serie a marcar y
      .locked indica que todavía no se puede tocar (van en orden) — nunca se
@@ -715,6 +724,19 @@
     #splash{ transition:none; }
   }
 
+  /* V48.1B: controles inline; las variables existentes cubren claro/oscuro. */
+  .native-exercise{scroll-margin-top:76px;}
+  .native-exercise h3{margin:0;overflow-wrap:anywhere;}
+  .native-grid{display:grid;grid-template-columns:32px minmax(0,1fr) minmax(0,.85fr) 52px;gap:8px;align-items:center;}
+  .native-grid input[type="text"]{width:100%;min-width:0;min-height:46px;font-size:16px;padding:10px 8px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;}
+  .native-grid input[aria-invalid="true"]{border-color:var(--accent);}
+  .native-labels{font-size:12px;color:var(--text-muted);}
+  .native-check{display:flex;align-items:center;justify-content:center;min-width:44px;min-height:46px;cursor:pointer;touch-action:manipulation;}
+  .native-check input{width:24px;height:24px;accent-color:var(--accent);}
+  .native-reference{margin:4px 0 0 40px;font-size:12px;}
+  .native-error{font-size:12px;color:var(--text);margin-left:40px;}
+  .native-error:not(:empty){padding:6px 0;}
+  .native-note p{margin-bottom:0;}
 </style>
 </head>
 <body>
@@ -731,8 +753,13 @@
 </div>
 <div id="app"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="./vendor/supabase-js-2.118.0/supabase.js"></script>
+<script src="./vendor/jspdf-2.5.1/jspdf.umd.min.js"></script>
+<script src="./v48-persistence.js?v=48.rc1"></script>
+<script src="./v48-session.js?v=48.rc1"></script>
+<script src="./v48-lifecycle.js?v=48.rc1"></script>
+<script src="./v48-reconcile.js?v=48.rc1"></script>
+<script src="./v48-history.js?v=48.rc1"></script>
 <script>
 (function(){
   "use strict";
@@ -3771,19 +3798,23 @@
       return !error;
     }
 
-    async function getRutina(pid){
-      const { data, error } = await client().from("rutinas").select("data").eq("profile_id", pid).maybeSingle();
-      if(error) throw error;
-      return (data && data.data) ? deepClone(data.data) : { days: [] };
-    }
-
-    async function saveRutina(pid, data){
-      const { error } = await client().from("rutinas").upsert({ profile_id: pid, data: data }, { onConflict: "profile_id" });
-      return !error;
-    }
+    const rutinaRepository = VodaFitPersistence.createRepository(client);
+    const readRutina = pid => rutinaRepository.read(pid);
+    async function getRutina(pid){ return (await readRutina(pid)).data; }
+    const saveRutina = (pid, data, base, isCurrent) => rutinaRepository.write(pid, data, base, isCurrent);
 
     function rowToRegistro(r){
-      return { id: r.id, exercise: canonicalExerciseName(r.exercise), peso: r.peso, date: r.date, series: r.series||"", reps: r.reps||"", nota: r.nota||"", createdAt: r.created_at||0, setNumber: (r.set_number==null? null : r.set_number) };
+      return { id: r.id, exercise: canonicalExerciseName(r.exercise), peso: r.peso, date: r.date, series: r.series||"", reps: r.reps||"", nota: r.nota||"", createdAt: r.created_at||0, setNumber: (r.set_number==null? null : r.set_number), entrenoId:r.entreno_id||null, exerciseInstance:r.ejercicio_instancia||null };
+    }
+    async function listSessionRegistros(pid,entrenoId){
+      const rows=[];
+      for(let offset=0;;offset+=500){
+        const {data,error}=await client().from("registros").select("*")
+          .eq("profile_id",pid).eq("entreno_id",entrenoId).order("id").range(offset,offset+499);
+        if(error) throw error;
+        rows.push(...(data||[]).map(rowToRegistro));
+        if(!data || data.length<500) return rows;
+      }
     }
 
     // v28.1: `setNumber` es opcional (nullable en la base — ver
@@ -3805,10 +3836,45 @@
       return { profile_id: pid, exercise: canonicalExerciseName(data.exercise), peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"", created_at: data.createdAt||Date.now(), set_number: (data.setNumber==null? null : data.setNumber) };
     }
 
+    const historyCompat=VodaFitHistory.createController({capabilities:VodaFitPersistence.capabilities,
+      account:()=>({owner:state.profile?.id,loaded:!!state.persistence,clienteV48:!!state.persistence?.clienteV48,
+        schemaReady:!!state.persistence?.schemaReady,epoch:authLoadGeneration}),
+      rpc:(...args)=>nativeRpc(...args),canonical:canonicalExerciseName,
+      readRecord:async(pid,id)=>{
+        const {data,error}=await client().from("registros").select("id,profile_id,exercise,peso,date,reps,series,nota,set_number,created_at,entreno_id")
+          .eq("profile_id",pid).eq("id",id).maybeSingle();if(error) throw error;return data;
+      },
+      readWorkout:async(pid,id)=>{
+        const {data,error}=await client().from("entrenos").select("id,profile_id,date,day_nombre,is_manual,sesion_id")
+          .eq("profile_id",pid).eq("id",id).maybeSingle();if(error) throw error;return data;
+      }});
+    let historyResult=null;
+    function historyStatus(){return historyResult && historyResult.owner===state.profile?.id && historyResult.epoch===authLoadGeneration ? historyResult.result : null;}
+    function rememberHistory(pid,result,epoch){
+      if(state.profile?.id!==pid || epoch!==authLoadGeneration) return {ok:false,code:"ACCOUNT_CHANGED"};
+      historyResult={owner:pid,epoch,result};return result;
+    }
+    function manualPayload(data){return {exercise:canonicalExerciseName(data.exercise),peso:data.peso,date:data.date,
+      series:data.series||"",reps:data.reps||"",nota:data.nota||""};}
     async function addRegistro(pid, data){
-      const row = registroRowFor(pid, data);
-      const { data: inserted, error } = await client().from("registros").insert(row).select().single();
-      return { ok: !error, id: inserted && inserted.id };
+      const route=historyCompat.mode(pid),epoch=authLoadGeneration;
+      if(!route.ok)return rememberHistory(pid,route,epoch);
+      try {
+        if(route.mode==="v48"){
+          if(data.setNumber!=null)return rememberHistory(pid,{ok:false,code:"LEGACY_SESSION_MUST_BE_FINISHED"},epoch);
+          return rememberHistory(pid,await historyCompat.save(pid,manualPayload(data)),epoch);
+        }
+        const row = registroRowFor(pid, data);
+        if(data.id)row.id=data.id; // UUID de este formulario: un retry no crea otra fila V47.
+        const { data: inserted, error } = await client().from("registros").insert(row).select().single();
+        if(error?.code==="23505" && data.id){
+          const found=await client().from("registros").select("id,profile_id,exercise,peso,date,reps,series,nota,set_number")
+            .eq("profile_id",pid).eq("id",data.id).maybeSingle();
+          if(!found.error && found.data && VodaFitHistory.sameRecord(found.data,manualPayload(data))
+            && found.data.set_number===(data.setNumber??null))return rememberHistory(pid,{ok:true,id:data.id,replayed:true},epoch);
+        }
+        return rememberHistory(pid,{ok:!error,id:inserted && inserted.id,error},epoch);
+      } catch(error){return rememberHistory(pid,{ok:false,code:"NETWORK_ERROR",error},epoch);}
     }
 
     // v28.1: actualiza un registro ya existente en el lugar (en vez de crear
@@ -3816,14 +3882,25 @@
     // registro cargado (ver openSessionLogModal). No toca `set_number` a
     // propósito (una serie no cambia de número al editarse).
     async function updateRegistro(pid, id, data){
-      const row = { peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"" };
-      const { error } = await client().from("registros").update(row).eq("id", id).eq("profile_id", pid);
-      return !error;
+      const route=historyCompat.mode(pid),epoch=authLoadGeneration;
+      if(!route.ok){rememberHistory(pid,route,epoch);return false;}
+      try {
+        if(route.mode==="v48")return rememberHistory(pid,await historyCompat.edit(pid,id,{peso:data.peso,date:data.date,
+          series:data.series||"",reps:data.reps||"",nota:data.nota||""}),epoch).ok;
+        const row = { peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"" };
+        const { error } = await client().from("registros").update(row).eq("id", id).eq("profile_id", pid);
+        return rememberHistory(pid,{ok:!error,error},epoch).ok;
+      } catch(error){rememberHistory(pid,{ok:false,code:"NETWORK_ERROR",error},epoch);return false;}
     }
 
     async function deleteRegistro(pid, id){
-      const { error } = await client().from("registros").delete().eq("id", id).eq("profile_id", pid);
-      return !error;
+      const route=historyCompat.mode(pid),epoch=authLoadGeneration;
+      if(!route.ok){rememberHistory(pid,route,epoch);return false;}
+      try {
+        if(route.mode==="v48")return rememberHistory(pid,await historyCompat.remove(pid,id),epoch).ok;
+        const { error } = await client().from("registros").delete().eq("id", id).eq("profile_id", pid);
+        return rememberHistory(pid,{ok:!error,error},epoch).ok;
+      } catch(error){rememberHistory(pid,{ok:false,code:"NETWORK_ERROR",error},epoch);return false;}
     }
 
     /* ---------- V41: ventanas de lectura del historial ----------
@@ -3869,7 +3946,9 @@
     }
 
     function rowToEntreno(r){
-      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual, isSpecial: !!r.is_special, routineOrigin: r.routine_origin||null };
+      return { id: r.id, date: r.date, dayId: r.day_id, dayNombre: r.day_nombre, setsCompletados: r.sets_completados, setsTotales: r.sets_totales, createdAt: r.created_at||0, isManual: !!r.is_manual, isSpecial: !!r.is_special, routineOrigin: r.routine_origin||null,
+        sessionId:r.sesion_id||null,startedAt:r.inicio_ms??null,endedAt:r.fin_ms??null,timezone:r.zona_horaria||null,
+        durationMs:r.sesion_id && Number.isSafeInteger(r.inicio_ms) && Number.isSafeInteger(r.fin_ms) && r.fin_ms>=r.inicio_ms ? r.fin_ms-r.inicio_ms : null };
     }
 
     // V28: `is_manual` distingue un entrenamiento cerrado desde "Finalizar"
@@ -3878,20 +3957,40 @@
     // Requiere la columna nueva de supabase-migration-v28.sql (default false,
     // así que las filas viejas siguen leyéndose como entrenamientos reales).
     async function addEntreno(pid, data){
+      const route=historyCompat.mode(pid),epoch=authLoadGeneration;
+      if(!route.ok)return rememberHistory(pid,route,epoch);
+      if(route.mode==="v48"){
+        if(!data.isManual || data.isSpecial || data.dayId || data.setsCompletados || data.setsTotales)
+          return rememberHistory(pid,{ok:false,code:"USE_NATIVE_SESSION_RPC"},epoch);
+        return rememberHistory(pid,await historyCompat.mark(pid,{date:data.date,dayNombre:data.dayNombre}),epoch);
+      }
+      try {
       const row = { profile_id: pid, date: data.date, day_id: data.dayId, day_nombre: data.dayNombre, sets_completados: data.setsCompletados, sets_totales: data.setsTotales, created_at: data.createdAt||Date.now(), is_manual: !!data.isManual };
       // V29: is_special (supabase-migration-v29.sql) se manda SOLO cuando es
       // true — así los entrenamientos normales y los marcados a mano siguen
       // funcionando igual aunque la migración v29 todavía no se haya corrido.
       if(data.isSpecial) row.is_special = true;
+      if(data.id)row.id=data.id;
       // V30: el origen se toma de la sesión que se inició, no de la rutina
       // actualmente seleccionada. Los registros históricos y los marcados a
       // mano no mandan este campo y quedan como NULL en la base.
       if(data.routineOrigin) row.routine_origin = data.routineOrigin;
       const { error } = await client().from("entrenos").insert(row);
+      if(error?.code==="23505" && data.id){
+        const found=await client().from("entrenos").select("id,profile_id,date,day_nombre,is_manual,is_special,routine_origin,sets_completados,sets_totales,day_id")
+          .eq("profile_id",pid).eq("id",data.id).maybeSingle();
+        const old=found.data;
+        if(!found.error && old && old.date===data.date && old.day_nombre===data.dayNombre
+          && old.is_manual===!!data.isManual && !!old.is_special===!!data.isSpecial
+          && (old.routine_origin||null)===(data.routineOrigin||null) && (old.day_id||null)===(data.dayId||null)
+          && old.sets_completados===data.setsCompletados && old.sets_totales===data.setsTotales)
+          return rememberHistory(pid,{ok:true,id:data.id,replayed:true},epoch);
+      }
       // V29.2: devuelve también el error REAL de Supabase (antes solo un
       // booleano, y finalizeSession mostraba un mensaje genérico que
       // escondía la causa). Los demás llamadores ignoran el resultado.
-      return error ? { ok:false, error } : { ok:true, error:null };
+      return rememberHistory(pid,error ? { ok:false, error } : { ok:true, error:null },epoch);
+      } catch(error){return rememberHistory(pid,{ok:false,code:"NETWORK_ERROR",error},epoch);}
     }
 
     async function listEntrenos(pid){
@@ -3902,8 +4001,13 @@
     }
 
     async function deleteEntreno(pid, id){
-      const { error } = await client().from("entrenos").delete().eq("id", id).eq("profile_id", pid);
-      return !error;
+      const route=historyCompat.mode(pid),epoch=authLoadGeneration;
+      if(!route.ok){rememberHistory(pid,route,epoch);return false;}
+      try {
+        if(route.mode==="v48")return rememberHistory(pid,await historyCompat.removeWorkout(pid,id),epoch).ok;
+        const { error } = await client().from("entrenos").delete().eq("id", id).eq("profile_id", pid);
+        return rememberHistory(pid,{ok:!error,error},epoch).ok;
+      } catch(error){rememberHistory(pid,{ok:false,code:"NETWORK_ERROR",error},epoch);return false;}
     }
 
     /* ---------- V40: peso corporal ----------
@@ -3977,7 +4081,18 @@
       return { ok: !error, error: error||null };
     }
 
-    return { onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, saveRutina, addRegistro,
+    // Token capturado para el propietario; un cambio de cuenta no redirige la RPC.
+    async function nativeRpc(owner,name,args){
+      if(!VodaFitPersistence.capabilities.metadata || !VodaFitPersistence.capabilities.rpc) throw new Error("V48_NOT_READY");
+      if(!["v48_iniciar","v48_estado","v48_finalizar","v48_cancelar","v48_eliminar","v48_registro_guardar","v48_registro_eliminar","v48_marcar_dia","v48_historico_eliminar"].includes(name)) throw new Error("RPC_NOT_ENABLED");
+      const {data,error}=await client().auth.getSession();
+      if(error || !data.session || data.session.user.id!==owner) throw new Error("ACCOUNT_CHANGED");
+      const response=await fetch(SUPABASE_URL+"/rest/v1/rpc/"+name,{method:"POST",
+        headers:{apikey:SUPABASE_KEY,Authorization:"Bearer "+data.session.access_token,"Content-Type":"application/json"},body:JSON.stringify(args)});
+      const text=await response.text(),body=text?JSON.parse(text):null;
+      return response.ok ? {data:body,status:response.status} : {error:body,status:response.status};
+    }
+    return { historyCompat, historyStatus, nativeRpc, listSessionRegistros, onAuthStateChange, signUp, signIn, signOut, resetPassword, updatePassword, ensureProfile, updateProfile, getRutina, readRutina, saveRutina, addRegistro,
       // V34: expuestas para los tests de canonicalizacion (escritura y lectura).
       registroRowFor, rowToRegistro, updateRegistro, deleteRegistro, listRegistros, listRegistroExerciseNames, addEntreno, listEntrenos, deleteEntreno,
       // V40: peso corporal. rowToPesoCorporal y pesoCorporalRowFor se exponen
@@ -3999,6 +4114,35 @@
   }
 
   /* ---------- App state ---------- */
+  const rutinaCache=VodaFitPersistence.createCache();
+  const rutinaSync = VodaFitPersistence.createSync({read:pid=>Store.readRutina(pid), write:(...args)=>{
+    // V48.1B conserva el borrador en el mismo IndexedDB de V48.1A. Ninguna
+    // serie nativa ni decisión de referencia se envía al camino heredado.
+    if(args[1].__v48StartRequest || args[1].__v48TerminalRequest || (args[1].sesionActiva && args[1].sesionActiva.schemaVersion===48)) return Promise.resolve({ok:false,code:"NATIVE_LOCAL_ONLY"});
+    return Store.saveRutina(...args);
+  }}, rutinaCache);
+  const nativeAdapter=VodaFitLifecycle.createAdapter({capabilities:VodaFitPersistence.capabilities,rpc:(...args)=>Store.nativeRpc(...args)});
+  const nativeLifecycle=VodaFitLifecycle.createController({cache:rutinaCache,adapter:nativeAdapter,
+    current:owner=>!!state.profile && state.profile.id===owner});
+  const nativeTerminalAdapter=VodaFitReconcile.createAdapter({capabilities:VodaFitPersistence.capabilities,rpc:(...args)=>Store.nativeRpc(...args)});
+  const nativeReconciler=VodaFitReconcile.createController({cache:rutinaCache,adapter:nativeTerminalAdapter,
+    current:owner=>!!state.profile && state.profile.id===owner,identity:()=>authLoadGeneration,canonical:canonicalExerciseName});
+  let nativeTerminalRefresh=null;
+  let nativeClockHandle=null;
+  function stopNativeClock(){clearInterval(nativeClockHandle);nativeClockHandle=null;}
+  function mountNativeClock(){
+    stopNativeClock();
+    const update=()=>{
+      const s=nativeSession(),el=document.querySelector('[data-native-duration]');
+      if(!s || !el){stopNativeClock();return;}
+      el.textContent=VodaFitLifecycle.clock(s);
+    };
+    update();
+    // Sólo refresca texto: el tiempo se calcula desde timestamps persistidos.
+    if(nativeSession() && document.querySelector('[data-native-duration]') && !VodaFitLifecycle.pending(nativeSession())) nativeClockHandle=setInterval(update,1000);
+  }
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden && nativeSession()) mountNativeClock();});
+  let authLoadGeneration = 0;
   const state = {
     booted:false,
     dbError:false,
@@ -4007,6 +4151,10 @@
     authError:"",
     authNotice:"",
     profile:null,        // fila de la tabla profiles del usuario logueado
+    nativeOffline:false,
+    persistence:null,    // V48.1A: sincronización, sin activar cuentas
+    rutinaRaw:null,      // conserva claves desconocidas del documento
+    unresolvedSession:null,
     rutina:{days:[]},
     registros:[],
     entrenos:[],
@@ -4135,6 +4283,7 @@
   }
 
   function render(){
+    stopNativeClock();
     if(!state.booted){
       app.innerHTML = `
         <div class="topbar">
@@ -4178,7 +4327,7 @@
       return;
     }
 
-    if(state.tab==="sesion" && state.session){
+    if(state.tab==="sesion" && (state.session || nativeSession())){
       app.classList.remove("app-wide");
       renderSession();
       return;
@@ -4463,8 +4612,12 @@
     };
   }
 
-  async function loadProfileData(){
+  function networkUnavailable(error){
+    return navigator.onLine===false || error instanceof TypeError || /failed to fetch|networkerror|network request failed/i.test(error && error.message || "");
+  }
+  async function loadProfileData({confirmedNative=false}={}){
     if(!state.profile) return;
+    const ownerId=state.profile.id, generation=authLoadGeneration;
     // V40: el peso corporal se pide con su propio catch, NO dentro del
     // Promise.all "duro" de abajo. Razón: si la migración v40 todavía no se
     // corrió, la tabla no existe y la consulta falla; un throw acá haría que
@@ -4472,16 +4625,46 @@
     // TODA la app a la pantalla de error de conexión. La funcionalidad nueva
     // no puede tirar abajo la que ya funciona: si no está disponible, queda
     // en [] y el bloque "Mi peso" muestra el aviso.
-    const pesoPromise = Store.listPesoCorporal(state.profile.id)
+    const pesoPromise = Store.listPesoCorporal(ownerId)
       .then((rows)=> ({ rows: rows||[], error: null }))
       .catch((e)=> ({ rows: [], error: (e && e.message) ? e.message : "No se pudo leer el peso corporal." }));
 
-    const [raw, registros, entrenos, peso] = await Promise.all([
-      Store.getRutina(state.profile.id),
-      Store.listRegistros(state.profile.id),
-      Store.listEntrenos(state.profile.id),
-      pesoPromise,
-    ]);
+    let nativeIssue=null;
+    if(VodaFitPersistence.capabilities.metadata && VodaFitPersistence.capabilities.rpc){
+      try {
+        const base=await Store.readRutina(ownerId);
+        if(generation!==authLoadGeneration || !state.profile || state.profile.id!==ownerId) return;
+        const reconciled=await nativeReconciler.recover(ownerId,base,navigator.onLine!==false);
+        if(reconciled.ok && !reconciled.unchanged) confirmedNative=true;
+        if(!reconciled.ok) nativeIssue=reconciled.code;
+        if(reconciled.unchanged) await nativeLifecycle.recover(ownerId,base,navigator.onLine!==false);
+      } catch(error){if(!networkUnavailable(error)) throw error;}
+    }
+    const outcomes=await Promise.allSettled([rutinaSync.load(ownerId),Store.listRegistros(ownerId),Store.listEntrenos(ownerId),pesoPromise]);
+    if(outcomes[0].status!=="fulfilled") throw outcomes[0].reason;
+    const loaded=outcomes[0].value;
+    if(loaded.conflict && VodaFitSession.isNative(loaded.localDraft?.sesionActiva) && (VodaFitLifecycle.pending(loaded.localDraft.sesionActiva) || loaded.localDraft.__v48TerminalRequest)){
+      // Mostrar el cierre local protegido aunque el remoto ya tenga un comprobante.
+      loaded.data={...loaded.data,sesionActiva:deepClone(loaded.localDraft.sesionActiva),...(loaded.localDraft.__v48TerminalRequest?{__v48TerminalRequest:deepClone(loaded.localDraft.__v48TerminalRequest)}:{})};
+    }
+    const recoverableNative=VodaFitSession.isNative(loaded.data && loaded.data.sesionActiva);
+    const historyUnavailable=outcomes.slice(1,3).some(x=>x.status==="rejected");
+    if(historyUnavailable && !recoverableNative && !confirmedNative) throw outcomes.slice(1,3).find(x=>x.status==="rejected").reason;
+    const registros=outcomes[1].status==="fulfilled"?outcomes[1].value:(confirmedNative?state.registros:[]);
+    const entrenos=outcomes[2].status==="fulfilled"?outcomes[2].value:(confirmedNative?state.entrenos:[]);
+    const peso=outcomes[3].value || {rows:[],error:"Sin conexión"};
+    if(generation!==authLoadGeneration || !state.profile || state.profile.id!==ownerId) return;
+    state.nativeReconcileIssue=nativeIssue;
+    state.historyRefreshPending=confirmedNative && historyUnavailable;
+    state.nativeOffline=recoverableNative && (!!loaded.offline || historyUnavailable);
+    if(state.nativeOffline) state.tab="sesion";
+
+    if(generation !== authLoadGeneration || !state.profile || state.profile.id !== ownerId || !loaded.ok) return;
+    const raw=loaded.data;
+    state.rutinaRaw=deepClone(raw); state.persistence=loaded; state.unresolvedSession=null;
+    if(loaded.conflict) showToast("Hay cambios en otra copia. El borrador local se conserva; la sincronización quedó bloqueada.");
+    else if(loaded.recovered) showToast("Borrador local recuperado. Hay cambios pendientes de sincronizar.");
+    else if(loaded.localError) showToast("El almacenamiento local no está disponible en este dispositivo.");
 
     // Desde v19 se guardan DOS rutinas por cuenta ("personalizada" la que arma
     // el usuario a mano, "automatica" la última que generó el botón de rutina
@@ -4527,11 +4710,13 @@
     // recargó con una sesión activa sin guardar/finalizar). Se guarda dentro
     // del mismo blob `rutinas.data` (ver persistRutina) para no crear una
     // segunda fuente de verdad ni una tabla nueva. Se valida que el día
-    // todavía exista en el slot en el que se guardó la sesión — si el usuario
-    // borró ese día o la rutina cambió mientras tanto, se descarta la sesión
-    // guardada en vez de romper la pantalla de Entrenamiento con datos viejos.
+    // todavía exista en el slot en el que se guardó la sesión. V48.1A conserva
+    // una sesión no interpretable en unresolvedSession y bloquea reemplazarla.
     state.session = null;
-    if(raw && raw.sesionActiva && raw.sesionActiva.dayId && raw.sesionActiva.sets){
+    if(raw && raw.sesionActiva && raw.sesionActiva.schemaVersion===48){
+      state.unresolvedSession=deepClone(raw.sesionActiva);
+      if(!nativeSession()) showToast("El borrador V48 no puede interpretarse. Se conserva sin modificar.");
+    } else if(raw && raw.sesionActiva && raw.sesionActiva.dayId && raw.sesionActiva.sets){
       const s = raw.sesionActiva;
       // V29: una sesión de Día Especial trae su propio día embebido.
       const isSpecial = s.slot==="especial";
@@ -4552,12 +4737,16 @@
           const n = s.sets[exId].length;
           setLogs[exId] = new Array(n).fill(null).map((_,i)=> savedLog[i] || null);
         });
-        state.session = { dayId: s.dayId, slot, dayNombre: s.dayNombre||day.nombre, startedAt: s.startedAt||Date.now(), sets: s.sets, setLogs };
+        state.session = { ...s, dayId: s.dayId, slot, dayNombre: s.dayNombre||day.nombre, startedAt: s.startedAt||Date.now(), sets: s.sets, setLogs };
         // El día embebido del Día Especial no vive en rutinaSlots, así que
         // se canonicaliza por separado.
         if(isSpecial){ canonicalizeDayNames(day); state.session.specialDay = day; }
+      } else {
+        state.unresolvedSession=deepClone(s);
       }
     }
+    if(raw && raw.sesionActiva && !state.session && !state.unresolvedSession)
+      state.unresolvedSession=deepClone(raw.sesionActiva);
   }
 
 
@@ -4600,13 +4789,31 @@
   // lo que permite que "Guardar entrenamiento" y el resumen automático al
   // reabrir la app funcionen sin crear una segunda fuente de verdad.
   async function persistRutina(){
-    await Store.saveRutina(state.profile.id, {
+    if(!state.profile) return {ok:false,code:"NOT_AUTHENTICATED"};
+    const ownerId=state.profile.id, generation=authLoadGeneration;
+    const data={...(state.rutinaRaw || {}),
       personalizada: state.rutinaSlots.personalizada,
       automatica: state.rutinaSlots.automatica,
       enfocada: state.rutinaSlots.enfocada,
       activeSlot: state.activeSlot,
-      sesionActiva: state.session,
-    });
+      sesionActiva: state.session || state.unresolvedSession,
+    };
+    let result=await rutinaSync.save(data);
+    if(result.code==="NATIVE_LOCAL_ONLY" && result.localSaved){
+      result={...result,ok:true,localOnly:true,envelope:{data:deepClone(data),revision:state.persistence && state.persistence.revision,
+        clienteV48:!!(state.persistence && state.persistence.clienteV48),schemaReady:!!(state.persistence && state.persistence.schemaReady)}};
+    }
+    if(generation!==authLoadGeneration || !state.profile || state.profile.id!==ownerId) return result;
+    state.persistence={...state.persistence,...(result.ok ? result.envelope : {}),lastSave:result,pending:!result.ok || !!result.localOnly};
+    if(result.ok) state.rutinaRaw=deepClone(result.envelope.data);
+    if(!result.ok || result.conflict || result.localError){
+      const conflict=result.code==="REVISION_CONFLICT" || result.code==="LOCAL_CONFLICT" || result.conflict;
+      showToast(conflict ? "Conflicto de guardado. Conservamos las copias; no sobrescribimos los cambios remotos."
+        : result.ok ? "Guardado remoto correcto; no se pudo mantener la copia local."
+        : result.localSaved ? "No se pudo sincronizar. El borrador quedó guardado en este dispositivo."
+        : "No se pudo guardar. Conservá la aplicación abierta para no perder los cambios.");
+    }
+    return result;
   }
 
   async function selectRutinaSlot(slot){
@@ -4643,7 +4850,7 @@
     const slotTitle = { personalizada:"Tu rutina", automatica:"Rutina automática", enfocada:"Rutina enfocada" }[slot] || "Tu rutina";
     return `
       ${rachaCardHtml()}
-      ${state.session ? sessionResumeBannerHtml() : ""}
+      ${(state.session || nativeSession()) ? sessionResumeBannerHtml() : ""}
       <div class="segmented" style="margin-bottom:2px">
         ${slotBtns}
       </div>
@@ -4823,7 +5030,12 @@
   // era directamente incorrecto al RESUMIR una sesión guardada después de
   // recargar la app (el slot activo al recargar puede no ser el de la
   // sesión). Ahora la sesión guarda su propio `slot` y se busca siempre ahí.
+  function nativeSession(){
+    const s=state.session || state.unresolvedSession;
+    return VodaFitSession.isNative(s) ? s : null;
+  }
   function sessionDay(){
+    if(nativeSession()) return nativeSession().day;
     if(!state.session) return null;
     // V29: el Día Especial no pertenece a ninguna rutina — viaja dentro de la sesión.
     if(state.session.slot==="especial") return state.session.specialDay || null;
@@ -4832,6 +5044,7 @@
   }
 
   function sessionProgress(){
+    if(nativeSession()) return VodaFitSession.progress(nativeSession());
     const setsObj = (state.session && state.session.sets) || {};
     let total=0, done=0;
     Object.keys(setsObj).forEach(exId=>{ (setsObj[exId]||[]).forEach(v=>{ total++; if(v) done++; }); });
@@ -4839,13 +5052,15 @@
   }
 
   function sessionResumeBannerHtml(){
+    const session=nativeSession() || state.session;
     const day = sessionDay();
     const p = sessionProgress();
     return `
       <div class="card stack" style="border-color:var(--accent)">
         <div>
-          <div style="font-weight:700">Entrenamiento en curso${state.session.slot==="especial" ? ` <span class="special-badge">Día Especial</span>` : ""}</div>
-          <div class="helptext">${esc(day?day.nombre:(state.session.dayNombre||""))} · ${p.done}/${p.total} series completadas</div>
+          <div style="font-weight:700">Entrenamiento en curso${session.slot==="especial" ? ` <span class="special-badge">Día Especial</span>` : ""}</div>
+          <div class="helptext">${esc(day?day.nombre:(session.dayNombre||""))} · ${p.done}/${p.total} series completadas</div>
+          ${nativeSession()?nativeLifecycleHtml(nativeSession()):''}
         </div>
         <div class="row" style="gap:8px">
           <button class="btn btn-primary btn-sm" style="flex:1" id="btn-resume-session">Continuar entrenamiento</button>
@@ -6558,6 +6773,8 @@
             <div>
               <div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div>
               <div class="ldate">${calendarOriginLabelHtml(calendarOriginFor(e))}${calendarOriginFor(e)==="especial" ? " · no suma al objetivo semanal" : ""}</div>
+              <div class="helptext">${sessionDurationText(e)}</div>
+              ${e.sessionId?`<button class="btn btn-ghost" data-view-native-session="${esc(e.id)}">Ver series</button>`:''}
             </div>
             <div class="row" style="gap:8px; align-items:center">
               ${e.isManual
@@ -6571,23 +6788,63 @@
       <p class="helptext">Si finalizaste un entrenamiento por error, tocá el tacho para borrarlo — no va a contar en la racha ni en el calendario.</p>
       <div class="modal-actions"><button class="btn btn-primary btn-block" data-act="ok">Cerrar</button></div>
     `);
+    m.querySelectorAll('[data-view-native-session]').forEach(btn=>btn.onclick=async()=>{
+      const entry=list.find(e=>e.id===btn.dataset.viewNativeSession),owner=state.profile?.id,generation=authLoadGeneration;
+      if(!entry || !owner) return;
+      btn.disabled=true;
+      try {
+        const rows=await Store.listSessionRegistros(owner,entry.id);
+        if(generation!==authLoadGeneration || state.profile?.id!==owner || !m.isConnected) return;
+        if(rows.length!==entry.setsCompletados) throw Error('El detalle cambió; recargá el historial');
+        const detail=openModal(`<h3>${esc(entry.dayNombre||"Entrenamiento")}</h3><p class="helptext">${esc(fmtDate(entry.date))} · ${sessionDurationText(entry)}</p>${nativeHistoryRowsHtml(rows)}<div class="modal-actions"><button class="btn btn-primary" data-session-back>Volver</button></div>`);
+        detail.querySelector('[data-session-back]').onclick=()=>openCalDayModal(date);
+      }catch(error){if(generation===authLoadGeneration && state.profile?.id===owner && m.isConnected){btn.disabled=false;showToast("No se pudo cargar el detalle de esta sesión. Reintentá con conexión.");}}
+    });
     m.querySelectorAll("[data-del-entreno]").forEach(btn=>{
       btn.onclick = async ()=>{
         const id = btn.dataset.delEntreno;
-        const ok = await confirmDialog("Borrar entrenamiento", "¿Seguro que querés borrar este registro? No se puede deshacer.", "Borrar");
+        const nativeEntry=list.find(e=>e.id===id && e.sessionId),owner=state.profile.id,generation=authLoadGeneration;
+        const ok = await confirmDialog("Borrar entrenamiento", nativeEntry?"Se eliminará esta sesión y todas sus series vinculadas. No se puede deshacer.":"¿Seguro que querés borrar este registro? No se puede deshacer.", "Borrar");
         if(!ok){ openCalDayModal(date); return; } // reabre el modal (confirmDialog lo cerró)
-        const okDel = await Store.deleteEntreno(state.profile.id, id);
+        if(nativeEntry){
+          if(generation!==authLoadGeneration || state.profile?.id!==owner) return;
+          const result=await nativeReconciler.remove(owner,rutinaSync.getContext()?.base,nativeEntry.sessionId,navigator.onLine!==false);
+          if(generation!==authLoadGeneration || state.profile?.id!==owner) return;
+          if(result.ok){closeModal();await applyNativeTerminalResult(result,owner,generation);}
+          else showToast("Eliminación pendiente ("+result.code+"). No se confirmó ningún cambio local.");
+          return;
+        }
+        if(generation!==authLoadGeneration || state.profile?.id!==owner)return;
+        let okDel;try{okDel=await Store.deleteEntreno(owner,id);}catch(error){okDel=false;}
+        if(generation!==authLoadGeneration || state.profile?.id!==owner)return;
         if(okDel){
+          await Store.historyCompat.acknowledge(owner,Store.historyStatus()).catch(()=>{});
+          if(generation!==authLoadGeneration || state.profile?.id!==owner)return;
           state.entrenos = (state.entrenos||[]).filter(e=>e.id!==id);
           closeModal();
           openCalDayModal(date);
         } else {
-          alert("No se pudo borrar. Probá de nuevo.");
-          openCalDayModal(date);
+          showHistoryFailure();openCalDayModal(date);
         }
       };
     });
     m.querySelector('[data-act="ok"]').onclick = closeModal;
+  }
+
+  function sessionDurationText(entry){
+    if(!entry.sessionId || !Number.isSafeInteger(entry.durationMs) || entry.durationMs<0) return "Sin duración medida";
+    const seconds=Math.floor(entry.durationMs/1000),h=Math.floor(seconds/3600),m=Math.floor(seconds/60)%60,s=seconds%60;
+    const duration=[h,m,s].map(n=>String(n).padStart(2,'0')).join(':');
+    let hours='';
+    try {const f=new Intl.DateTimeFormat('es',{timeZone:entry.timezone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+      hours=` · ${f.format(new Date(entry.startedAt))}–${f.format(new Date(entry.endedAt))} (${entry.timezone})`;
+    }catch{}
+    return esc('Duración: '+duration+hours);
+  }
+  function nativeHistoryRowsHtml(rows){
+    const groups=new Map();
+    for(const r of rows){const key=r.exerciseInstance||r.exercise;if(!groups.has(key)) groups.set(key,[]);groups.get(key).push(r);}
+    return Array.from(groups.values(),group=>`<div class="card stack"><b>${esc(group[0].exercise)}</b>${group.sort((a,b)=>a.setNumber-b.setNumber).map(r=>`<div class="row between"><span>Serie ${esc(r.setNumber)}</span><span class="num">${esc(r.peso)} kg × ${esc(r.reps)}</span></div>`).join('')}</div>`).join('') || '<p class="helptext">No se completaron series.</p>';
   }
 
   // V28: marcar manualmente "entrené este día" desde un día vacío del
@@ -6597,6 +6854,9 @@
   // (computeRacha ya usa solo `e.date`, no distingue el origen), y se puede
   // borrar como cualquier otro desde el mismo modal de detalle del día.
   function openMarkTrainedModal(date){
+    const owner=state.profile.id,generation=authLoadGeneration;
+    let confirmedMark=null;
+    const markId=crypto.randomUUID?.();
     const m = openModal(`
       <h3>${esc(fmtDate(date))}</h3>
       <p class="helptext" style="font-size:14px; color:var(--text)">¿Marcar este día como entrenado? No se van a inventar series, pesos ni ejercicios — solo queda anotado que entrenaste, y cuenta para tu racha y tu meta semanal.</p>
@@ -6612,15 +6872,17 @@
     m.querySelector('[data-act="cancel"]').onclick = closeModal;
     m.querySelector('[data-act="ok"]').onclick = async ()=>{
       const btn = m.querySelector('[data-act="ok"]');
-      if(btn.disabled) return; // evita doble registro por doble tap
+      if(btn.disabled || state.profile?.id!==owner || generation!==authLoadGeneration)return; // doble tap/cambio de cuenta
       btn.disabled = true;
       const nota = m.querySelector("#calmark-nota").value.trim();
-      const data = { date, dayId: null, dayNombre: nota || "Entrenamiento (marcado manualmente)", setsCompletados: 0, setsTotales: 0, createdAt: Date.now(), isManual: true };
-      await Store.addEntreno(state.profile.id, data);
-      state.entrenos = await Store.listEntrenos(state.profile.id);
-      closeModal();
-      renderScreen();
-      showToast("Día marcado como entrenado");
+      const data = { id:markId, date, dayId: null, dayNombre: nota || "Entrenamiento (marcado manualmente)", setsCompletados: 0, setsTotales: 0, createdAt: Date.now(), isManual: true };
+      if(confirmedMark && confirmedMark.name!==data.dayNombre){btn.disabled=false;showToast("El día ya se confirmó. Actualizá el historial antes de cambiar la nota.");return;}
+      let result;try{result=confirmedMark?.result || await Store.addEntreno(owner,data);}catch(error){result={ok:false,error};}
+      if(result?.ok)confirmedMark={name:data.dayNombre,result};
+      if(state.profile?.id!==owner || generation!==authLoadGeneration)return;
+      if(!result?.ok){btn.disabled=false;showHistoryFailure(result);return;}
+      if(!await refreshHistoryAfterWrite(owner,generation,"entrenos",result)){btn.disabled=false;return;}
+      closeModal();renderScreen();showToast("Día marcado como entrenado");
     };
   }
 
@@ -6994,6 +7256,7 @@
   }
 
   function mountRutina(){
+    if(nativeSession()) mountNativeClock();
     const el = document.getElementById("screen");
     const addDayBtn = el.querySelector("#btn-add-day");
     if(addDayBtn) addDayBtn.onclick = ()=> openDayModal(null);
@@ -7110,6 +7373,7 @@
     if(resumeBtn) resumeBtn.onclick = ()=>{ state.tab = "sesion"; render(); };
     const finalizeBtn = el.querySelector("#btn-finalize-session");
     if(finalizeBtn) finalizeBtn.onclick = async ()=>{
+      if(nativeSession()) return requestNativeFinish();
       const day = sessionDay();
       const p = sessionProgress();
       const ok = await confirmDialog("Finalizar entrenamiento", `Vas a cerrar este entrenamiento (${p.done}/${p.total} series) y contará para tu racha y meta semanal. ¿Confirmar?`, "Finalizar");
@@ -7130,6 +7394,23 @@
   // "especial" y el día completo embebido en `specialDay` (ese día no vive
   // en ninguna rutina, así que sessionDay() no lo encontraría en rutinaSlots).
   function startSession(day, opts){
+    if(state.rutinaRaw?.__v48TerminalRequest || nativeTerminalRefresh){showToast("Hay una operación pendiente. Reconciliá antes de iniciar otro entrenamiento.");return;}
+    if(nativeSession()){state.tab="sesion";render();return;}
+    if(state.persistence && state.persistence.clienteV48 && !state.unresolvedSession && !state.session){
+      const owner=state.profile.id,generation=authLoadGeneration;
+      return nativeLifecycle.start(owner,rutinaSync.getContext()?.base,day,opts && opts.special?"especial":state.activeSlot,navigator.onLine!==false).then(async result=>{
+        if(generation!==authLoadGeneration || !state.profile || state.profile.id!==owner) return result;
+        if(result.ok){await loadProfileData();if(generation===authLoadGeneration && state.profile?.id===owner){state.tab="sesion";render();}}
+        else showToast(result.code==="ONLINE_REQUIRED" ? "Necesitás conexión para iniciar un entrenamiento V48."
+          : result.code==="V48_NOT_READY" ? "El inicio V48 requiere la reserva online. Todavía no está habilitado; no se creó ninguna sesión."
+          : "No se confirmó el inicio ("+result.code+"). La solicitud se conserva para reintentar sin duplicar.");
+        return result;
+      });
+    }
+    if(state.unresolvedSession || (state.persistence && state.persistence.clienteV48)){
+      showToast("El entrenamiento V48 todavía no está habilitado en esta versión. Tu sesión se conserva."); return;
+    }
+    if(state.session){state.tab="sesion";render();return;}
     const special = !!(opts && opts.special);
     const sets = {};
     const setLogs = {};
@@ -7156,10 +7437,13 @@
       </div>
       <main><div class="screen" id="screen"></div></main>
       <nav class="bottomnav">
-        <button class="btn btn-primary btn-block" id="btn-save-session" style="max-width:444px; margin:0 auto">${icon("check")} Guardar entrenamiento</button>
+        <button class="btn btn-primary btn-block" id="btn-save-session" style="max-width:444px; margin:0 auto">${icon("check")} ${nativeSession() ? (VodaFitLifecycle.pending(nativeSession()) ? "Reintentar finalización" : "Finalizar entrenamiento") : "Guardar entrenamiento"}</button>
       </nav>
     `;
-    document.getElementById("btn-session-back").onclick = ()=>{ state.tab="rutina"; render(); };
+    document.getElementById("btn-session-back").onclick = ()=>{
+      if(state.nativeOffline){showToast("Entrenamiento recuperado. Los demás datos de la cuenta requieren conexión.");return;}
+      state.tab="rutina"; render();
+    };
     document.getElementById("screen").innerHTML = screenSession(day);
     mountSession(day);
     document.getElementById("btn-save-session").onclick = saveSessionProgress;
@@ -7179,6 +7463,10 @@
   }
 
   function screenSession(day){
+    if(nativeSession()) return nativeLifecycleHtml(nativeSession())+VodaFitSession.html(nativeSession(),state.rutinaRaw && state.rutinaRaw.referenciasEjercicios,canonicalExerciseName)
+      +'<button class="btn btn-outline btn-block" data-native-finalize>Finalizar entrenamiento</button>'
+      +(!VodaFitLifecycle.pending(nativeSession()) && !state.rutinaRaw?.__v48TerminalRequest ? '<button class="btn btn-outline btn-block" data-native-cancel>Cancelar entrenamiento</button>' : '')
+      +(['REMOTE_ELIMINADA','REMOTE_CANCELADA','REMOTE_FINALIZADA','IDEMPOTENCY_CONFLICT'].includes(state.nativeReconcileIssue)?'<button class="btn btn-outline btn-block" data-native-use-remote>Resolver con el estado remoto</button>':'');
     const exs = day.exercises||[];
     if(exs.length===0){
       return `<div class="card empty">${icon("routine")}<h3>Este día no tiene ejercicios</h3><p>Agregale ejercicios desde "Rutina" antes de entrenar.</p></div>`;
@@ -7242,6 +7530,44 @@
 
   function mountSession(day){
     const el = document.getElementById("screen");
+    if(nativeSession()){
+      const session=nativeSession(),owner=state.profile && state.profile.id,generation=authLoadGeneration;
+      const current=()=>nativeSession()===session && state.profile && state.profile.id===owner && generation===authLoadGeneration;
+      mountNativeClock();
+      el.querySelector('[data-native-finalize]').onclick=requestNativeFinish;
+      const nativeCancel=el.querySelector('[data-native-cancel]');
+      if(nativeCancel) nativeCancel.onclick=requestNativeCancel;
+      const useRemote=el.querySelector('[data-native-use-remote]');if(useRemote) useRemote.onclick=requestNativeRemoteResolution;
+      if(VodaFitLifecycle.pending(session) || state.rutinaRaw?.__v48TerminalRequest){
+        el.querySelectorAll('[data-native-field],[data-native-check],[data-native-finish]').forEach(e=>e.disabled=true);
+        el.querySelector('[data-native-finalize]').textContent="Finalización pendiente · Reintentar guardado local";
+        el.querySelectorAll('[data-native-count]').forEach(b=>{
+          const id=b.dataset.nativeCount;b.textContent=VodaFitSession.completed(session,id).length+"/"+VodaFitSession.rows(session,id).length;
+        });
+        el.querySelectorAll('[data-native-rest]').forEach(b=>b.onclick=()=>{if(current()) openRestModal();});
+        el.querySelectorAll('[data-native-info]').forEach(b=>b.onclick=()=>{
+          if(!current()) return;
+          const ex=day.exercises.find(x=>x.id===b.dataset.nativeInfo);
+          if(ex) openExerciseDetail(ex,{returnTab:"sesion"});
+        });
+        return;
+      }
+      VodaFitSession.bind(el,session,{
+        onChange:async()=>{
+          if(!current()) return;
+          const status=el.querySelector('[data-native-save-status]');
+          if(status) status.textContent="Guardando borrador…";
+          const saved=await persistRutina();
+          if(!current()) return;
+          if(status && status.isConnected) status.textContent=saved.ok ? "Borrador guardado en este dispositivo. Pendiente de sincronización."
+            : "No se pudo guardar el último cambio. Conservá esta pantalla abierta y revisá el aviso.";
+        },
+        onFinish:exId=>openNativeReferenceDialog(session,exId,current),
+        onRest:()=>{if(current()) openRestModal();},
+        onInfo:exId=>{if(current()){const ex=day.exercises.find(x=>x.id===exId);if(ex) openExerciseDetail(ex,{returnTab:"sesion"});}}
+      });
+      return;
+    }
     el.querySelectorAll(".setdot").forEach(dot=>{
       if(dot.classList.contains("locked")) return; // v28: bloqueada hasta completar la anterior de ESE ejercicio
       dot.onclick = ()=>{
@@ -7283,6 +7609,31 @@
     };
   }
 
+  function openNativeReferenceDialog(session,exId,current){
+    if(!current() || VodaFitLifecycle.pending(session)) return;
+    const snapshot=VodaFitSession.completed(session,exId);
+    if(!snapshot.length){showToast("Completá al menos una serie válida antes de terminar el ejercicio.");return;}
+    const m=openModal(`<h3>Terminar ejercicio</h3>
+      <p>¿Querés guardar estos pesos y repeticiones como referencia para la próxima vez?</p>
+      <p class="helptext">Ambas opciones conservan tus series completadas en el borrador. La referencia se confirma al finalizar el entrenamiento completo.</p>
+      <div class="modal-actions"><button class="btn btn-outline" data-native-answer="no">No guardar</button>
+      <button class="btn btn-primary" data-native-answer="yes">Guardar referencia</button></div>`);
+    m.querySelectorAll('[data-native-answer]').forEach(button=>button.onclick=async()=>{
+      if(!current() || VodaFitLifecycle.pending(session)) return;
+      if(!VodaFitSession.decide(session,exId,button.dataset.nativeAnswer==="yes",snapshot)){
+        closeModal();showToast("Las series cambiaron. Volvé a terminar el ejercicio para elegir la referencia.");return;
+      }
+      const saved=await persistRutina();
+      if(!current()) return;
+      closeModal();renderScreenSession();
+      if(saved.ok){
+        const index=session.day.exercises.findIndex(ex=>ex.id===exId),next=session.day.exercises[index+1];
+        if(next){const card=Array.from(document.querySelectorAll('[data-native-card]')).find(el=>el.dataset.nativeCard===next.id);
+          if(card) card.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}
+      }
+    });
+  }
+
   // Dentro de cada ejercicio las series se completan en orden: tocar la
   // próxima pendiente la marca; tocar una ya marcada la desmarca a ELLA y a
   // todas las que venían después (si esas dependían de que esta estuviera
@@ -7315,14 +7666,17 @@
   // con `set_number` = idx+1 para las filas nuevas) para que el historial y
   // el gráfico de Registro queden al día al instante.
   function openSessionLogModal(ex, idx){
-    const existing = (state.session.setLogs[ex.id] || [])[idx] || null;
+    const owner=state.profile.id,generation=authLoadGeneration,session=state.session;
+    const current=()=>state.profile?.id===owner && generation===authLoadGeneration && state.session===session;
+    let existing = (state.session.setLogs[ex.id] || [])[idx] || null;
+    const registroId=existing?.registroId || crypto.randomUUID?.();
     const m = openModal(`
       <h3>${existing?"Editar serie":"Registrar serie"} ${idx+1}</h3>
       <p class="helptext" style="margin:-8px 0 4px">${esc(ex.nombre)}</p>
       <div class="stack">
         <div class="field-row">
           <div class="field"><label>Fecha</label><input type="date" id="slog-date" value="${esc(existing? existing.date : todayStr())}"></div>
-          <div class="field"><label>Peso (kg)</label><input type="number" id="slog-peso" step="0.5" min="0" placeholder="Ej: 40" value="${existing? esc(existing.peso) : ""}"></div>
+          <div class="field"><label>Peso (kg)</label><input type="number" id="slog-peso" inputmode="decimal" step="0.5" min="0" placeholder="Ej: 40" value="${existing? esc(existing.peso) : ""}"></div>
         </div>
         <div class="field">
           <label>Reps</label>
@@ -7344,25 +7698,33 @@
       const reps = m.querySelector("#slog-reps").value;
       const nota = m.querySelector("#slog-nota").value.trim();
       const saveBtn = m.querySelector('[data-act="save"]');
-      if(saveBtn.disabled) return; // evita doble registro por doble tap mientras guarda
+      if(saveBtn.disabled || !current())return; // doble tap/cambio de cuenta
       saveBtn.disabled = true;
       const pesoNum = parseFloat(peso);
       if(existing){
         // Edición: actualiza la fila que ya existía para ESTA serie, nunca
         // crea una nueva. `set_number` no se toca (no cambia de serie).
-        await Store.updateRegistro(state.profile.id, existing.registroId, { peso: pesoNum, date, series: "1", reps, nota });
+        let ok;try{ok=await Store.updateRegistro(owner,existing.registroId,{peso:pesoNum,date,series:"1",reps,nota});}catch(error){ok=false;}
+        if(!current())return;
+        if(!ok){saveBtn.disabled=false;showHistoryFailure();return;}
         state.session.setLogs[ex.id][idx] = { registroId: existing.registroId, peso: pesoNum, reps, nota, date };
       } else {
         // Alta: una fila = una serie (series:"1" es correcto acá, no es el
         // total de series del ejercicio). set_number = idx+1 (1-indexado).
-        const data = { exercise: ex.nombre, peso: pesoNum, date, series: "1", reps: reps||"", nota, setNumber: idx+1, createdAt: Date.now() };
-        const res = await Store.addRegistro(state.profile.id, data);
+        const data = { id:registroId, exercise: ex.nombre, peso: pesoNum, date, series: "1", reps: reps||"", nota, setNumber: idx+1, createdAt: Date.now() };
+        let res;try{res=await Store.addRegistro(owner,data);}catch(error){res={ok:false,error};}
+        if(!current())return;
+        if(!res?.ok || !res.id){saveBtn.disabled=false;showHistoryFailure(res);return;}
         state.session.setLogs[ex.id][idx] = { registroId: res.id, peso: pesoNum, reps, nota, date };
+        existing=state.session.setLogs[ex.id][idx];
         toggleSessionSet(ex.id, idx); // idx es siempre la serie activa (next) acá, nunca una ya hecha — no hay riesgo de descascadear
       }
-      state.registros = await Store.listRegistros(state.profile.id);
+      const refreshed=await refreshHistoryAfterWrite(owner,generation,"registros");
+      if(!current())return;
       state.exerciseSelForm = canonicalExerciseName(ex.nombre);
-      await persistRutina();
+      const saved=await persistRutina();
+      if(!current())return;
+      if(!saved.ok || !refreshed){saveBtn.disabled=false;return;}
       closeModal();
       renderScreenSession();
       showToast(existing ? "Registro actualizado" : "Registro guardado");
@@ -7376,10 +7738,13 @@
   // todavía. Eso solo lo hace "Finalizar" (ver finalizeSession), para no
   // duplicar registros de un mismo entrenamiento.
   async function saveSessionProgress(){
-    await persistRutina();
-    state.tab = "rutina";
+    // V48 confirma y congela el cierre; V47 conserva su guardado de progreso.
+    if(nativeSession()) return requestNativeFinish();
+    const saved=await persistRutina();
+    if(!saved.ok) return;
+    state.tab = state.nativeOffline ? "sesion" : "rutina";
     render();
-    showToast("Progreso guardado");
+    if(!saved.conflict && !saved.localError) showToast(saved.localOnly ? "Borrador guardado en este dispositivo" : "Progreso guardado");
   }
 
   // V28: "Finalizar" es la acción que de verdad cierra el entrenamiento y lo
@@ -7388,7 +7753,85 @@
   // vive en el banner "Entrenamiento en curso" de Mi rutina (spec v28 sección
   // 11), separado de guardar progreso, para que no se puedan crear dos
   // registros del mismo entrenamiento.
+  function nativeLifecycleHtml(s){
+    const pending=VodaFitLifecycle.pending(s);
+    return `<div class="card stack"><div>Duración <strong data-native-duration>${VodaFitLifecycle.clock(s)}</strong></div>
+      <div class="helptext">Inicio: ${esc(VodaFitLifecycle.localDate(s.startedAt,s.timezone))} · ${esc(s.timezone)}</div>
+      ${state.nativeOffline?'<div class="helptext">Entrenamiento recuperado. Los demás datos de la cuenta requieren conexión.</div>':''}
+      <div class="helptext">${pending?"Finalización pendiente de confirmación remota. Hora de cierre fijada.":"Tiempo automático desde el inicio. El borrador se conserva en este dispositivo."}</div></div>`;
+  }
+  async function requestNativeFinish(){
+    if(state.rutinaRaw?.__v48TerminalRequest){showToast("Hay una operación terminal pendiente. Recargá con conexión para reconciliarla.");return;}
+    const s=nativeSession(),owner=state.profile?.id,generation=authLoadGeneration;
+    if(!s) return;
+    if(VodaFitLifecycle.pending(s)) return finalizeSession(s.day);
+    for(const ex of s.day.exercises){
+      const sets=VodaFitSession.completed(s,ex.id),decision=s.references[ex.id];
+      if(sets.length && (!decision || !VodaFitPersistence.equal(sets,decision.sets))){
+        showToast("Elegí primero si querés guardar la referencia de cada ejercicio completado.");
+        openNativeReferenceDialog(s,ex.id,()=>nativeSession()===s && state.profile?.id===owner && authLoadGeneration===generation);return;
+      }
+    }
+    const yes=await confirmDialog("Finalizar entrenamiento","Se fijará la hora de cierre. El borrador se conservará hasta confirmar el guardado completo; si no hay conexión quedará pendiente.","Finalizar");
+    if(yes && nativeSession()===s && state.profile?.id===owner && generation===authLoadGeneration) return finalizeSession(s.day);
+  }
+  async function requestNativeCancel(){
+    const s=nativeSession(),owner=state.profile?.id,generation=authLoadGeneration;
+    if(!s || VodaFitLifecycle.pending(s) || state.rutinaRaw?.__v48TerminalRequest) return;
+    const yes=await confirmDialog("Cancelar entrenamiento","Se descartará este borrador sin registrar series realizadas ni actualizar referencias. Si no hay conexión, la cancelación quedará pendiente.","Cancelar entrenamiento");
+    if(!yes || nativeSession()!==s || state.profile?.id!==owner || generation!==authLoadGeneration) return;
+    const saved=await persistRutina();
+    if(!saved.ok || state.profile?.id!==owner || generation!==authLoadGeneration) return;
+    const result=await nativeReconciler.cancel(owner,rutinaSync.getContext()?.base,s.sessionId,navigator.onLine!==false);
+    if(state.profile?.id!==owner || generation!==authLoadGeneration) return;
+    if(result.ok) await applyNativeTerminalResult(result,owner,generation);
+    else {await loadProfileData().catch(()=>{});if(state.profile?.id!==owner || generation!==authLoadGeneration)return;render();showToast("Cancelación pendiente ("+result.code+"). El borrador se conserva hasta confirmación remota.");}
+  }
+  async function applyNativeTerminalResult(result,owner,generation){
+    nativeTerminalRefresh=result;
+    try {
+      await loadProfileData({confirmedNative:true});
+      if(generation!==authLoadGeneration || state.profile?.id!==owner) return;
+      nativeTerminalRefresh=null;state.tab=nativeSession()?"sesion":"rutina";render();
+      showToast(state.historyRefreshPending?"Operación confirmada. Falta actualizar el historial; volvé a cargar con conexión."
+        : result.resolved?"Borrador reconciliado con el estado remoto.":result.terminal.estado==="finalizada"?"Entrenamiento registrado.":"Operación confirmada.");
+    } catch(error){showToast("Operación remota confirmada. Falta actualizar esta pantalla; reintentá o recargá.");}
+  }
+  async function requestNativeRemoteResolution(){
+    const s=nativeSession(),owner=state.profile?.id,generation=authLoadGeneration;
+    if(!s) return;
+    const yes=await confirmDialog("Resolver sesión", "Se conservará el estado confirmado en el servidor y se descartará este borrador local. No se crearán registros ni se aplicarán sus referencias pendientes. ¿Confirmar?", "Usar estado remoto");
+    if(!yes || generation!==authLoadGeneration || state.profile?.id!==owner || nativeSession()!==s) return;
+    const result=await nativeReconciler.acceptTerminal(owner,rutinaSync.getContext()?.base,s.sessionId,navigator.onLine!==false,true);
+    if(generation!==authLoadGeneration || state.profile?.id!==owner) return;
+    if(result.ok) await applyNativeTerminalResult(result,owner,generation);
+    else showToast("No se confirmó la reconciliación ("+result.code+"). El borrador se conserva.");
+  }
+  async function finalizeNativeSession(){
+      if(state.rutinaRaw?.__v48TerminalRequest) return {ok:false,code:"OPERATION_IN_PROGRESS"};
+      const s=nativeSession(),owner=state.profile.id,generation=authLoadGeneration;
+      try {VodaFitLifecycle.finish(s);} catch(e){showToast("No se pudo fijar la hora de cierre. Revisá la hora del dispositivo.");return {ok:false,code:e.message};}
+      stopNativeClock();
+      const cached=await rutinaCache.get(owner).catch(()=>null);
+      const durableClose=cached && VodaFitPersistence.equal(cached.draft.sesionActiva?.lifecycle,s.lifecycle);
+      const saved=nativeTerminalRefresh || durableClose?{ok:true}:await persistRutina();
+      if(generation!==authLoadGeneration || state.profile?.id!==owner) return saved;
+      if(!saved.ok){render();showToast("Cierre pendiente sin confirmar el guardado local. Conservá esta pantalla abierta y reintentá.");return saved;}
+      const result=nativeTerminalRefresh || await nativeReconciler.finish(owner,rutinaSync.getContext()?.base,s.sessionId,navigator.onLine!==false);
+      if(generation!==authLoadGeneration || state.profile?.id!==owner) return result;
+      if(result.ok) await applyNativeTerminalResult(result,owner,generation);
+      else {
+        state.nativeReconcileIssue=result.code;render();
+        showToast(result.code==="V48_NOT_READY" || result.code==="OFFLINE_PENDING" ? "Cierre guardado en este dispositivo. Pendiente de confirmación remota."
+          : "Cierre pendiente ("+result.code+"). El borrador se conserva; no se sobrescribieron cambios remotos.");
+      }
+      return result;
+  }
   async function finalizeSession(day){
+    if(nativeSession()) return finalizeNativeSession();
+    if(state.unresolvedSession && state.unresolvedSession.schemaVersion===48){
+      showToast("El borrador no puede interpretarse. Se conserva sin modificar.");return;
+    }
     const p = sessionProgress();
     // V29: un Día Especial se registra como cualquier entrenamiento (mismo
     // Store.addEntreno, misma tabla), marcado con isSpecial → is_special.
@@ -8220,6 +8663,34 @@
     `;
   }
 
+  function showHistoryFailure(result){
+    const r=result || Store.historyStatus() || {},code=r.code || r.error?.code || r.error?.message || "SAVE_FAILED";
+    showToast(code==="DELETE_WHOLE_SESSION_REQUIRED" || code==="SESSION_RECORD_IMMUTABLE" ? "Este registro pertenece a una sesión V48. Eliminá la sesión completa desde el calendario."
+      : code==="USE_V48_ELIMINAR" ? "Esta sesión requiere el borrado completo de V48."
+      : "No se confirmó la operación ("+code+"). Conservamos los datos para reintentar.");
+  }
+  async function resolveHistoryFailure(owner,generation,result){
+    if(!["HISTORY_CONFLICT","IDEMPOTENCY_CONFLICT"].includes(result?.code) || !result.operationId)return null;
+    const yes=await confirmDialog("El registro cambió", "Se conservará el registro del servidor y se descartarán estos cambios pendientes. ¿Usar el registro guardado?", "Usar registro guardado");
+    if(!yes || state.profile?.id!==owner || generation!==authLoadGeneration)return null;
+    const accepted=await Store.historyCompat.acceptRemote(owner,result,true);
+    if(state.profile?.id!==owner || generation!==authLoadGeneration)return null;
+    if(!accepted.ok)showHistoryFailure(accepted);
+    return accepted.ok?accepted:null;
+  }
+  async function refreshHistoryAfterWrite(owner,generation,kind,result){
+    if(state.profile?.id!==owner || generation!==authLoadGeneration)return false;
+    try {
+      const rows=await (kind==="registros"?Store.listRegistros(owner):Store.listEntrenos(owner));
+      if(state.profile?.id!==owner || generation!==authLoadGeneration)return false;
+      state[kind]=rows;
+      await Store.historyCompat.acknowledge(owner,result || Store.historyStatus());
+      return state.profile?.id===owner && generation===authLoadGeneration;
+    } catch(error){
+      if(state.profile?.id===owner && generation===authLoadGeneration)showToast("Operación confirmada. Falta actualizar el historial; reintentá con conexión sin crear otra operación.");
+      return false;
+    }
+  }
   function mountRegistro(){
     const el = document.getElementById("screen");
 
@@ -8236,7 +8707,19 @@
     if(selEx.value==="__otro__") otherWrap.style.display = "";
     attachAutocomplete(el.querySelector("#reg-other-name"), el.querySelector("#reg-other-name-ac"));
 
+    const formOwner=state.profile.id,formGeneration=authLoadGeneration;
+    let formBusy=false,formConfirmed=null,formDirty=false;
+    const formId=crypto.randomUUID?.();
+    el.addEventListener("input",()=>{formDirty=true;},{once:true});
+    if(state.persistence?.clienteV48)Store.historyCompat.draft(formOwner).then(op=>{
+      if(!op || op.status==="confirmed" || formDirty || !el.isConnected || state.profile?.id!==formOwner || formGeneration!==authLoadGeneration)return;
+      const d=op.request.data;
+      if(Array.from(selEx.options).some(o=>o.value===d.exercise))selEx.value=d.exercise;
+      else{selEx.value="__otro__";el.querySelector("#reg-other-name").value=d.exercise;otherWrap.style.display="";}
+      for(const [key,id] of Object.entries({peso:"reg-peso",date:"reg-date",series:"reg-series",reps:"reg-reps",nota:"reg-nota"}))el.querySelector("#"+id).value=d[key]??"";
+    }).catch(()=>{});
     el.querySelector("#btn-save-reg").onclick = async ()=>{
+      if(formBusy || state.profile?.id!==formOwner || formGeneration!==authLoadGeneration)return;
       let exercise = selEx.value;
       if(exercise==="__otro__"){
         exercise = el.querySelector("#reg-other-name").value.trim();
@@ -8249,10 +8732,22 @@
       if(!exercise){ el.querySelector(selEx.value==="__otro__"?"#reg-other-name":"#reg-exercise").focus(); return; }
       if(peso===""){ el.querySelector("#reg-peso").focus(); return; }
       const btn = el.querySelector("#btn-save-reg");
-      btn.disabled = true;
-      const data = { exercise, peso: parseFloat(peso), date, series: series||"", reps: reps||"", nota, createdAt: Date.now() };
-      await Store.addRegistro(state.profile.id, data);
-      state.registros = await Store.listRegistros(state.profile.id);
+      btn.disabled = true;formBusy=true;
+      const data = { id:formId, exercise, peso: parseFloat(peso), date, series: series||"", reps: reps||"", nota, createdAt: Date.now() };
+      let result;
+      const content={...data};delete content.createdAt;
+      if(formConfirmed && !VodaFitPersistence.equal(content,formConfirmed.content)){
+        btn.disabled=false;formBusy=false;showToast("El registro anterior ya se confirmó. Actualizá el historial antes de crear otro.");return;
+      }
+      try {result=formConfirmed?.result || await Store.addRegistro(formOwner,data);} catch(error){result={ok:false,error};}
+      if(result?.ok)formConfirmed={content,result};
+      if(state.profile?.id!==formOwner || formGeneration!==authLoadGeneration)return;
+      if(!result?.ok){
+        const accepted=await resolveHistoryFailure(formOwner,formGeneration,result);
+        if(accepted)result=accepted;
+        else{btn.disabled=false;formBusy=false;showHistoryFailure(result);return;}
+      }
+      if(!await refreshHistoryAfterWrite(formOwner,formGeneration,"registros",result)){btn.disabled=false;formBusy=false;return;}
       state.exerciseSelForm = canonicalExerciseName(exercise);
       renderScreen();
     };
@@ -8273,12 +8768,13 @@
       row.style.cursor = "pointer";
       row.title = "Tocá para eliminar este registro";
       row.onclick = async ()=>{
-        const id = row.dataset.delLog;
+        const id = row.dataset.delLog,owner=state.profile.id,generation=authLoadGeneration;
         const ok = await confirmDialog("Eliminar registro", "¿Eliminar este registro del historial?");
-        if(!ok) return;
-        await Store.deleteRegistro(state.profile.id, id);
-        state.registros = await Store.listRegistros(state.profile.id);
-        renderScreen();
+        if(!ok || state.profile?.id!==owner || generation!==authLoadGeneration)return;
+        let removed;try{removed=await Store.deleteRegistro(owner,id);}catch(error){removed=false;}
+        if(state.profile?.id!==owner || generation!==authLoadGeneration)return;
+        if(!removed){showHistoryFailure();return;}
+        if(await refreshHistoryAfterWrite(owner,generation,"registros"))renderScreen();
       };
     });
     // Filas-resumen de la vista agrupada por ejercicio (ver screenRegistro) —
@@ -9963,6 +10459,7 @@
   function perfilConfigHtml(){
     return `
       <div class="section-title" style="margin-top:6px"><h2>Configuración</h2></div>
+      <p class="helptext">VodaFit V48 · candidata</p>
       <div class="card stack">
         <div class="field">
           <label>Nombre</label>
@@ -10124,36 +10621,59 @@
   }
 
   /* ---------- Boot ---------- */
+  function clearAccountData(){
+    nativeTerminalRefresh=null;
+    state.exerciseSelForm="";state.historyFilter={exercise:"",from:"",to:""};state.historyExpanded=null;
+    state.historyRefreshPending=false;
+    state.nativeReconcileIssue=null;
+    stopNativeClock();
+    rutinaSync.detach();
+    state.nativeOffline=false;
+    state.profile=null;state.session=null;state.unresolvedSession=null;
+    state.rutinaRaw=null;state.persistence=null;
+    state.rutina={days:[]};state.rutinaSlots={personalizada:{days:[]},automatica:{days:[]},enfocada:{days:[]}};
+    state.activeSlot="personalizada";state.registros=[];state.entrenos=[];state.pesoCorporal=[];
+    state.estiramientosSugeridos=[];state.exDetail=null;state.tab="rutina";
+    closeModal();
+  }
+  async function handleAuthStateChange(event,session){
+    if(event==="PASSWORD_RECOVERY"){
+      ++authLoadGeneration;clearAccountData();state.authSession=session;
+      state.authView="reset";state.booted=true;render();return;
+    }
+    state.authSession=session;
+    const user=session && session.user;
+    if(user && state.profile && state.profile.id===user.id) return;
+    const generation=++authLoadGeneration;
+    clearAccountData();
+    state.booted=false; render();
+    try {
+      if(user){
+        let profile;
+        try {profile=await Store.ensureProfile(user);} catch(error){
+          if(!networkUnavailable(error)) throw error;
+          const local=await rutinaCache.get(user.id);
+          if(!local || !VodaFitSession.isNative(local.draft.sesionActiva)) throw error;
+          // Sólo restaura el entrenamiento del usuario autenticado; no inventa un perfil remoto.
+          profile={id:user.id,name:user.user_metadata?.name || "Usuario",metaSemanal:3};
+        }
+        if(generation!==authLoadGeneration) return;
+        state.profile=profile;
+        await loadProfileData();
+      } else {state.authView="login";state.authError="";}
+      if(generation!==authLoadGeneration) return;
+      state.dbError=false;
+    } catch(error){
+      if(generation!==authLoadGeneration) return;
+      state.dbError=true;
+    }
+    state.booted=true;render();
+  }
   async function boot(){
     applyTheme(lsGet("fierros:theme","system"));
 
     try{
-      Store.onAuthStateChange(async (event, session)=>{
-        if(event === "PASSWORD_RECOVERY"){
-          state.authView = "reset";
-          state.booted = true;
-          render();
-          return;
-        }
-        state.authSession = session;
-        try{
-          if(session && session.user){
-            if(!state.profile || state.profile.id !== session.user.id){
-              state.profile = await Store.ensureProfile(session.user);
-              await loadProfileData();
-            }
-          } else {
-            state.profile = null;
-            state.authView = "login";
-            state.authError = "";
-          }
-          state.dbError = false;
-        }catch(e){
-          state.dbError = true;
-        }
-        state.booted = true;
-        render();
-      });
+      Store.onAuthStateChange(handleAuthStateChange);
     }catch(e){
       state.dbError = true;
       state.booted = true;
@@ -10185,7 +10705,7 @@
         });
         let refreshed = false;
         navigator.serviceWorker.addEventListener("controllerchange", ()=>{
-          if(refreshed || state.session) return;
+          if(refreshed || state.session || nativeSession()) return;
           refreshed = true;
           window.location.reload();
         });
@@ -10199,6 +10719,9 @@
   // Hook de solo-lectura para tests automatizados (Playwright) — no se usa en
   // la app real, no afecta el funcionamiento normal.
   window.__appTest = {
+    openSessionLogModal, openMarkTrainedModal, openCalDayModal, mountRegistro, showHistoryFailure,
+    nativeSession, nativeLifecycle, nativeAdapter, nativeReconciler, nativeTerminalAdapter, requestNativeFinish, render, screenSession, mountSession, saveSessionProgress, finalizeSession,
+    persistence:VodaFitPersistence, persistRutina, loadProfileData, handleAuthStateChange, clearAccountData,
     pickLegDayExercises, legDayRulesOk, legEmphasisSequence, LEG_ROLE_WEIGHTS, LEG_PRIORITY, reorderDayExercisesByGroup,
     generateSpecialDay, exerciseSubgroup10, ambiguousLegExercises, SPECIAL_SUBGROUPS, FULL_BODY_VARIANTS,
     specialTargetCount, EXERCISE_HOWTO_LINKS, exerciseHowtoLinkFor, computeRacha, startSession, sessionDay, openSpecialDayModal,

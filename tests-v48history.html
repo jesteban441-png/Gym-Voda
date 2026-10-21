@@ -1,0 +1,125 @@
+<!doctype html><meta charset="utf-8"><title>V48 — Historial compatible</title><pre id="results">Cargando…</pre>
+<iframe id="app" src="index.html" style="position:absolute;left:-9999px;width:390px;height:844px"></iframe>
+<script>
+(async()=>{
+ const f=document.getElementById('app');while(!f.contentWindow.__appTest)await new Promise(r=>setTimeout(r,25));
+ const W=f.contentWindow,A=W.__appTest,H=W.VodaFitHistory,P=W.VodaFitPersistence,results=[];
+ const copy=x=>JSON.parse(JSON.stringify(x)),assert=(v,m='Aserción fallida')=>{if(!v)throw Error(m);};
+ let owner,other,account,journal,records,workouts,calls,controller,lose,error,reads,casRace;
+ const payload={exercise:'Gemelos',peso:0,date:'2026-10-19',series:'3',reps:'8-12',nota:'manual'};
+ function setup(){
+  owner=crypto.randomUUID();other=crypto.randomUUID();account={owner,loaded:true,clienteV48:true,schemaReady:true,epoch:1};
+  journal=H.createJournal(W.indexedDB,'history-test-'+crypto.randomUUID());records=new Map();workouts=new Map();calls=[];reads=0;lose=false;error=null;casRace=false;
+  controller=make();
+ }
+ function make(store=journal){return H.createController({capabilities:{metadata:true,rpc:true},account:()=>account,journal:store,canonical:A.canonicalExerciseName,
+  readRecord:async(o,id)=>{reads++;const r=records.get(id);return r?.profile_id===o?copy(r):null;},readWorkout:async(o,id)=>{reads++;const r=workouts.get(id);return r?.profile_id===o?copy(r):null;},
+  rpc:async(o,name,args)=>{
+   calls.push({owner:o,name,args:copy(args)});if(error)return {error};if(o!==owner)return {error:{code:'42501'}};
+   let data=null;
+   if(name==='v48_registro_guardar'){
+    let row=records.get(args.p_id),p=args.p_datos;
+    if(row && row.profile_id!==o)return {error:{code:'23505'}};
+    if(row?.entreno_id)return {error:{message:'SESSION_RECORD_IMMUTABLE'}};
+    if(p.peso<0)return {error:{message:'INVALID_MANUAL_RECORD'}};
+    if(casRace && row){row.nota='cambio remoto';casRace=false;}
+    if(args.p_editar){
+     if(!row)return {error:{message:'RECORD_NOT_FOUND'}};
+     if(!P.equal(H.snapshot(row),args.p_esperado) && !H.sameRecord(row,p))return {error:{code:'40001',message:'HISTORY_CONFLICT'}};
+    }else if(row && !H.sameRecord(row,p))return {error:{message:'IDEMPOTENCY_CONFLICT'}};
+    records.set(args.p_id,{...row,...copy(p),id:args.p_id,profile_id:o,set_number:row?.set_number??null,created_at:row?.created_at??1,entreno_id:null});data=args.p_id;
+   }else if(name==='v48_registro_eliminar'){
+    const row=records.get(args.p_id);if(row?.profile_id===o && row.entreno_id)return {error:{message:'DELETE_WHOLE_SESSION_REQUIRED'}};
+    if(row?.profile_id===o)records.delete(args.p_id);
+   }else if(name==='v48_marcar_dia'){
+    const row=workouts.get(args.p_id);if(row && (row.profile_id!==o || !row.is_manual || row.date!==args.p_fecha || row.day_nombre!==args.p_nombre))return {error:{message:'IDEMPOTENCY_CONFLICT'}};
+    workouts.set(args.p_id,{id:args.p_id,profile_id:o,date:args.p_fecha,day_nombre:args.p_nombre,is_manual:true,sesion_id:null});data=args.p_id;
+   }else if(name==='v48_historico_eliminar'){
+    const row=workouts.get(args.p_id);if(row?.profile_id===o && row.sesion_id)return {error:{message:'USE_V48_ELIMINAR'}};
+    if(row?.profile_id===o)workouts.delete(args.p_id);
+   }else throw Error('RPC inesperada');
+   if(lose){lose=false;throw Error('Respuesta perdida tras COMMIT');}return {data};
+  }});}
+ function oldRecord(){const id=crypto.randomUUID();const row={id,profile_id:owner,exercise:'Gemelos',peso:10,date:'2024-01-01',series:'1',reps:'8',nota:'previo',set_number:2,created_at:123,entreno_id:null};records.set(id,row);return copy(row);}
+ async function test(name,fn){try{await fn();results.push({name,ok:true});}catch(e){results.push({name,ok:false,error:e.message});}}
+ await test('Alta V48 usa RPC, canónico y UUID verificado',async()=>{setup();const r=await controller.save(owner,payload);assert(r.ok && records.size===1);assert(calls[0].name==='v48_registro_guardar' && calls[0].args.p_esperado===null && !calls[0].args.p_editar);assert(records.get(r.id).exercise==='Gemelos parado con mancuerna' && records.get(r.id).peso===0);});
+ await test('Doble tap: una RPC y una fila',async()=>{setup();const [a,b]=await Promise.all([controller.save(owner,payload),controller.save(owner,payload)]);assert(a.ok && b.id===a.id && calls.length===1 && records.size===1);});
+ await test('Respuesta perdida: reintentar conserva UUID, sin duplicar',async()=>{setup();lose=true;const first=await controller.save(owner,payload);assert(!first.ok && first.uncertain);const second=await controller.save(owner,payload);assert(second.ok && second.id===first.id && records.size===1 && calls.length===1);});
+ await test('Recarga lógica: journal durable y UUID estable',async()=>{setup();lose=true;const r=await controller.save(owner,payload);controller=make();assert((await controller.save(owner,payload)).id===r.id && records.size===1);});
+ await test('Operación confirmada sin refresco: no repetir alta',async()=>{setup();const first=await controller.save(owner,payload),second=await controller.save(owner,payload);assert(first.id===second.id && second.replayed && calls.length===1);});
+ await test('Tras refresco/ack, otra alta igual es intencional y usa otro UUID',async()=>{setup();const first=await controller.save(owner,payload);await controller.acknowledge(owner,first);const second=await controller.save(owner,payload);assert(second.id!==first.id && records.size===2);});
+ await test('Edición preserva nombre histórico crudo, fecha de creación y set_number',async()=>{setup();const row=oldRecord(),r=await controller.edit(owner,row.id,{peso:11,date:row.date,series:'1',reps:'9',nota:'editado'});assert(r.ok);const now=records.get(row.id);assert(now.exercise==='Gemelos' && now.created_at===123 && now.set_number===2);assert(calls[0].args.p_esperado.exercise==='Gemelos');});
+ await test('CAS detecta cambio remoto entre lectura y RPC',async()=>{setup();const row=oldRecord();casRace=true;const r=await controller.edit(owner,row.id,{peso:11,date:row.date,series:'1',reps:'9',nota:'editado'});assert(!r.ok && r.code==='HISTORY_CONFLICT');assert(records.get(row.id).nota==='cambio remoto' && records.get(row.id).peso===10);});
+ await test('Edición con respuesta perdida se reconoce sin volver a escribir',async()=>{setup();const row=oldRecord();lose=true;const data={peso:11,date:row.date,series:'1',reps:'9',nota:'editado'};await controller.edit(owner,row.id,data);assert((await controller.edit(owner,row.id,data)).ok && calls.length===1);});
+ await test('Eliminar registro histórico sólo elimina su fila',async()=>{setup();const row=oldRecord(),otherRow=oldRecord();assert((await controller.remove(owner,row.id)).ok);assert(!records.has(row.id) && records.has(otherRow.id));});
+ await test('Eliminar con respuesta perdida: replay void sin error ni duplicados',async()=>{setup();const row=oldRecord();lose=true;assert(!(await controller.remove(owner,row.id)).ok);assert((await controller.remove(owner,row.id)).ok && !records.size);});
+ await test('Registros vinculados nativos no se editan ni borran individualmente',async()=>{setup();const row=oldRecord();records.get(row.id).entreno_id=crypto.randomUUID();assert((await controller.remove(owner,row.id)).code==='DELETE_WHOLE_SESSION_REQUIRED');assert((await controller.edit(owner,row.id,payload)).code==='SESSION_RECORD_IMMUTABLE');assert(!calls.length && records.size===1);});
+ await test('Marcar día manual sin series: RPC y reintento estable',async()=>{setup();const d={date:payload.date,dayNombre:'Entrené'};lose=true;const a=await controller.mark(owner,d),b=await controller.mark(owner,d);assert(!a.ok && b.ok && a.id===b.id && workouts.size===1 && calls.length===1);});
+ await test('Borrar resumen heredado conserva registros sin vínculo',async()=>{setup();oldRecord();const id=crypto.randomUUID();workouts.set(id,{id,profile_id:owner,sesion_id:null,is_manual:false});assert((await controller.removeWorkout(owner,id)).ok && !workouts.size && records.size===1);});
+ await test('Borrado nativo requiere RPC de sesión/comprobante',async()=>{setup();const id=crypto.randomUUID();workouts.set(id,{id,profile_id:owner,sesion_id:crypto.randomUUID()});assert((await controller.removeWorkout(owner,id)).code==='USE_V48_ELIMINAR' && workouts.size===1 && !calls.length);});
+ await test('Permiso denegado: nunca éxito ni DML alternativo',async()=>{setup();error={code:'42501',message:'permission denied'};const r=await controller.save(owner,payload);assert(!r.ok && r.error.code==='42501' && !records.size);});
+ await test('Error de validación permite corregir datos, sin insertar fallido',async()=>{setup();assert(!(await controller.save(owner,{...payload,peso:-1})).ok);assert((await controller.save(owner,payload)).ok && records.size===1);});
+ await test('Resultado uuid ajeno/inesperado no se anuncia confirmado',async()=>{setup();const c=H.createController({capabilities:{metadata:true,rpc:true},account:()=>account,journal,canonical:x=>x,readRecord:async()=>null,readWorkout:async()=>null,rpc:async()=>({data:crypto.randomUUID()})});assert((await c.save(owner,payload)).code==='INVALID_RPC_RESPONSE');});
+ await test('Conflicto de alta con fila modificada conserva servidor y requiere aceptación',async()=>{setup();lose=true;const a=await controller.save(owner,payload);records.get(a.id).nota='remoto';const conflict=await controller.save(owner,payload);assert(conflict.code==='IDEMPOTENCY_CONFLICT');assert((await controller.acceptRemote(owner,conflict,false)).code==='CONFIRMATION_REQUIRED');assert((await controller.acceptRemote(owner,conflict,true)).ok && records.get(a.id).nota==='remoto');});
+ await test('Aislamiento: propietario distinto no llama RPC ni lee borrador',async()=>{setup();assert((await controller.save(other,payload)).code==='ACCOUNT_CHANGED');assert(!calls.length && !await controller.draft(other));});
+ await test('Cambio de usuario durante RPC: respuesta no se aplica al usuario nuevo',async()=>{setup();const c=H.createController({capabilities:{metadata:true,rpc:true},account:()=>account,journal,readRecord:async()=>null,rpc:async()=>{account={...account,owner:other,epoch:2};return {data:crypto.randomUUID()};}});assert((await c.save(owner,payload)).code==='ACCOUNT_CHANGED');});
+ await test('Capacidades cerradas y esquema ausente: cero columnas/RPC nuevas',async()=>{setup();const c=H.createController({capabilities:{metadata:false,rpc:false},account:()=>account,journal,readRecord:()=>{throw Error('No leer');},rpc:()=>{throw Error('No llamar');}});assert((await c.save(owner,payload)).code==='V48_NOT_READY');account.clienteV48=false;assert(c.mode(owner).mode==='legacy');});
+ await test('Otro contexto confirma/ack: el reintento viejo no crea otro UUID',async()=>{
+  setup();lose=true;const old=await controller.save(owner,payload);const peer=make();const confirmed=await peer.save(owner,payload);await peer.acknowledge(owner,confirmed);
+  const retried=await controller.save(owner,payload);assert(retried.ok && retried.id===old.id && records.size===1);
+ });
+ await test('Almacenamiento local fallido impide enviar una nueva escritura',async()=>{
+  setup();const broken={...journal,prepare:async()=>{throw Error('quota');}};const c=make(broken);assert(!(await c.save(owner,payload)).ok && calls.length===0 && !records.size);
+ });
+ await test('ACK local fallido después de COMMIT: recuperación sin segunda alta',async()=>{
+  setup();let fail=true;const guarded={...journal,update:async(op,patch)=>{if(fail && patch.status==='confirmed')throw Error('quota');return journal.update(op,patch);}};
+  const c=make(guarded);assert(!(await c.save(owner,payload)).ok && records.size===1);fail=false;assert((await c.save(owner,payload)).ok && records.size===1 && calls.length===1);
+ });
+ await test('Error HTTP 5xx ambiguo conserva intención y no permite cambiarla silenciosamente',async()=>{
+  setup();const c=H.createController({capabilities:{metadata:true,rpc:true},account:()=>account,journal,readRecord:async()=>null,rpc:async()=>({status:502,error:{message:'gateway'}})});
+  assert((await c.save(owner,payload)).uncertain);assert((await c.save(owner,{...payload,peso:5})).code==='PENDING_HISTORY_OPERATION');
+ });
+ await test('Registro de otro usuario no se edita ni se elimina',async()=>{
+  setup();const row=oldRecord();records.get(row.id).profile_id=other;
+  assert((await controller.edit(owner,row.id,payload)).code==='RECORD_NOT_FOUND');await controller.remove(owner,row.id);
+  assert(records.get(row.id).profile_id===other && records.get(row.id).peso===10);
+ });
+ // Helpers for actual Store/UI legacy paths. All HTTPS is intercepted by runner.
+ const originals=Object.fromEntries(['ensureProfile','readRutina','listRegistros','listEntrenos','listPesoCorporal','addRegistro','updateRegistro','deleteRegistro','addEntreno','deleteEntreno'].map(k=>[k,A.Store[k]]));
+ async function login(){const id=crypto.randomUUID();A.Store.ensureProfile=async u=>({id:u.id,name:'Prueba',metaSemanal:3});A.Store.readRutina=async()=>({data:{personalizada:{days:[]},automatica:{days:[]},enfocada:{days:[]}},revision:null,clienteV48:false,schemaReady:false});A.Store.listRegistros=A.Store.listEntrenos=A.Store.listPesoCorporal=async()=>[];await A.handleAuthStateChange('SIGNED_IN',{user:{id}});return id;}
+ let legacyCalls=[],legacyError=null;
+ W.__legacyQuery=table=>{const builder={row:null,action:null,insert(row){this.row=row;this.action='insert';legacyCalls.push({table,action:this.action,row:copy(row)});return this;},update(row){this.row=row;this.action='update';legacyCalls.push({table,action:this.action,row:copy(row)});return this;},delete(){this.action='delete';legacyCalls.push({table,action:this.action});return this;},eq(){return this;},select(){return this;},single:async()=>({data:{id:crypto.randomUUID()},error:legacyError}),then(resolve,reject){return Promise.resolve({error:legacyError}).then(resolve,reject);}};return builder;};
+ await test('Store V47: DML anterior para alta, edición, borrados y día manual',async()=>{const id=await login();legacyCalls=[];for(const k of ['addRegistro','updateRegistro','deleteRegistro','addEntreno','deleteEntreno'])A.Store[k]=originals[k];assert((await A.Store.addRegistro(id,payload)).ok);assert(await A.Store.updateRegistro(id,'row',payload));assert(await A.Store.deleteRegistro(id,'row'));assert((await A.Store.addEntreno(id,{date:payload.date,isManual:true,dayNombre:'Manual'})).ok);assert(await A.Store.deleteEntreno(id,'row'));assert(legacyCalls.length===5 && legacyCalls[0].row.exercise==='Gemelos parado con mancuerna');});
+ await test('V47: UUID del formulario reconoce insert previo sin columnas V48',async()=>{
+  const id=await login(),target=crypto.randomUUID(),old=W.__legacyQuery;A.Store.addRegistro=originals.addRegistro;let inserts=0,selected='';
+  const row={id:target,profile_id:id,exercise:'Gemelos parado con mancuerna',peso:0,date:payload.date,series:'3',reps:'8-12',nota:'manual',set_number:null};
+  W.__legacyQuery=()=>({insert(data){inserts++;assert(data.id===target);return this;},select(fields){selected=fields||'';return this;},eq(){return this;},single:async()=>({error:{code:'23505'}}),maybeSingle:async()=>({data:row})});
+  try{const r=await A.Store.addRegistro(id,{...payload,id:target});assert(r.ok && r.id===target && r.replayed && inserts===1 && !selected.includes('entreno_id'));}finally{W.__legacyQuery=old;}
+ });
+ await test('Store V48 con esquema cerrado no cae a DML',async()=>{const id=await login();A.state.persistence.clienteV48=true;legacyCalls=[];assert(!(await A.Store.addRegistro(id,payload)).ok && !await A.Store.deleteRegistro(id,'x'));assert(!legacyCalls.length);});
+ await test('Store V48 enruta las cinco escrituras a compatibilidad, sin DML',async()=>{
+  const id=await login();A.state.persistence.clienteV48=true;legacyCalls=[];
+  const h=A.Store.historyCompat,keys=['mode','save','edit','remove','mark','removeWorkout'],prev=Object.fromEntries(keys.map(k=>[k,h[k]])),used=[];
+  h.mode=()=>({ok:true,mode:'v48'});for(const key of keys.filter(k=>k!=='mode'))h[key]=async(...args)=>{used.push({key,args});return {ok:true,id:'rpc-id'};};
+  try{
+   for(const k of ['addRegistro','updateRegistro','deleteRegistro','addEntreno','deleteEntreno'])A.Store[k]=originals[k];
+   assert((await A.Store.addRegistro(id,payload)).id==='rpc-id');assert(await A.Store.updateRegistro(id,'r',payload));assert(await A.Store.deleteRegistro(id,'r'));
+   assert((await A.Store.addEntreno(id,{date:payload.date,isManual:true,dayNombre:'Manual'})).ok);assert(await A.Store.deleteEntreno(id,'t'));
+   assert(used.map(x=>x.key).join(',')==='save,edit,remove,mark,removeWorkout' && !legacyCalls.length);
+   assert(!(await A.Store.addEntreno(id,{date:payload.date,isManual:false,setsCompletados:1})).ok);
+  }finally{for(const k of keys)h[k]=prev[k];}
+ });
+ await test('UI manual: error de guardado conserva formulario y habilita reintento',async()=>{await login();A.state.tab='registro';A.render();let n=0;A.Store.addRegistro=async()=>{n++;return {ok:false,code:'RPC_ERROR'};};const d=W.document;d.querySelector('#reg-exercise').value='__otro__';d.querySelector('#reg-other-name').value='Dominadas';d.querySelector('#reg-peso').value='0';d.querySelector('#reg-reps').value='8';await d.querySelector('#btn-save-reg').onclick();assert(n===1 && d.querySelector('#reg-reps').value==='8' && !d.querySelector('#btn-save-reg').disabled && !A.state.registros.length);});
+ await test('UI manual: alta confirmada y refresco fallido no vuelve a insertar',async()=>{await login();A.state.tab='registro';A.render();let n=0;A.Store.addRegistro=async()=>{n++;return {ok:true,id:'guardado'};};A.Store.listRegistros=async()=>{throw Error('red');};const d=W.document;d.querySelector('#reg-exercise').value='__otro__';d.querySelector('#reg-other-name').value='Dominadas';d.querySelector('#reg-peso').value='0';await d.querySelector('#btn-save-reg').onclick();await d.querySelector('#btn-save-reg').onclick();assert(n===1 && !d.querySelector('#btn-save-reg').disabled);});
+ await test('UI calendario: error de marcar no cierra modal ni confirma día',async()=>{await login();A.Store.addEntreno=async()=>({ok:false,code:'42501'});A.openMarkTrainedModal(payload.date);const m=W.document.querySelector('.modal-back')||W.document;await m.querySelector('[data-act="ok"]').onclick();assert(W.document.querySelector('#calmark-nota') && !W.document.querySelector('[data-act="ok"]').disabled && !A.state.entrenos.length);});
+ await test('UI serie heredada: error no marca serie ni inventa registroId',async()=>{await login();A.state.session={dayId:'d',slot:'personalizada',sets:{e:[false]},setLogs:{e:[null]},startedAt:Date.now()};A.Store.addRegistro=async()=>({ok:false,code:'RPC_ERROR'});A.openSessionLogModal({id:'e',nombre:'Dominadas',reps:'8'},0);W.document.querySelector('#slog-peso').value='0';await W.document.querySelector('[data-act="save"]').onclick();assert(!A.state.session.sets.e[0] && A.state.session.setLogs.e[0]===null && W.document.querySelector('#slog-peso'));});
+ await test('UI borrar histórico: error mantiene resumen e historial',async()=>{
+  await login();const id=crypto.randomUUID();A.state.entrenos=[{id,date:payload.date,dayNombre:'Herencia',setsTotales:1,setsCompletados:1}];
+  A.state.registros=[{id:'r',exercise:'Dominadas',peso:1,date:payload.date}];A.Store.deleteEntreno=async()=>false;
+  A.openCalDayModal(payload.date);const pending=W.document.querySelector('[data-del-entreno]').onclick();
+  W.document.querySelector('[data-act="ok"]').click();await pending;
+  assert(A.state.entrenos.length===1 && A.state.registros.length===1);
+ });
+ window.__v48historyResults={pass:results.filter(x=>x.ok).length,fail:results.filter(x=>!x.ok).length,results};document.getElementById('results').textContent=JSON.stringify(window.__v48historyResults,null,2);
+})();
+</script>

@@ -12,8 +12,9 @@
 // Sin el bump se quedaban ocupando lugar para siempre (decenas de MB en un
 // dispositivo donde se hayan abierto muchas fichas). El costo del bump es
 // volver a bajar el index.html y los 7 íconos del precache.
-const CACHE = "gymapp-v8";
-const ASSETS = ["./", "./index.html", "./manifest.json", "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"];
+const CACHE = "gymapp-v48-rc1";
+// V48.1A: incluir infraestructura local en el shell offline; sin cachear Supabase.
+const ASSETS = ["./vendor/supabase-js-2.118.0/supabase.js", "./vendor/jspdf-2.5.1/jspdf.umd.min.js", "./vendor/fonts/fonts.css", "./vendor/fonts/font-1.ttf", "./vendor/fonts/font-2.ttf", "./vendor/fonts/font-3.ttf", "./vendor/fonts/font-4.ttf", "./vendor/fonts/font-5.ttf", "./vendor/fonts/font-6.ttf", "./vendor/fonts/font-7.ttf", "./", "./index.html", "./v48-persistence.js?v=48.rc1", "./v48-session.js?v=48.rc1", "./v48-lifecycle.js?v=48.rc1", "./v48-reconcile.js?v=48.rc1", "./v48-history.js?v=48.rc1", "./manifest.json", "./apple-touch-icon.png", "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -84,6 +85,7 @@ self.addEventListener("fetch", (event) => {
   // No se agrega NINGUNA estrategia de caché para Supabase: la idea es
   // justamente que el Service Worker no se meta.
   if (isSupabaseUrl(new URL(event.request.url))) return;
+  if (new URL(event.request.url).origin !== self.location.origin) return;
 
   // La página principal (el HTML) siempre se pide primero a la red, para que
   // una actualización publicada se vea de inmediato. Si no hay internet, se

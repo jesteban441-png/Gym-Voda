@@ -1,0 +1,64 @@
+<!doctype html><meta charset="utf-8"><title>V48.1C-A — Ciclo de vida</title>
+<pre id="results">Cargando…</pre><iframe id="app" src="index.html" style="width:390px;height:844px;position:absolute;left:-9999px"></iframe>
+<script>
+(async()=>{
+ const f=document.getElementById('app');while(!f.contentWindow.__appTest) await new Promise(r=>setTimeout(r,25));
+ const W=f.contentWindow,A=W.__appTest,L=W.VodaFitLifecycle,P=W.VodaFitPersistence,results=[];
+ const copy=x=>JSON.parse(JSON.stringify(x)),assert=(v,m)=>{if(!v)throw Error(m);};
+ const day={id:'d',nombre:'Día',exercises:[{id:'e',nombre:'Dominadas',series:'3',reps:'8'}]};
+ const base={revision:2,clienteV48:true,schemaReady:true,data:{personalizada:{days:[day]},sesionActiva:null}};
+ let calls,requests,clock,active,cache,controller,answer,ids;
+ function setup(){
+  calls=0;requests=[];clock=Date.UTC(2026,9,18,2,30);active='owner';ids=0;
+  cache=P.createCache(W.indexedDB,'v48ca-'+crypto.randomUUID());
+  const adapter=L.createAdapter({capabilities:{metadata:true,rpc:true},rpc:async(owner,name,args)=>{
+   calls++;requests.push(copy(args));assert(name==='v48_iniciar','RPC incorrecta');assert(owner==='owner','Propietario incorrecto');
+   if(answer)return answer(args);
+   return {data:{revision:3,clienteV48:true,terminal:null,data:{...copy(base.data),sesionActiva:P.createSessionDraft(day,{sessionId:args.p_sesion,slot:args.p_slot,startedAt:args.p_inicio_ms,timezone:args.p_zona})}}};
+  }});
+  controller=L.createController({cache,adapter,current:o=>o===active,now:()=>clock,uuid:()=>{ids++;return crypto.randomUUID();},zone:()=> 'America/Montevideo'});answer=null;
+ }
+ async function test(name,fn){try{await fn();results.push({name,ok:true});}catch(e){results.push({name,ok:false,error:e.message});}}
+ const start=(online=true)=>controller.start('owner',base,day,'personalizada',online);
+ await test('Inicio offline: sin solicitud, UUID ni borrador',async()=>{setup();assert((await start(false)).code==='ONLINE_REQUIRED');assert(calls===0 && ids===0 && !await cache.get('owner'));});
+ await test('Capacidades cerradas: ninguna RPC ni acceso a columnas nuevas',async()=>{setup();let rpc=0;const a=L.createAdapter({capabilities:{metadata:false,rpc:false},rpc:()=>rpc++});assert((await a.reserve('owner',{},base)).code==='V48_NOT_READY');assert(rpc===0);assert(!A.nativeAdapter.ready({...base,clienteV48:false}));});
+ await test('Reserva fallida: no hay sesión iniciada y la solicitud queda persistida',async()=>{setup();answer=()=>{throw Error('red');};assert((await start()).code==='NETWORK_ERROR');const row=await cache.get('owner');assert(row.draft.__v48StartRequest && !row.draft.sesionActiva);});
+ await test('Reintento tras respuesta perdida: mismo UUID y timestamp',async()=>{setup();answer=()=>{throw Error('timeout');};await start();const original=requests[0];clock+=600000;answer=null;assert((await start()).ok);assert(ids===1 && requests[1].p_sesion===original.p_sesion && requests[1].p_inicio_ms===original.p_inicio_ms);});
+ await test('Inicio confirmado: snapshot y revisión autoritativa',async()=>{setup();const r=await start();assert(r.ok);const row=await cache.get('owner'),s=row.draft.sesionActiva;assert(!row.pending && row.base.revision===3 && s.sets.length===3);day.nombre='Cambio posterior';assert(s.day.nombre==='Día');day.nombre='Día';});
+ await test('Doble inicio concurrente: una única reserva',async()=>{setup();const [a,b]=await Promise.all([start(),start()]);assert(a.ok && b.ok && calls===1 && ids===1);assert((await start()).code==='ACTIVE_SESSION_EXISTS');assert((await controller.start('owner',{...base,data:(await cache.get('owner')).draft},day,'personalizada',true)).code==='ACTIVE_SESSION_EXISTS');});
+ await test('Recuperación con nueva instancia del controlador',async()=>{setup();answer=()=>{throw Error('timeout');};await start();const row=await cache.get('owner');answer=null;const fresh=L.createController({cache,adapter:L.createAdapter({capabilities:{metadata:true,rpc:true},rpc:async(o,n,a)=>({data:{revision:3,clienteV48:true,data:{...copy(base.data),sesionActiva:P.createSessionDraft(day,{sessionId:a.p_sesion,slot:a.p_slot,startedAt:a.p_inicio_ms,timezone:a.p_zona})}}})}),current:()=>true});assert((await fresh.recover('owner',base,true)).ok);assert((await cache.get('owner')).draft.sesionActiva.sessionId===row.draft.__v48StartRequest.sessionId);});
+ await test('Respuesta inválida nunca inicia una sesión',async()=>{setup();answer=()=>({data:{revision:3,clienteV48:true,data:{sesionActiva:null}}});assert((await start()).code==='INVALID_RESERVATION');assert(!(await cache.get('owner')).draft.sesionActiva);});
+ await test('Conflicto de revisión: conservar solicitud sin sobrescribir',async()=>{setup();answer=()=>({error:{code:'40001'}});assert((await start()).code==='REVISION_CONFLICT');assert((await cache.get('owner')).draft.__v48StartRequest);});
+ await test('Cambiar usuario durante reserva no aplica respuesta ni mezcla borradores',async()=>{setup();answer=()=>{active='other';return {error:{code:'40001'}};};assert((await start()).code==='ACCOUNT_CHANGED');assert(!await cache.get('other'));});
+ await test('Sin sobrescribir borrador previo no sincronizado',async()=>{setup();await cache.put({version:1,ownerId:'owner',base,draft:{...base.data,extra:1},pending:true},0);assert((await start()).code==='UNSYNCED_CHANGES');assert(calls===0);});
+ await test('Fecha local y zona horaria; duración tras bloqueo sin ticks',async()=>{setup();const s=(await start()).envelope.data.sesionActiva;assert(L.localDate(s.startedAt,s.timezone)==='2026-10-17');assert(L.elapsed(s,s.startedAt+7200123)===7200123);assert(L.clock(s,s.startedAt+7200123)==='02:00:00');});
+ await test('Cierre offline y reintentos: fin y payload congelados',async()=>{setup();const s=(await start()).envelope.data.sesionActiva;const first=copy(L.finish(s,clock+123456));s.sets[0].peso=100;assert(P.equal(L.finish(s,clock+999999),first));assert(L.elapsed(s,clock+999999)===123456);assert(first.finalization.sets[0].peso===null && calls===1);});
+ await test('Timestamps y zona inválidos se conservan sin interpretarlos como sesión utilizable',async()=>{
+  const s=P.createSessionDraft(day,{slot:'personalizada'});assert(L.validTimeline(s));s.timezone='zona-inexistente';assert(!L.validTimeline(s));
+  s.timezone='America/Montevideo';s.lifecycle={status:'pending_finalization',endedAt:s.startedAt-1};assert(!L.validTimeline(s));
+ });
+ await test('Dos pestañas: CAS preserva ambas solicitudes; nunca dos sesiones',async()=>{setup();let reserves=0;const adapter={ready:()=>true,reserve:async()=>{reserves++;return {ok:false,code:'NETWORK_ERROR'};}};const options={cache,adapter,current:()=>true,now:()=>clock};await Promise.all([L.createController(options).start('owner',base,day,'personalizada',true),L.createController(options).start('owner',base,day,'personalizada',true)]);assert(reserves===1);assert((await cache.conflicts('owner')).length===1);});
+ await test('Integración: cierre local, inputs bloqueados, recarga lógica y aislamiento',async()=>{
+  const owner=crypto.randomUUID(),s=P.createSessionDraft(day,{slot:'personalizada',startedAt:Date.now()-65000});
+  const data={personalizada:{days:[day]},automatica:{days:[]},enfocada:{days:[]},activeSlot:'personalizada',sesionActiva:s};let writes=0;
+  A.Store.ensureProfile=async u=>({id:u.id,name:'Prueba',metaSemanal:3});A.Store.readRutina=async()=>({data:copy(data),revision:null,clienteV48:false,schemaReady:false});
+  for(const k of ['listRegistros','listEntrenos','listPesoCorporal'])A.Store[k]=async()=>[];
+  for(const k of ['saveRutina','addRegistro','addEntreno'])A.Store[k]=async()=>{writes++;throw Error('Prohibido');};
+  await A.handleAuthStateChange('SIGNED_IN',{user:{id:owner}});A.state.tab='sesion';A.render();
+  assert(W.document.querySelector('[data-native-duration]').textContent==='00:01:05');
+  await A.finalizeSession(day);const end=A.nativeSession().lifecycle.endedAt;
+  assert(W.document.querySelector('[data-native-field]').disabled && !A.state.entrenos.length && writes===0);
+  await A.finalizeSession(day);assert(A.nativeSession().lifecycle.endedAt===end);
+  await A.loadProfileData();assert(A.nativeSession().lifecycle.endedAt===end);
+  await A.handleAuthStateChange('SIGNED_OUT',null);assert(!A.nativeSession());
+  A.Store.ensureProfile=async()=>{throw new W.TypeError('Failed to fetch');};
+  A.Store.readRutina=async()=>{throw new W.TypeError('Failed to fetch');};
+  A.Store.listRegistros=A.Store.listEntrenos=async()=>{throw new W.TypeError('Failed to fetch');};
+  await A.handleAuthStateChange('SIGNED_IN',{user:{id:owner}});
+  assert(!A.state.dbError && A.state.nativeOffline && A.nativeSession().lifecycle.endedAt===end,'No recupera offline');
+  await A.handleAuthStateChange('SIGNED_OUT',null);
+ });
+ window.__v48caResults={pass:results.filter(x=>x.ok).length,fail:results.filter(x=>!x.ok).length,results};
+ document.getElementById('results').textContent=JSON.stringify(window.__v48caResults,null,2);
+})();
+</script>

@@ -1,0 +1,111 @@
+<!doctype html><meta charset="utf-8"><title>V48.1C-B — Reconciliación</title><pre id="results">Cargando…</pre>
+<iframe id="app" src="index.html" style="position:absolute;left:-9999px;width:390px;height:844px"></iframe>
+<script>
+(async()=>{
+ const f=document.getElementById('app');while(!f.contentWindow.__appTest)await new Promise(r=>setTimeout(r,25));
+ const W=f.contentWindow,A=W.__appTest,P=W.VodaFitPersistence,N=W.VodaFitSession,L=W.VodaFitLifecycle,R=W.VodaFitReconcile;
+ const copy=x=>JSON.parse(JSON.stringify(x)),assert=(v,m='Aserción fallida')=>{if(!v)throw Error(m);},results=[];
+ const day={id:'d',nombre:'Día de prueba',exercises:[{id:'e1',nombre:'Gemelos',series:'3',reps:'8'},{id:'e2',nombre:'Dominadas',series:'2',reps:'8'}]};
+ let cache,base,backend,ctl,owner,current,epoch,s,calls;
+ function makeBackend(envelope){
+  let env=copy(envelope),logs=[],trainings=[],records=[],hash=null,lost=false,failState=false,failFinish=null;
+  const key=p=>JSON.stringify({id:p.p_sesion,end:p.p_fin_ms,sets:p.p_series,refs:p.p_referencias});
+  async function rpc(o,name,p){
+   logs.push({o,name,args:copy(p)});if(o!==owner)return {error:{message:'AUTH_REQUIRED'}};
+   if(name==='v48_estado'){if(failState)throw Error('red');return {data:copy(env)};}
+   if(name==='v48_finalizar'){
+    if(failFinish)return {error:{code:failFinish==='REVISION_CONFLICT'?'40001':null,message:failFinish}};
+    if(env.terminal){if(env.terminal.estado==='finalizada' && hash!==key(p))return {error:{message:'IDEMPOTENCY_CONFLICT'}};return {data:copy(env)};}
+    if(p.p_revision!==env.revision)return {error:{code:'40001'}};
+    const session=env.data.sesionActiva;if(!session || session.sessionId!==p.p_sesion)return {error:{message:'SESSION_NOT_ACTIVE'}};
+    const id=crypto.randomUUID(),date=L.localDate(session.startedAt,session.timezone);
+    trainings.push({id,profile_id:o,sesion_id:p.p_sesion,inicio_ms:session.startedAt,fin_ms:p.p_fin_ms,date,sets_totales:p.p_series.length,sets_completados:p.p_series.filter(r=>r.completed).length});
+    for(const row of p.p_series.filter(r=>r.completed))records.push({...row,id:crypto.randomUUID(),entreno_id:id,profile_id:o});
+    for(const ex of session.day.exercises){const d=p.p_referencias[ex.id];if(d?.accepted)env.data.referenciasEjercicios[A.canonicalExerciseName(ex.nombre)]={series:copy(d.sets),updatedAt:123,sourceSessionId:p.p_sesion};}
+    env.data.sesionActiva=null;env.revision++;env.terminal={sessionId:p.p_sesion,entrenoId:id,estado:'finalizada'};hash=key(p);
+    if(lost){lost=false;throw Error('Respuesta perdida después del COMMIT');}return {data:copy(env)};
+   }
+   if(name==='v48_cancelar'){
+    if(!env.terminal){if(p.p_revision!==env.revision)return {error:{code:'40001'}};env.data.sesionActiva=null;env.revision++;env.terminal={sessionId:p.p_sesion,entrenoId:null,estado:'cancelada'};}
+    if(lost){lost=false;throw Error('Respuesta perdida');}return {data:copy(env)};
+   }
+   if(name==='v48_eliminar'){
+    if(env.terminal?.estado==='finalizada'){const id=env.terminal.entrenoId;trainings=trainings.filter(x=>x.id!==id);records=records.filter(x=>x.entreno_id!==id);env.terminal.estado='eliminada';}
+    if(lost){lost=false;throw Error('Respuesta perdida');}return {data:copy(env)};
+   }
+   throw Error('RPC inesperada');
+  }
+  return {rpc,get env(){return env;},get logs(){return logs;},get trainings(){return trainings;},get records(){return records;},lose:()=>lost=true,stateFail:v=>failState=v,finishFail:v=>failFinish=v};
+ }
+ async function setup({active=false}={}){
+  owner=crypto.randomUUID();current=owner;epoch=1;
+  s=P.createSessionDraft(day,{slot:'personalizada',startedAt:Date.UTC(2026,9,18,2,30),timezone:'America/Montevideo'});
+  N.edit(s,'e1',1,'peso','0');N.edit(s,'e1',1,'reps','8');N.toggle(s,'e1',1,true);N.decide(s,'e1',true);
+  N.edit(s,'e2',2,'peso','10');N.edit(s,'e2',2,'reps','6');N.toggle(s,'e2',2,true);N.decide(s,'e2',false);
+  const remote=P.createSessionDraft(day,{slot:s.slot,sessionId:s.sessionId,startedAt:s.startedAt,timezone:s.timezone});
+  base={schemaReady:true,clienteV48:true,revision:3,data:{personalizada:{days:[day]},automatica:{days:[]},enfocada:{days:[]},activeSlot:'personalizada',sesionActiva:remote,referenciasEjercicios:{Dominadas:{series:[{setNumber:2,peso:7,reps:7}]}}}};
+  if(!active)L.finish(s,s.startedAt+600000);
+  cache=P.createCache(W.indexedDB,'v48cb-'+crypto.randomUUID());await cache.put({version:1,ownerId:owner,base:copy(base),draft:{...copy(base.data),sesionActiva:copy(s)},pending:true},0);
+  backend=makeBackend(base);ctl=controller(cache);
+ }
+ function controller(store=cache){return R.createController({cache:store,adapter:R.createAdapter({capabilities:{metadata:true,rpc:true},rpc:(...a)=>backend.rpc(...a)}),current:o=>current===o,identity:()=>epoch,canonical:A.canonicalExerciseName});}
+ const finish=(online=true)=>ctl.finish(owner,base,s.sessionId,online);
+ async function test(name,fn){try{await fn();results.push({name,ok:true});}catch(e){results.push({name,ok:false,error:e.message});}}
+ await test('Capacidades cerradas: cero RPC de producción',async()=>{await setup();let n=0;const a=R.createAdapter({capabilities:{metadata:false,rpc:false},rpc:()=>n++});assert((await a.state(owner,base,s.sessionId)).code==='V48_NOT_READY');assert(n===0 && !A.nativeTerminalAdapter.ready({...base,clienteV48:false}));});
+ await test('Payload completo neutraliza incompletas y guarda sólo válidas completadas',async()=>{await setup();s.lifecycle.finalization.sets[1].peso=999;const p=R.payload(s,A.canonicalExerciseName);assert(p.p_series.length===5 && p.p_series.filter(r=>r.completed).length===2);assert(p.p_series.filter(r=>!r.completed).every(r=>r.peso===null && r.reps===null));});
+ await test('Cierre transaccional confirmado: historial, referencias y borrador',async()=>{await setup();const r=await finish();assert(r.ok);assert(backend.trainings.length===1 && backend.records.length===2);assert(backend.records.some(x=>x.peso===0));assert(!backend.env.data.sesionActiva);assert(backend.env.data.referenciasEjercicios['Gemelos parado con mancuerna'].series[0].peso===0);assert(backend.env.data.referenciasEjercicios.Dominadas.series[0].peso===7);assert(!(await cache.get(owner)).draft.sesionActiva);assert(backend.trainings[0].date==='2026-10-17');});
+ await test('Offline: conservar borrador y hora sin llamar backend',async()=>{await setup();assert((await finish(false)).code==='OFFLINE_PENDING');assert(backend.logs.length===0 && (await cache.get(owner)).draft.sesionActiva.lifecycle.endedAt===s.lifecycle.endedAt);});
+ await test('Respuesta perdida tras COMMIT: estado antes de replay, un único entrenamiento',async()=>{await setup();backend.lose();assert((await finish()).uncertain);assert((await cache.get(owner)).draft.sesionActiva);assert((await finish()).ok);assert(backend.trainings.length===1 && backend.records.length===2);assert(backend.logs.map(x=>x.name).join(',')==='v48_estado,v48_finalizar,v48_estado,v48_finalizar');assert(backend.logs[1].args.p_fin_ms===backend.logs[3].args.p_fin_ms);});
+ await test('Reabrir PWA: nuevo controlador conserva UUID, payload y fin',async()=>{await setup();backend.lose();await finish();ctl=controller();assert((await ctl.recover(owner,base,true)).ok);const calls=backend.logs.filter(x=>x.name==='v48_finalizar');const first={...calls[0].args},second={...calls[1].args};delete first.p_revision;delete second.p_revision;assert(P.equal(first,second));assert(calls[0].args.p_fin_ms===calls[1].args.p_fin_ms && backend.trainings.length===1);});
+ await test('Dos dispositivos con mismo cierre: mismo comprobante sin duplicados',async()=>{await setup();const other=P.createCache(W.indexedDB,'v48cb-other-'+crypto.randomUUID());await other.put({...await cache.get(owner),localVersion:undefined},0);assert((await finish()).ok);assert((await controller(other).finish(owner,base,s.sessionId,true)).ok);assert(backend.trainings.length===1 && backend.records.length===2);});
+ await test('Dos dispositivos con cierres diferentes: conflicto conserva el segundo borrador',async()=>{await setup();const other=P.createCache(W.indexedDB,'v48cb-other-'+crypto.randomUUID()),row=await cache.get(owner);row.draft.sesionActiva.lifecycle.endedAt++;row.draft.sesionActiva.lifecycle.finalization.endedAt++;await other.put(row,0);await finish();assert((await controller(other).finish(owner,base,s.sessionId,true)).code==='IDEMPOTENCY_CONFLICT');assert((await other.get(owner)).draft.sesionActiva && backend.trainings.length===1);});
+ await test('Sesión eliminada y reintento antiguo: no resucita, conserva copia pendiente',async()=>{await setup();backend.lose();await finish();backend.env.terminal.estado='eliminada';assert((await finish()).code==='REMOTE_ELIMINADA');assert(backend.logs.filter(x=>x.name==='v48_finalizar').length===1 && (await cache.get(owner)).draft.sesionActiva);});
+ await test('Revisión nueva sólo en rutina: usa revisión fresca y preserva fin',async()=>{await setup();backend.env.revision++;backend.env.data.automatica={days:[{id:'otro'}]};assert((await finish()).ok);assert(backend.logs[1].args.p_revision===4 && backend.logs[1].args.p_fin_ms===s.lifecycle.endedAt);});
+ await test('Cambios remotos en series: no sobrescribir con revisión nueva',async()=>{await setup();backend.env.revision++;backend.env.data.sesionActiva.sets[0].peso=50;assert((await finish()).code==='REVISION_CONFLICT');assert(backend.logs.length===1 && backend.trainings.length===0);});
+ await test('Conflicto de revisión entre estado y COMMIT: no reintento ciego',async()=>{await setup();backend.finishFail('REVISION_CONFLICT');assert((await finish()).code==='REVISION_CONFLICT');assert((await cache.get(owner)).draft.sesionActiva);assert(backend.logs.length===2);});
+ await test('Estado inaccesible: ninguna escritura ni descarte local',async()=>{await setup();backend.stateFail(true);assert((await finish()).code==='NETWORK_ERROR');assert(backend.logs.length===1 && (await cache.get(owner)).draft.sesionActiva);});
+ await test('Referencia invalidada: no finaliza ni elige por el usuario',async()=>{await setup({active:true});N.edit(s,'e1',1,'reps','10');L.finish(s,s.startedAt+600000);const row=await cache.get(owner);row.draft.sesionActiva=s;await cache.put(row,row.localVersion);assert((await finish()).code==='REFERENCE_DECISION_REQUIRED');assert(backend.logs.length===0);});
+ await test('Serie completada corrupta: rechazar sin enviar',async()=>{await setup();const row=await cache.get(owner);row.draft.sesionActiva.lifecycle.finalization.sets[0].reps=0;await cache.put(row,row.localVersion);assert((await finish()).code==='INVALID_COMPLETED_SET');assert(!backend.logs.length);});
+ await test('Sesión heredada: no convertir ni escribir registros previos',async()=>{await setup();const row=await cache.get(owner);row.draft.sesionActiva={dayId:'viejo',sets:{e:[true]}};await cache.put(row,row.localVersion);assert((await ctl.recover(owner,base,true)).unchanged);assert(!backend.logs.length);});
+ await test('Error RPC de validación: conservar todo y no actualizar referencias',async()=>{await setup();backend.finishFail('INVALID_END_TIME');assert((await finish()).code==='INVALID_END_TIME');assert(!backend.trainings.length && (await cache.get(owner)).draft.sesionActiva);});
+ await test('Cambios locales de rutina se conservan tras confirmar',async()=>{await setup();const row=await cache.get(owner);row.draft.activeSlot='automatica';await cache.put(row,row.localVersion);const r=await finish(),after=await cache.get(owner);assert(r.ok && after.pending && after.draft.activeSlot==='automatica' && !after.draft.sesionActiva);});
+ await test('Conflicto local/remoto de rutina: no descartar ni finalizar',async()=>{await setup();const row=await cache.get(owner);row.draft.activeSlot='automatica';await cache.put(row,row.localVersion);backend.env.data.activeSlot='enfocada';assert((await finish()).code==='ROUTINE_CONFLICT');assert(backend.logs.length===1);});
+ await test('Comprobante ausente: no limpiar tras una respuesta ambigua',async()=>{await setup();const a=R.createAdapter({capabilities:{metadata:true,rpc:true},rpc:async(o,n,p)=>n==='v48_estado'?backend.rpc(o,n,p):({data:{...copy(backend.env),data:{...copy(base.data),sesionActiva:null}}})});const c=R.createController({cache,adapter:a,current:()=>true});assert((await c.finish(owner,base,s.sessionId,true)).code==='TERMINAL_NOT_CONFIRMED');assert((await cache.get(owner)).draft.sesionActiva);});
+ await test('Cancelación incierta: solicitud durable, consulta estado y limpia sin historial',async()=>{await setup({active:true});backend.lose();assert((await ctl.cancel(owner,base,s.sessionId,true)).uncertain);assert((await cache.get(owner)).draft.__v48TerminalRequest.action==='cancel');assert((await controller().recover(owner,base,true)).ok);assert(!backend.trainings.length && !(await cache.get(owner)).draft.sesionActiva);});
+ await test('Cancelación de cierre pendiente rechazada',async()=>{await setup();assert((await ctl.cancel(owner,base,s.sessionId,true)).code==='CANCEL_NOT_ALLOWED');assert(!backend.logs.length);});
+ await test('Eliminar finalizada y series vinculadas; repetir usa comprobante',async()=>{await setup();await finish();backend.lose();assert((await ctl.remove(owner,backend.env,s.sessionId,true)).uncertain);assert((await controller().recover(owner,backend.env,true)).ok);assert(!backend.trainings.length && !backend.records.length && backend.env.terminal.estado==='eliminada');assert(backend.env.data.referenciasEjercicios['Gemelos parado con mancuerna']);});
+ await test('Cuenta cambiada durante RPC: no aplicar ni mezclar datos',async()=>{await setup();const a=R.createAdapter({capabilities:{metadata:true,rpc:true},rpc:async(...args)=>{const r=await backend.rpc(...args);epoch++;return r;}}),c=R.createController({cache,adapter:a,current:()=>true,identity:()=>epoch});assert((await c.finish(owner,base,s.sessionId,true)).code==='ACCOUNT_CHANGED');assert((await cache.get(owner)).draft.sesionActiva);});
+ await test('Dos botones simultáneos: promesa compartida, un cierre',async()=>{await setup();const r=await Promise.all([finish(),finish()]);assert(r.every(x=>x.ok) && backend.logs.length===2 && backend.trainings.length===1);});
+ await test('Aceptar estado terminal requiere confirmación explícita y no reaplica referencias',async()=>{
+  await setup();backend.lose();await finish();backend.env.terminal.estado='eliminada';
+  assert((await ctl.acceptTerminal(owner,base,s.sessionId,true,false)).code==='CONFIRMATION_REQUIRED');
+  const count=backend.logs.filter(x=>x.name==='v48_finalizar').length;
+  assert((await ctl.acceptTerminal(owner,base,s.sessionId,true,true)).ok);
+  assert(!(await cache.get(owner)).draft.sesionActiva && backend.logs.filter(x=>x.name==='v48_finalizar').length===count);
+ });
+ await test('Cancelar offline deja intención durable sin borrar la sesión',async()=>{await setup({active:true});assert((await ctl.cancel(owner,base,s.sessionId,false)).code==='OFFLINE_PENDING');const row=await cache.get(owner);assert(row.draft.sesionActiva && row.draft.__v48TerminalRequest.action==='cancel' && !backend.logs.length);});
+ await test('Eliminar con otra sesión local activa no descarta su progreso',async()=>{await setup();assert((await ctl.remove(owner,base,crypto.randomUUID(),true)).code==='ACTIVE_LOCAL_SESSION');assert(!backend.logs.length);});
+ await test('Plan incompleto se rechaza antes del backend',async()=>{await setup();const row=await cache.get(owner);row.draft.sesionActiva.lifecycle.finalization.sets.pop();await cache.put(row,row.localVersion);assert((await finish()).code==='INVALID_SETS');assert(!backend.logs.length);});
+ await test('CAS local falla después del COMMIT: conservar copia, sin confirmar descarte',async()=>{
+  await setup();const guarded={...cache,put:async()=>({conflict:true})};const r=await controller(guarded).finish(owner,base,s.sessionId,true);
+  assert(r.code==='LOCAL_CONFLICT' && backend.trainings.length===1 && (await cache.get(owner)).draft.sesionActiva);
+ });
+ await test('Contrato canónico SQL corresponde al catálogo real del cliente',async()=>{
+  const sql=await (await fetch('supabase/v48/07_cierre_canonico.sql')).text();
+  assert(P.equal(JSON.parse(sql.split('$aliases$')[1]),A.EXERCISE_ALIASES));
+  assert(P.equal(JSON.parse(sql.split('$indice$')[1]),Object.fromEntries(A.EXERCISE_NORMALIZED_INDEX)));
+  assert(sql.includes("nombre := v48_private.nombre_canonico(e->>'nombre');"));
+ });
+ await test('Integración app: cierre perdido, reconciliación y refresco de historial/referencias',async()=>{
+  await setup();const initial=copy(base);owner=crypto.randomUUID();current=owner;backend=makeBackend(initial);
+  A.Store.ensureProfile=async u=>({id:u.id,name:'Prueba',metaSemanal:3});A.Store.readRutina=async()=>copy(backend.env);
+  A.Store.listRegistros=async()=>copy(backend.records);A.Store.listEntrenos=async()=>copy(backend.trainings);A.Store.listPesoCorporal=async()=>[];
+  A.Store.saveRutina=async()=>{throw Error('No usar upsert');};await A.handleAuthStateChange('SIGNED_IN',{user:{id:owner}});
+  const live=A.nativeSession();live.sets=copy(s.sets);live.references=copy(s.references);await A.persistRutina();
+  const real=R.createController({cache:P.createCache(),adapter:R.createAdapter({capabilities:{metadata:true,rpc:true},rpc:(...x)=>backend.rpc(...x)}),current:o=>A.state.profile?.id===o,canonical:A.canonicalExerciseName});
+  const previous=A.nativeReconciler.finish;A.nativeReconciler.finish=(...x)=>real.finish(...x);
+  try{backend.lose();await A.finalizeSession(day);assert(A.nativeSession() && L.pending(A.nativeSession()));await A.finalizeSession(day);assert(!A.nativeSession() && A.state.entrenos.length===1 && A.state.registros.length===2);assert(A.state.rutinaRaw.referenciasEjercicios['Gemelos parado con mancuerna'].series[0].peso===0);}finally{A.nativeReconciler.finish=previous;}
+ });
+ window.__v48cbResults={pass:results.filter(x=>x.ok).length,fail:results.filter(x=>!x.ok).length,results};document.getElementById('results').textContent=JSON.stringify(window.__v48cbResults,null,2);
+})();
+</script>

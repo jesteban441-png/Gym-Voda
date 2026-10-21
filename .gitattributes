@@ -1,0 +1,3 @@
+# Bibliotecas/fuentes originales: preservar bytes y SHA256 en cualquier checkout.
+# El whitespace de terceros no se reescribe; el código propio conserva el control normal.
+vendor/** -text -whitespace

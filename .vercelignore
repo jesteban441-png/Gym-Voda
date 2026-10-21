@@ -1,0 +1,22 @@
+# PWA estática: allowlist de runtime. Documentación, SQL, tests y fixtures quedan fuera.
+# Semántica .gitignore: ignorar raíz y permitir sólo archivos/carpetas explícitos.
+/*
+!/index.html
+!/sw.js
+!/manifest.json
+!/apple-touch-icon.png
+!/favicon-32.png
+!/icon-192.png
+!/icon-512.png
+!/icon-512-maskable.png
+!/v48-persistence.js
+!/v48-session.js
+!/v48-lifecycle.js
+!/v48-reconcile.js
+!/v48-history.js
+!/vendor/
+!/ejercicios/
+# Medios ajenos no usados por el runtime; tampoco forman parte de la selección Git.
+/ejercicios/anatomia/curl-biceps-anatomia.jpeg
+/ejercicios/anatomia/curl-inclinado-anatomia.jpeg
+/ejercicios/anatomia/plancha-anatomia.png

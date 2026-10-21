@@ -1,0 +1,93 @@
+{
+  "supabase": {
+    "version": "2.118.0",
+    "source": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0",
+    "note": "Versión resuelta por @2 al diagnosticar; UMD sin modificar"
+  },
+  "jspdf": {
+    "version": "2.5.1",
+    "source": "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+    "note": "Misma versión usada por la copia original"
+  },
+  "fonts": {
+    "source": "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap",
+    "note": "7 TTF descargados desde fonts.gstatic.com; CSS con rutas relativas; licencias OFL adjuntas"
+  },
+  "files": [
+    {
+      "path": "fonts/font-1.ttf",
+      "bytes": 81448,
+      "sha256": "cc9fb2539cf27df48255982e896d28f544483537cdb41f9fabd741af8992d719"
+    },
+    {
+      "path": "fonts/font-2.ttf",
+      "bytes": 87120,
+      "sha256": "7dde307fa887fc65ff5830cfada77a7decc5dae8d3c816c9d39ba3f1af1c4ed7"
+    },
+    {
+      "path": "fonts/font-3.ttf",
+      "bytes": 86636,
+      "sha256": "0d85af813fc3ed87db0c6265515689b2eef5cbaf7aab17922528dfc95a2cd73f"
+    },
+    {
+      "path": "fonts/font-4.ttf",
+      "bytes": 114144,
+      "sha256": "a131e7022b34ef1950a9d6bdda16f5d4509cc1fe1af5991a4552febd2a4027e5"
+    },
+    {
+      "path": "fonts/font-5.ttf",
+      "bytes": 114612,
+      "sha256": "caf10fc6636298661234c70bfd5c806835ea65a3b594b5fb3899bf164286f2ff"
+    },
+    {
+      "path": "fonts/font-6.ttf",
+      "bytes": 115376,
+      "sha256": "4bcd994d0502df7c45f2e3c3c95411e92a3cb240fa0167bd2bd74abaae0dcb56"
+    },
+    {
+      "path": "fonts/font-7.ttf",
+      "bytes": 115632,
+      "sha256": "e8398b22225a1f971df9bb12fa8fb9dd4c76e80aa4d67d45bde60ebbc6c5ad81"
+    },
+    {
+      "path": "fonts/fonts.css",
+      "bytes": 1085,
+      "sha256": "6e2518a7cf7d0f4b82c918fc94226e5d8a463a25e1793bd44284466e4d3b8e2e"
+    },
+    {
+      "path": "fonts/OFL-BarlowCondensed.txt",
+      "bytes": 4377,
+      "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"
+    },
+    {
+      "path": "fonts/OFL-WorkSans.txt",
+      "bytes": 4396,
+      "sha256": "749aca05078664ce682dce1b1b10096ac397cb088c1a6df4e1bb56f0092a9272"
+    },
+    {
+      "path": "jspdf-2.5.1/jspdf.umd.min.js",
+      "bytes": 364463,
+      "sha256": "98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875"
+    },
+    {
+      "path": "jspdf-2.5.1/jspdf.umd.min.js.map",
+      "bytes": 1576053,
+      "sha256": "9731ab0dc8c9b7b2ac60f772c06200e20ca2825b5ad0e69fd60aaab9d3d436ac"
+    },
+    {
+      "path": "jspdf-2.5.1/LICENSE",
+      "bytes": 1142,
+      "sha256": "2d26bfab8a36d2250602c7a7597237e180c5cd3517acc108126e3cb399f483c8"
+    },
+    {
+      "path": "supabase-js-2.118.0/LICENSE",
+      "bytes": 1065,
+      "sha256": "334dd6820e2eaeab2064e7c59001b810566728a28a41a7c1dbf69bbee17d0936"
+    },
+    {
+      "path": "supabase-js-2.118.0/supabase.js",
+      "bytes": 218544,
+      "sha256": "bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af"
+    }
+  ]
+}

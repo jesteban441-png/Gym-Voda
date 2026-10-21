@@ -1,0 +1,140 @@
+<!doctype html><meta charset="utf-8"><title>V48.1B — Series</title>
+<h1>V48.1B — Series inline</h1><pre id="results">Cargando…</pre>
+<iframe id="app" src="index.html" style="width:390px;height:844px;position:absolute;left:-9999px"></iframe>
+<script>
+(async()=>{
+  const frame=document.getElementById('app');
+  while(!frame.contentWindow.__appTest) await new Promise(r=>setTimeout(r,25));
+  const W=frame.contentWindow,A=W.__appTest,P=A.persistence,N=W.VodaFitSession,results=[];
+  const copy=x=>JSON.parse(JSON.stringify(x));
+  const assert=(v,m)=>{if(!v) throw new Error(m);};
+  const day={id:'d',nombre:'Prueba V48',exercises:[
+    {id:'e1',nombre:'Dominadas',series:'3',reps:'8'},
+    {id:'e2',nombre:'Gemelos parado con mancuerna',series:'2',reps:'12'}]};
+  const draft=()=>P.createSessionDraft(day,{slot:'personalizada',startedAt:123,timezone:'America/Montevideo'});
+  let remote,owner,writes=0;
+  const keys=['ensureProfile','readRutina','saveRutina','listRegistros','listEntrenos','listPesoCorporal','addRegistro','updateRegistro','addEntreno'];
+  const previous=Object.fromEntries(keys.map(k=>[k,A.Store[k]]));
+  A.Store.ensureProfile=async u=>({id:u.id,name:'Prueba',metaSemanal:3});
+  A.Store.readRutina=async()=>({data:copy(remote),revision:null,clienteV48:false,schemaReady:false});
+  A.Store.listRegistros=async()=>[];A.Store.listEntrenos=async()=>[];A.Store.listPesoCorporal=async()=>[];
+  ['saveRutina','addRegistro','updateRegistro','addEntreno'].forEach(key=>A.Store[key]=async()=>{writes++;throw new Error('Escritura remota prohibida: '+key);});
+  async function seed(){
+    remote={personalizada:{days:[day]},automatica:{days:[]},enfocada:{days:[]},activeSlot:'personalizada',sesionActiva:draft(),
+      referenciasEjercicios:{Gemelos:{series:[{setNumber:1,peso:20,reps:12}],updatedAt:100,sourceSessionId:'referencia-previa'}}};
+    owner=crypto.randomUUID();await A.handleAuthStateChange('SIGNED_IN',{user:{id:owner}});
+    A.state.tab='sesion';A.render();return A.nativeSession();
+  }
+  const screen=()=>W.document.getElementById('screen');
+  const row=(id,number)=>Array.from(screen().querySelectorAll('[data-native-row]')).find(el=>el.dataset.nativeRow===id && +el.dataset.number===number);
+  function input(id,number,field,value){const el=row(id,number).querySelector('[data-native-field="'+field+'"]');el.value=value;el.dispatchEvent(new W.Event('input',{bubbles:true}));}
+  const check=(id,number)=>row(id,number).querySelector('[data-native-check]').click();
+  const finish=id=>Array.from(screen().querySelectorAll('[data-native-finish]')).find(el=>el.dataset.nativeFinish===id).click();
+  async function answer(value){W.document.querySelector('[data-native-answer="'+value+'"]').click();await A.persistRutina();await new Promise(r=>setTimeout(r,15));}
+  async function test(name,fn){try{await fn();results.push({name,ok:true});}catch(e){results.push({name,ok:false,error:e.message});}
+    document.getElementById('results').textContent=results.map(x=>(x.ok?'OK ':'FAIL ')+x.name+(x.error?' — '+x.error:'')).join('\n');}
+  try {
+    await test('Todas las series inline, sin dar por realizada la referencia',async()=>{
+      const s=await seed();assert(screen().querySelectorAll('[data-native-row]').length===5,'No muestra todas las series');
+      assert(screen().querySelectorAll('[data-native-field]').length===10,'Faltan campos');
+      assert(N.progress(s).done===0 && !screen().querySelector('[data-native-check]:checked'),'Marcó referencia como realizada');
+      assert(row('e2',1).textContent.includes('20 kg × 12'),'No resolvió referencia canónica Gemelos');
+      assert(row('e1',1).textContent.includes('Sin referencia'),'Inventó referencia desde historial');
+    });
+    await test('Cero kg y coma decimal válidos; repeticiones invalidan completado',async()=>{
+      const s=await seed();input('e1',3,'peso','0');input('e1',3,'reps','8');check('e1',3);
+      assert(N.rows(s,'e1')[2].completed,'Rechazó peso corporal/cero');
+      input('e1',3,'peso','2,5');assert(N.rows(s,'e1')[2].peso===2.5,'No aceptó coma');
+      input('e1',3,'reps','0');assert(!N.rows(s,'e1')[2].completed,'Contó serie sin reps válidas');
+      check('e1',3);assert(!N.rows(s,'e1')[2].completed && row('e1',3).querySelector('[data-native-error]').textContent,'No explicó validación');
+      ['','-1','Infinity','NaN','1e3'].forEach(v=>assert(N.weight(v)===null,'Peso inválido aceptado '+v));
+      ['','0','8-10','1.5','2147483648'].forEach(v=>assert(N.reps(v)===null,'Reps inválidas aceptadas '+v));
+    });
+    await test('Marcar tercera antes de primera; desmarcar no afecta otras',async()=>{
+      const s=await seed();
+      [1,3].forEach(n=>{input('e1',n,'peso','0');input('e1',n,'reps','8');check('e1',n);});
+      check('e1',1);
+      assert(!N.rows(s,'e1')[0].completed && N.rows(s,'e1')[2].completed && !N.rows(s,'e1')[1].completed,'Marcado en cascada');
+      assert(A.sessionProgress().done===1,'Contó series incompletas');
+    });
+    await test('Editar y alternar ejercicios/pantallas conserva valores y foco',async()=>{
+      const s=await seed();input('e1',1,'peso','10');input('e1',1,'reps','8');check('e1',1);
+      const el=row('e2',1).querySelector('[data-native-field="peso"]');el.focus();input('e2',1,'peso','12,5');
+      assert(W.document.activeElement===el,'Recreó inputs al escribir');
+      A.state.tab='rutina';A.render();A.state.tab='sesion';A.render();
+      assert(row('e1',1).querySelector('[data-native-check]').checked,'Perdió marca al cambiar');
+      assert(row('e2',1).querySelector('[data-native-field="peso"]').value==='12,5','Perdió valor en otro ejercicio');
+      assert(N.rows(s,'e1')[0].peso===10,'Cambió otra serie');
+    });
+    await test('Guardar referencia: decisión pendiente, definitivo intacto',async()=>{
+      const s=await seed(),original=copy(remote.referenciasEjercicios);
+      input('e2',1,'peso','25');input('e2',1,'reps','15');check('e2',1);finish('e2');
+      assert(W.document.querySelector('.modal-back').textContent.includes('¿Querés guardar estos pesos y repeticiones como referencia para la próxima vez?'),'Pregunta incorrecta');
+      await answer('yes');
+      assert(s.references.e2.accepted && s.references.e2.sets.length===1,'No guardó decisión');
+      assert(P.equal(A.state.rutinaRaw.referenciasEjercicios,original),'Actualizó referencia definitiva');
+      assert(N.progress(s).done===1,'Perdió serie realizada');
+    });
+    await test('No guardar: conserva realizadas y referencia anterior',async()=>{
+      const s=await seed(),original=copy(remote.referenciasEjercicios);
+      input('e2',1,'peso','25');input('e2',1,'reps','15');check('e2',1);finish('e2');await answer('no');
+      assert(s.references.e2.accepted===false && N.rows(s,'e2')[0].completed,'Descartó serie realizada');
+      assert(P.equal(A.state.rutinaRaw.referenciasEjercicios,original),'Cambió referencia definitiva');
+      assert((await P.createCache(W.indexedDB).get(owner)).draft.sesionActiva.references.e2.accepted===false,'No persistió la decisión rechazada');
+    });
+    await test('Cambiar completada invalida; al terminar vuelve a preguntar',async()=>{
+      const s=await seed();input('e1',1,'peso','0');input('e1',1,'reps','8');check('e1',1);finish('e1');await answer('yes');
+      input('e1',1,'peso','5');assert(!s.references.e1,'Conservó una decisión obsoleta');
+      assert(screen().textContent.includes('Volvé a terminar'),'No indicó nueva elección');
+      finish('e1');assert(W.document.querySelector('[data-native-answer="yes"]'),'No volvió a preguntar');await answer('no');
+      check('e1',1);assert(!s.references.e1,'Desmarcar no invalidó');
+    });
+    await test('Editar incompleta no altera decisión sobre completadas',async()=>{
+      const s=await seed();input('e1',1,'peso','0');input('e1',1,'reps','8');check('e1',1);finish('e1');await answer('no');
+      input('e1',2,'peso','10');assert(s.references.e1 && s.references.e1.accepted===false,'Invalidó sin cambio de realizadas');
+      assert(N.completed(s,'e1').length===1,'Contó la incompleta editada');
+    });
+    await test('Referencia compartida entre modalidades y decisión obsoleta rechazada',async()=>{
+      const s=await seed(),snapshot=N.completed(s,'e1');
+      s.slot='especial';assert(N.reference(remote.referenciasEjercicios,'Gemelos parado con mancuerna',A.canonicalExerciseName).series[0].peso===20,'Referencia depende de modalidad');
+      input('e1',1,'peso','0');input('e1',1,'reps','8');check('e1',1);
+      const previous=N.completed(s,'e1');input('e1',1,'reps','9');
+      assert(!N.decide(s,'e1',true,previous) && !s.references.e1,'Aceptó elección sobre valores anteriores');
+    });
+    await test('Borrador en IndexedDB; sin registros, históricos ni cierre',async()=>{
+      const s=await seed();input('e1',1,'peso','0');input('e1',1,'reps','8');check('e1',1);
+      const saved=await A.persistRutina();assert(saved.ok && saved.localOnly,'No respaldó localmente');
+      const record=await P.createCache(W.indexedDB).get(owner);
+      assert(record.pending && record.draft.sesionActiva.sessionId===s.sessionId,'No guardó sesión estable');
+      await A.finalizeSession(day);
+      assert(A.nativeSession().sessionId===s.sessionId && A.state.entrenos.length===0 && writes===0,'Escribió o finalizó remotamente');
+    });
+    await test('Recuperación por mismo usuario y separación al cambiar de cuenta',async()=>{
+      const s=await seed(),id=owner;input('e1',2,'peso','7,5');input('e1',2,'reps','6');check('e1',2);await A.persistRutina();
+      await A.handleAuthStateChange('SIGNED_OUT',null);
+      await A.handleAuthStateChange('SIGNED_IN',{user:{id}});
+      assert(A.nativeSession().sessionId===s.sessionId && N.rows(A.nativeSession(),'e1')[1].peso===7.5,'No recuperó');
+      const nativeRemote=remote;remote={days:[]};await A.handleAuthStateChange('SIGNED_IN',{user:{id:crypto.randomUUID()}});
+      assert(!A.nativeSession() && !A.state.session,'Mezcló cuenta anterior');
+      remote=nativeRemote;
+    });
+    await test('Inicio nativo exige conexión y reserva; no inventa sesiones offline',async()=>{
+      let reserves=0;
+      assert((await N.requestStart({online:false,ready:true,reserve:()=>reserves++})).code==='ONLINE_REQUIRED','Permitió inicio offline');
+      assert((await N.requestStart({online:true,ready:false,reserve:()=>reserves++})).code==='V48_NOT_READY' && reserves===0,'Saltó disponibilidad');
+      assert((await N.requestStart({online:true,ready:true,reserve:async()=>{throw new Error('red');}})).code==='NETWORK_ERROR','Ocultó error de reserva');
+    });
+    await test('Claro/oscuro, móvil sin overflow y controles de al menos 44 px',async()=>{
+      await seed();
+      for(const theme of ['light','dark']){
+        W.document.documentElement.setAttribute('data-theme',theme);
+        assert(W.document.documentElement.scrollWidth<=W.innerWidth,'Overflow en '+theme);
+        const field=screen().querySelector('[data-native-field]'),box=screen().querySelector('.native-check');
+        assert(parseFloat(W.getComputedStyle(field).fontSize)>=16 && field.getBoundingClientRect().height>=44,'Input incómodo en iPhone');
+        assert(box.getBoundingClientRect().height>=44 && box.getBoundingClientRect().width>=44,'Checkbox sin área táctil');
+      }
+    });
+  } finally {keys.forEach(k=>A.Store[k]=previous[k]);A.clearAccountData();}
+  window.__v48bResults={total:results.length,pass:results.filter(x=>x.ok).length,fail:results.filter(x=>!x.ok).length,failures:results.filter(x=>!x.ok)};
+})();
+</script>

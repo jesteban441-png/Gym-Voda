@@ -4496,7 +4496,8 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // pero es el mismo mecanismo: V44.2 dejó de usar los .gif y esas entradas
       // quedaron huérfanas en la caché de los dispositivos, y lo único que las
       // evacúa es que el nombre de la caché sea distinto (ver el activate).
-      assert(/const CACHE = "gymapp-v8";/.test(SW_SRC), "CACHE debería ser gymapp-v8");
+      var currentCache = SW_SRC.match(/const CACHE = "([^"]+)";/);
+      assert(currentCache && /^gymapp-/.test(currentCache[1]) && ["gymapp-v6","gymapp-v7","gymapp-v8"].indexOf(currentCache[1])===-1, "La candidata debe retirar las cachés anteriores a V48");
       assert(!/const CACHE = "gymapp-v7";/.test(SW_SRC), "no debería quedar la v7 como activa");
     });
 
@@ -7586,6 +7587,302 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(Math.abs(A.mapaIntensidad(5) - 1) < 1e-9, "mapaIntensidad(5) debería ser 1");
       assert(A.mapaIntensidad(0) === 0, "mapaIntensidad(0) debería ser 0");
       assert(Math.abs(A.mapaIntensidad(1) - 0.296) < 1e-3, "mapaIntensidad(1) cambió: " + A.mapaIntensidad(1));
+    });
+
+    // ===================================================================
+    // A1 — el registro por serie del flujo heredado verifica el guardado.
+    //
+    // Historia: el handler de "Guardar" ignoraba el resultado de Supabase, así
+    // que un guardado fallido marcaba la serie, decía "Registro guardado" y
+    // dejaba `registroId: undefined`; después, editar ESA serie actualizaba
+    // una fila inexistente. La implementación vigente (V48) además genera el
+    // id en el cliente, envuelve las dos llamadas en try/catch y corta por
+    // cambio de cuenta. Estos tests fijan ese comportamiento.
+    //
+    // Qué NO se afirma acá, a propósito: que el modal se cierre. El cierre
+    // depende de `persistRutina()` y de refrescar el historial, y en el
+    // harness no hay contexto de persistencia V48 cargado, así que el
+    // borrador no se puede guardar. Lo que estos tests miden es la escritura
+    // del registro y el estado de la sesión, que es donde estaba el bug.
+    //
+    // Nada llega a la base: se sustituyen los métodos de Store por stubs y se
+    // restauran siempre en el `finally`.
+    // ===================================================================
+    group("A1 — el registro por serie verifica el guardado real");
+
+    var EX_A1 = { id:"ex-a1", nombre:"Press de banca con barra", series:"3", reps:"10", notas:"", imagenUrl:"" };
+
+    // Se drenan SOLO microtasks, nunca setTimeout: con los stubs resolviendo
+    // al instante el handler entero son microtasks, y así el test es atómico.
+    // Importa porque el harness llena la cola DOS veces y dos bucles la
+    // consumen en paralelo avanzando con setTimeout(runNext,0): con
+    // microtasks no pueden colarse entre estas líneas y robarnos el modal o
+    // el state. Esperar con setTimeout sí se los permitía.
+    async function flush(){
+      for(var i=0; i<60; i++) await Promise.resolve();
+    }
+
+    // Monta una sesión mínima en memoria y deja el Store stubeado. Usa un Día
+    // Especial porque así el día viaja DENTRO de la sesión y sessionDay() no
+    // depende de la rutina cargada (si devolviera null, renderScreenSession
+    // borraría state.session en medio del test).
+    async function conRegistroDeSerie(logsIniciales, setsIniciales, fn){
+      var W = frame.contentWindow, T = W.__appTest, D = W.document;
+      var S = T.Store;
+      var prev = {
+        profile: T.state.profile, session: T.state.session,
+        registros: T.state.registros, sel: T.state.exerciseSelForm,
+        slots: T.state.rutinaSlots, activeSlot: T.state.activeSlot,
+        add: S.addRegistro, upd: S.updateRegistro, list: S.listRegistros,
+        save: S.saveRutina, hc: S.historyCompat, hs: S.historyStatus
+      };
+      var llamadas = { add:0, upd:0, list:0, save:0 };
+      T.state.profile = { id:"perfil-test-a1", name:"Test", edad:30, sexo:"m" };
+      T.state.session = {
+        dayId:"dia-a1", slot:"especial", dayNombre:"Día A1", startedAt:1,
+        specialDay:{ id:"dia-a1", nombre:"Día A1", exercises:[EX_A1] },
+        sets:{ "ex-a1": setsIniciales.slice() },
+        setLogs:{ "ex-a1": logsIniciales.slice() }
+      };
+      T.state.registros = [];
+      if(!T.state.rutinaSlots){
+        T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+        T.state.activeSlot = T.state.activeSlot || "personalizada";
+      }
+      // Ninguno de estos debe tocar Supabase ni la cola de historial V48.
+      S.listRegistros = function(){ llamadas.list++; return Promise.resolve([]); };
+      S.saveRutina = function(){ llamadas.save++; return Promise.resolve(true); };
+      S.historyCompat = { acknowledge: function(){ return Promise.resolve(); } };
+      S.historyStatus = function(){ return null; };
+      // Un toast viejo daría un falso positivo al buscar el aviso de fallo.
+      var viejo = D.querySelector(".toast");
+      if(viejo) viejo.remove();
+      var ctx = {
+        T:T, D:D, S:S, W:W, llamadas:llamadas, ex:EX_A1,
+        sets: function(){ return T.state.session.sets["ex-a1"]; },
+        logs: function(){ return T.state.session.setLogs["ex-a1"]; },
+        abierto: function(){ return !!D.querySelector(".modal-back"); },
+        toast: function(){ var t = D.querySelector(".toast"); return t ? t.textContent : ""; },
+        // showHistoryFailure() avisa por toast con el código de la operación.
+        avisoDeFallo: function(){ return ctx.toast().indexOf("No se confirmó la operación") !== -1; },
+        abrir: function(idx){
+          T.openSessionLogModal(EX_A1, idx);
+          var backs = D.querySelectorAll(".modal-back");
+          assert(backs.length >= 1, "no se abrió el modal de registro");
+          var m = backs[backs.length - 1].querySelector(".modal");
+          m.__save = function(){ return m.querySelector('[data-act="save"]'); };
+          m.__guardar = function(peso){
+            if(peso !== undefined) m.querySelector("#slog-peso").value = peso;
+            m.__save().click();
+          };
+          return m;
+        }
+      };
+      try {
+        return await fn(ctx);
+      } finally {
+        S.addRegistro = prev.add; S.updateRegistro = prev.upd; S.listRegistros = prev.list;
+        S.saveRutina = prev.save; S.historyCompat = prev.hc; S.historyStatus = prev.hs;
+        T.closeModal();
+        T.state.profile = prev.profile; T.state.session = prev.session;
+        T.state.registros = prev.registros; T.state.exerciseSelForm = prev.sel;
+        T.state.rutinaSlots = prev.slots; T.state.activeSlot = prev.activeSlot;
+      }
+    }
+
+    test("un alta rechazada por la base no marca la serie ni la da por guardada", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        c.S.addRegistro = function(){ c.llamadas.add++; return Promise.resolve({ ok:false, code:"SAVE_FAILED" }); };
+        var m = c.abrir(0);
+        m.__guardar("40");
+        await flush();
+        assert(c.llamadas.add === 1, "debería haber intentado el alta una vez, dio " + c.llamadas.add);
+        assert(c.sets()[0] === false, "la serie NO debe quedar marcada si el guardado falló");
+        assert(c.logs()[0] === null, "no debe guardarse ningún log de una serie que no se guardó");
+        assert(c.llamadas.list === 0, "no debería recargar el historial tras un fallo");
+        assert(c.avisoDeFallo(), "debería avisar del fallo, el toast dijo: " + c.toast());
+        assert(c.abierto(), "el modal debe seguir abierto para reintentar");
+        assert(m.__save().disabled === false,
+          "el botón Guardar debe volver a quedar habilitado para el reintento");
+        assert(m.querySelector("#slog-peso").value === "40",
+          "el peso cargado debe conservarse para no tipearlo de nuevo");
+      });
+    });
+
+    test("un alta que lanza excepción se trata como fallo, no como éxito", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        // Caso típico sin conexión: el cliente de Supabase LANZA en vez de
+        // devolver un resultado. Sin el try/catch, la promesa del handler
+        // quedaba sin manejar y la pantalla no decía nada.
+        c.S.addRegistro = function(){ c.llamadas.add++; return Promise.reject(new TypeError("Failed to fetch")); };
+        var m = c.abrir(0);
+        m.__guardar("40");
+        await flush();
+        assert(c.sets()[0] === false, "una excepción no puede dejar la serie marcada");
+        assert(c.logs()[0] === null, "una excepción no puede dejar un log guardado");
+        assert(c.avisoDeFallo(), "debería avisar del fallo, el toast dijo: " + c.toast());
+        assert(c.abierto(), "el modal debe seguir abierto");
+        assert(m.__save().disabled === false, "el botón debe quedar habilitado para reintentar");
+      });
+    });
+
+    test("un alta sin id se trata como fallo: nunca se guarda un registroId indefinido", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        // `ok` en true porque no hubo error, pero el insert no devolvió fila:
+        // sin id no hay con qué editar después esa serie. Era la vía por la
+        // que se colaba `registroId: undefined` al borrador.
+        c.S.addRegistro = function(){ c.llamadas.add++; return Promise.resolve({ ok:true, id:undefined }); };
+        var m = c.abrir(0);
+        m.__guardar("40");
+        await flush();
+        assert(c.sets()[0] === false, "la serie NO debe quedar marcada sin un id de registro");
+        assert(c.logs()[0] === null, "no debe quedar un log con registroId indefinido");
+        assert(c.avisoDeFallo(), "debería avisar del fallo, el toast dijo: " + c.toast());
+        assert(c.abierto(), "el modal debe seguir abierto");
+      });
+    });
+
+    test("un alta correcta marca la serie y guarda el id que devolvió la base", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        var enviado = null;
+        c.S.addRegistro = function(owner, data){
+          c.llamadas.add++; enviado = data;
+          return Promise.resolve({ ok:true, id:data.id });
+        };
+        var m = c.abrir(0);
+        m.__guardar("40");
+        await flush();
+        assert(c.llamadas.add === 1, "debería haber insertado una vez, dio " + c.llamadas.add);
+        // El id se genera en el cliente cuando se puede (crypto.randomUUID?.()),
+        // para que un reintento no duplique la fila (ver el test de idempotencia
+        // de abajo). En un contexto no seguro randomUUID no existe y el id lo
+        // pone la base: las dos variantes son válidas, lo que NO puede pasar es
+        // que el borrador se quede con un id distinto al que quedó guardado.
+        assert(enviado.id === undefined || (typeof enviado.id === "string" && enviado.id.length > 0),
+          "si viaja un id debe ser un string no vacío, dio " + JSON.stringify(enviado.id));
+        assert(enviado.setNumber === 1, "una fila = una serie: set_number debería ser 1, dio " + enviado.setNumber);
+        assert(enviado.series === "1", "series debería ser \"1\", no el total del ejercicio, dio " + enviado.series);
+        assert(c.sets()[0] === true, "con el guardado correcto la serie sí queda marcada");
+        assert(c.logs()[0] && c.logs()[0].registroId === enviado.id,
+          "debería guardar el id del registro, dio " + JSON.stringify(c.logs()[0]));
+        assert(c.logs()[0].peso === 40, "debería guardar el peso cargado, dio " + c.logs()[0].peso);
+        assert(c.llamadas.list === 1, "el éxito sí recarga el historial, dio " + c.llamadas.list);
+        assert(!c.avisoDeFallo(), "no debería avisar de ningún fallo, el toast dijo: " + c.toast());
+      });
+    });
+
+    test("reintentar después de un alta correcta no inserta una segunda fila", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        c.S.addRegistro = function(owner, data){ c.llamadas.add++; return Promise.resolve({ ok:true, id:data.id }); };
+        c.S.updateRegistro = function(){ c.llamadas.upd++; return Promise.resolve(true); };
+        var m = c.abrir(0);
+        m.__guardar("40");
+        await flush();
+        assert(c.llamadas.add === 1, "primer intento: una inserción");
+        // El modal queda abierto si no se pudo persistir el borrador, así que
+        // un segundo toque es un escenario real. Tiene que EDITAR la fila que
+        // ya existe, no crear otra: ahí estaba el riesgo de duplicar series.
+        m.__guardar();
+        await flush();
+        assert(c.llamadas.add === 1, "no debería insertar de nuevo, insertó " + c.llamadas.add + " veces");
+        assert(c.llamadas.upd === 1, "el segundo toque debería editar la fila existente, editó " + c.llamadas.upd);
+        assert(c.sets()[0] === true, "la serie sigue marcada");
+      });
+    });
+
+    test("una edición rechazada no pisa el registro que ya estaba cargado", function(){
+      var original = { registroId:"r-9", peso:40, reps:"10", nota:"", date:"2026-01-01" };
+      return conRegistroDeSerie([original,null,null], [true,false,false], async function(c){
+        c.S.updateRegistro = function(){ c.llamadas.upd++; return Promise.resolve(false); };
+        var m = c.abrir(0);
+        assert(m.querySelector("h3").textContent.indexOf("Editar serie") !== -1,
+          "con un log cargado el modal debería abrirse en modo edición");
+        m.__guardar("50");
+        await flush();
+        assert(c.llamadas.upd === 1, "debería haber intentado el update una vez, dio " + c.llamadas.upd);
+        assert(c.logs()[0] && c.logs()[0].peso === 40,
+          "el peso anterior no debe pisarse, dio " + JSON.stringify(c.logs()[0]));
+        assert(c.sets()[0] === true, "la serie ya estaba hecha: una edición fallida no la desmarca");
+        assert(c.avisoDeFallo(), "debería avisar del fallo, el toast dijo: " + c.toast());
+        assert(c.abierto(), "el modal debe seguir abierto para reintentar");
+        assert(c.llamadas.list === 0, "no debería recargar el historial tras una edición fallida");
+      });
+    });
+
+    test("una edición que lanza excepción tampoco pisa el registro cargado", function(){
+      var original = { registroId:"r-9", peso:40, reps:"10", nota:"", date:"2026-01-01" };
+      return conRegistroDeSerie([original,null,null], [true,false,false], async function(c){
+        c.S.updateRegistro = function(){ c.llamadas.upd++; return Promise.reject(new TypeError("Failed to fetch")); };
+        var m = c.abrir(0);
+        m.__guardar("50");
+        await flush();
+        assert(c.logs()[0] && c.logs()[0].peso === 40,
+          "el peso anterior no debe pisarse, dio " + JSON.stringify(c.logs()[0]));
+        assert(c.avisoDeFallo(), "debería avisar del fallo, el toast dijo: " + c.toast());
+        assert(c.abierto(), "el modal debe seguir abierto");
+      });
+    });
+
+    group("A5 y M1 — contraste y tipografía del registro heredado");
+
+    test("A5 — la serie completada usa --success-on y llega a 4,5:1 en los dos temas", function(){
+      var W = frame.contentWindow, D = W.document, root = D.documentElement;
+      var previo = root.getAttribute("data-theme");
+      var host = D.createElement("div");
+      host.innerHTML = '<div class="setrow"><div class="setdot done">1</div></div>';
+      D.body.appendChild(host);
+      // Contraste WCAG 2.x sobre los colores ya resueltos por el navegador.
+      var lum = function(css){
+        var v = css.match(/\d+(\.\d+)?/g).slice(0,3).map(function(n){
+          var c = Number(n)/255;
+          return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4);
+        });
+        return 0.2126*v[0] + 0.7152*v[1] + 0.0722*v[2];
+      };
+      var ratio = function(a, b){
+        var x = lum(a), y = lum(b), hi = Math.max(x,y), lo = Math.min(x,y);
+        return (hi+0.05)/(lo+0.05);
+      };
+      try {
+        var dot = host.querySelector(".setdot.done");
+        // El número es 13px bold: NO califica como texto grande, así que el
+        // umbral que corresponde es 4,5:1, no 3:1.
+        [["dark", "rgb(89, 198, 138)"], ["light", "rgb(46, 158, 91)"]].forEach(function(par){
+          root.setAttribute("data-theme", par[0]);
+          var cs = W.getComputedStyle(dot);
+          var r = ratio(cs.color, cs.backgroundColor);
+          assert(cs.backgroundColor === par[1],
+            "el verde de marca en " + par[0] + " no debe cambiar, dio " + cs.backgroundColor);
+          assert(r >= 4.5, "contraste insuficiente en " + par[0] + ": " + r.toFixed(2) + ":1 (mínimo 4,5)");
+        });
+      } finally {
+        host.remove();
+        if(previo === null) root.removeAttribute("data-theme"); else root.setAttribute("data-theme", previo);
+      }
+    });
+
+    test("M1 — los inputs del modal de registro no disparan el zoom de Safari iOS", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        var m = c.abrir(0);
+        var chicos = [];
+        ["#slog-date", "#slog-peso", "#slog-reps", "#slog-nota"].forEach(function(id){
+          var el = m.querySelector(id);
+          assert(el, "falta el campo " + id);
+          var px = parseFloat(c.W.getComputedStyle(el).fontSize);
+          // 16px es el umbral exacto de Safari iOS: por debajo hace zoom solo.
+          if(!(px >= 16)) chicos.push(id + " = " + px + "px");
+        });
+        assert(chicos.length === 0, "estos inputs harían zoom en iOS: " + chicos.join(", "));
+        assert(m.querySelector("#slog-peso").getAttribute("inputmode") === "decimal",
+          "el peso debería pedir el teclado decimal, dio " + m.querySelector("#slog-peso").getAttribute("inputmode"));
+        // Reps es texto libre y admite rangos ("8-12"): un inputmode numérico
+        // mostraría un teclado sin guion y haría imposible escribirlos. Por
+        // eso NO lleva inputmode — es una decisión, no un olvido.
+        assert(!m.querySelector("#slog-reps").hasAttribute("inputmode"),
+          "reps no debe forzar teclado numérico: admite rangos como 8-12");
+        assert(m.querySelector("#slog-reps").type === "text",
+          "reps debe seguir siendo texto libre, dio type=" + m.querySelector("#slog-reps").type);
+      });
     });
 
     runNext();

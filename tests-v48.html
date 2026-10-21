@@ -1,0 +1,191 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>V48.1A — Persistencia</title>
+<h1>V48.1A — Persistencia</h1><pre id="results">Cargando…</pre>
+<iframe id="app" src="index.html" style="width:420px;height:760px;position:absolute;left:-9999px"></iframe>
+<script>
+(async function(){
+  const frame=document.getElementById('app');
+  while(!frame.contentWindow.__appTest) await new Promise(r=>setTimeout(r,50));
+  const A=frame.contentWindow.__appTest, P=A.persistence;
+  const results=[];
+  const assert=(v,m)=>{if(!v) throw new Error(m);};
+  const clone=x=>JSON.parse(JSON.stringify(x));
+  const env=data=>({data:clone(data),revision:null,clienteV48:false,schemaReady:false});
+  const empty={personalizada:{days:[]},automatica:{days:[]},enfocada:{days:[]},activeSlot:'personalizada',sesionActiva:null};
+  const day={id:'d',nombre:'Día de prueba',exercises:[{id:'e',nombre:'Dominadas',series:'2',reps:'8'}]};
+  const legacy={...clone(empty),personalizada:{days:[day]},sesionActiva:{dayId:'d',slot:'personalizada',dayNombre:'Día de prueba',startedAt:123,sets:{e:[true,false]},setLogs:{e:[{registroId:'r',peso:0,reps:'8',date:'2026-10-18'},null]}}};
+  let number=0;
+  const cache=()=>P.createCache(frame.contentWindow.indexedDB,'v48-test-'+crypto.randomUUID());
+  const memoryRepo=data=>({read:async()=>env(data),write:async(_u,value)=>({ok:true,envelope:env(value)})});
+  async function test(name,fn){
+    try {await fn();results.push({name,ok:true});} catch(e){results.push({name,ok:false,error:e.message});}
+    document.getElementById('results').textContent=results.map(x=>(x.ok?'OK ':'FAIL ')+x.name+(x.error?' — '+x.error:'')).join('\n');
+  }
+  function fakeClient(remote){
+    const calls=[];
+    return {calls,from(table){
+      assert(table==='rutinas','Consulta ajena a rutinas');
+      return {select(fields){calls.push(['select',fields]);return {eq(key,id){calls.push(['eq',key,id]);return {maybeSingle:async()=>({data:{data:clone(remote)},error:null})};}};},
+        upsert:async row=>{calls.push(['upsert',clone(row)]);remote=clone(row.data);return {error:null};}};
+    },rpc:async()=>{throw new Error('RPC no autorizada');}};
+  }
+
+  await test('Esquema no desplegado: solo data, sin columnas nuevas ni RPC',async()=>{
+    const client=fakeClient(legacy), repo=P.createRepository(()=>client,{metadata:false,rpc:false});
+    const base=await repo.read('a');const result=await repo.write('a',{...base.data,activeSlot:'automatica'},base);
+    assert(result.ok,'Falló el camino legado');
+    assert(client.calls.filter(x=>x[0]==='select').every(x=>x[1]==='data'),'Solicitó metadatos');
+    assert(client.calls.find(x=>x[0]==='upsert')[1].profile_id==='a','Usuario incorrecto');
+    assert(!base.schemaReady && !base.clienteV48,'El repositorio sin capacidades activó V48');
+  });
+  await test('Cambio remoto legado: detectar antes de sobrescribir',async()=>{
+    const client=fakeClient({...empty,extra:'otra copia'}),repo=P.createRepository(()=>client,{metadata:false,rpc:false});
+    const result=await repo.write('a',legacy,env(empty));
+    assert(result.code==='REVISION_CONFLICT','No detectó cambio remoto');
+    assert(!client.calls.some(x=>x[0]==='upsert'),'Sobrescribió el remoto');
+  });
+  await test('Metadatos y CAS futuros: revisión 40001, nunca fallback a upsert',async()=>{
+    let rpc;const client={from(){return {select(fields){assert(fields==='data,revision,cliente_v48','Campos');return {eq(){return {maybeSingle:async()=>({data:{data:empty,revision:7,cliente_v48:true}})};}};}};},
+      rpc:async(name,args)=>{rpc={name,args};return {error:{code:'40001',message:'REVISION_CONFLICT'}};}};
+    const repo=P.createRepository(()=>client,{metadata:true,rpc:true});
+    const base=await repo.read('a');const result=await repo.write('a',base.data,base);
+    assert(result.code==='REVISION_CONFLICT','Conflicto ignorado');
+    assert(rpc.name==='v48_guardar_rutina' && rpc.args.p_revision===7,'RPC/revisión incorrectas');
+    assert(!('sesionActiva' in rpc.args.p_patch),'Incluyó clave protegida');
+  });
+  await test('Cambio de usuario durante prelectura: no inicia upsert antiguo',async()=>{
+    let release,entered,current=true;
+    const wait=new Promise(r=>release=r),started=new Promise(r=>entered=r),client=fakeClient(empty);
+    const original=client.from;
+    client.from=table=>{const query=original(table),select=query.select;
+      query.select=fields=>{const q=select(fields),eq=q.eq;q.eq=(...args)=>{const f=eq(...args);f.maybeSingle=async()=>{entered();await wait;return {data:{data:empty}};};return f;};return q;};return query;};
+    const repo=P.createRepository(()=>client,{metadata:false,rpc:false}),pending=repo.write('a',legacy,env(empty),()=>current);
+    await started;current=false;release();
+    assert((await pending).code==='ACCOUNT_CHANGED' && !client.calls.some(x=>x[0]==='upsert'),'Escribió después de cambiar usuario');
+  });
+  await test('Activada pero RPC no habilitada: cerrar camino inseguro',async()=>{
+    const client=fakeClient(empty),repo=P.createRepository(()=>client,{metadata:true,rpc:false});
+    const result=await repo.write('a',empty,{...env(empty),revision:0,clienteV48:true,schemaReady:true});
+    assert(result.code==='V48_NOT_READY' && client.calls.length===0,'Intentó escribir');
+  });
+  await test('IndexedDB real: red caída, recarga del controlador y recuperación',async()=>{
+    const db=cache(),repo={read:async()=>env(empty),write:async()=>({ok:false,code:'NETWORK_ERROR'})};
+    const sync=P.createSync(repo,db);await sync.load('a');
+    assert((await sync.save(legacy)).localSaved,'No guardó borrador');
+    sync.detach();const restored=P.createSync(repo,db);const loaded=await restored.load('a');
+    assert(loaded.recovered && P.equal(loaded.data,legacy),'No recuperó el progreso tras recargar');
+    assert(loaded.data.sesionActiva.setLogs.e[0].registroId==='r','Perdió vínculo histórico');
+  });
+  await test('Aislamiento A/B: no leer ni sincronizar borrador ajeno',async()=>{
+    const db=cache(),sync=P.createSync({read:async()=>env(empty),write:async()=>({ok:false,code:'NETWORK_ERROR'})},db);
+    await sync.load('a');await sync.save(legacy);sync.detach();
+    const b=await sync.load('b');assert(!b.recovered && b.data.sesionActiva===null,'Mezcló sesiones');
+    assert(await db.get('b')===null && (await db.get('a')).pending,'Borró o mezcló cachés');
+  });
+  await test('Red caída al leer: el borrador local permanece disponible',async()=>{
+    const db=cache(),sync=P.createSync(memoryRepo(empty),db);await sync.load('a');await sync.save(legacy);
+    const offline=P.createSync({read:async()=>{throw new Error('offline');}},db);
+    const loaded=await offline.load('a');assert(loaded.offline && P.equal(loaded.data,legacy),'No recuperó copia local');
+  });
+  await test('Conflicto remoto: conservar ambas copias y bloquear sincronización',async()=>{
+    const db=cache();let writes=0;
+    const first=P.createSync({read:async()=>env(empty),write:async()=>({ok:false,code:'NETWORK_ERROR'})},db);
+    await first.load('a');await first.save(legacy);
+    const sync=P.createSync({read:async()=>env({...empty,extra:'remoto'}),write:async()=>{writes++;}},db);
+    const loaded=await sync.load('a');assert(loaded.conflict && loaded.localDraft.sesionActiva,'Perdió la copia local');
+    const result=await sync.save({...loaded.data,extra:'edición sobre copia remota'});
+    assert(!result.ok && writes===0,'Sobrescribió conflicto');
+    assert(P.equal((await db.get('a')).draft,legacy),'Reemplazó el borrador local que originó el conflicto');
+    assert((await db.conflicts('a')).length===1,'No conservó la nueva variante');
+  });
+  await test('Dos pestañas: CAS local conserva la variante en conflicto',async()=>{
+    const db=cache(),repo=memoryRepo(empty),a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');await a.save(legacy);
+    const result=await b.save({...legacy,extra:'segunda pestaña'});
+    assert(result.code==='LOCAL_CONFLICT' && result.localSaved,'No guardó copia en conflicto');
+    assert((await db.conflicts('a')).length===1,'Falta copia alternativa');
+    assert((await db.get('a')).draft.extra===undefined,'Pisó el borrador principal');
+    assert((await P.createSync(repo,db).load('a')).conflict,'Ocultó conflicto tras recarga');
+  });
+  await test('Guardados rápidos: orden de red y caché, última edición conservada',async()=>{
+    let remote=env(empty);const repo={read:async()=>clone(remote),write:async(_u,data)=>{
+      await new Promise(r=>setTimeout(r,10));remote=env(data);return {ok:true,envelope:clone(remote)};
+    }};
+    const db=cache(),sync=P.createSync(repo,db);await sync.load('a');
+    const results=await Promise.all([sync.save({...empty,extra:1}),sync.save({...empty,extra:2})]);
+    assert(results.every(x=>x.ok) && remote.data.extra===2 && (await db.get('a')).draft.extra===2,'Guardados fuera de orden');
+  });
+  await test('Cambio de usuario durante guardado: no aplica respuesta al nuevo contexto',async()=>{
+    let release,entered;const started=new Promise(r=>entered=r),wait=new Promise(r=>release=r);
+    const sync=P.createSync({read:async()=>env(empty),write:async(_u,data)=>{entered();await wait;return {ok:true,envelope:env(data)};}},cache());
+    await sync.load('a');const pending=sync.save(legacy);await started;
+    sync.detach();await sync.load('b');release();
+    assert((await pending).code==='ACCOUNT_CHANGED' && sync.getContext().ownerId==='b','Respuesta vieja mezclada');
+  });
+  await test('IndexedDB no disponible: error explícito, sin falso respaldo local',async()=>{
+    const sync=P.createSync({read:async()=>env(empty),write:async()=>({ok:false,code:'NETWORK_ERROR'})},P.createCache(null));
+    await sync.load('a');const result=await sync.save(legacy);
+    assert(!result.ok && !result.localSaved && result.localError,'Declaró respaldo inexistente');
+  });
+  await test('Estructura futura: UUID estable, snapshot independiente, sin conversión',async()=>{
+    const draft=P.createSessionDraft(day,{slot:'personalizada',startedAt:123,timezone:'America/Montevideo'});
+    const original=day.nombre;draft.day.nombre='copia';
+    assert(day.nombre===original && /^[0-9a-f-]{36}$/.test(draft.sessionId),'Snapshot/identidad inválidos');
+    assert(draft.sets.length===2 && draft.sets.every(x=>!x.completed && x.peso===null),'Valores realizados inventados');
+    assert(!legacy.sesionActiva.schemaVersion,'Convirtió sesión heredada');
+  });
+  await test('Integración: historial, restauración y cierre de sesión',async()=>{
+    const keys=['ensureProfile','readRutina','saveRutina','listRegistros','listEntrenos','listPesoCorporal'];
+    const old=Object.fromEntries(keys.map(k=>[k,A.Store[k]]));
+    const id='integration-'+crypto.randomUUID();let written;
+    try {
+      A.Store.ensureProfile=async user=>({id:user.id,name:'Prueba',metaSemanal:3});
+      A.Store.readRutina=async()=>env({...legacy,claveDesconocida:{keep:true}});
+      A.Store.saveRutina=async(owner,data)=>{written={owner,data:clone(data)};return {ok:true,envelope:env(data)};};
+      A.Store.listRegistros=async()=>[{id:'r',exercise:'Dominadas',peso:0,reps:'8-10',series:'3',setNumber:null,date:'2025-01-01'}];
+      A.Store.listEntrenos=async()=>[{id:'h',date:'2025-01-01',setsTotales:3}];
+      A.Store.listPesoCorporal=async()=>[];
+      await A.handleAuthStateChange('SIGNED_IN',{user:{id}});
+      assert(A.state.session.startedAt===123 && A.state.session.setLogs.e[0].registroId==='r','Alteró la sesión heredada');
+      assert(A.state.registros[0].reps==='8-10' && A.state.entrenos[0].id==='h','Alteró historia');
+      assert((await A.persistRutina()).ok && written.owner===id && written.data.claveDesconocida.keep,'Perdió claves desconocidas');
+      await A.handleAuthStateChange('SIGNED_OUT',null);
+      assert(A.state.profile===null && A.state.session===null && A.state.registros.length===0,'Dejó datos de la cuenta');
+    } finally {keys.forEach(k=>A.Store[k]=old[k]);A.clearAccountData();}
+  });
+  await test('Integración: carga tardía de A no reemplaza perfil ni historial B',async()=>{
+    const keys=['ensureProfile','readRutina','listRegistros','listEntrenos','listPesoCorporal'];
+    const old=Object.fromEntries(keys.map(k=>[k,A.Store[k]]));let release,entered;
+    const wait=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+    const a='race-a-'+crypto.randomUUID(),b='race-b-'+crypto.randomUUID();
+    try {
+      A.Store.ensureProfile=async u=>({id:u.id,name:u.id,metaSemanal:3});
+      A.Store.readRutina=async id=>{if(id===a){entered();await wait;}return env(empty);};
+      A.Store.listRegistros=async id=>[{id}];A.Store.listEntrenos=async()=>[];A.Store.listPesoCorporal=async()=>[];
+      const pending=A.handleAuthStateChange('SIGNED_IN',{user:{id:a}});await started;
+      await A.handleAuthStateChange('SIGNED_IN',{user:{id:b}});release();await pending;
+      assert(A.state.profile.id===b && A.state.registros[0].id===b,'Carga tardía cruzó usuarios');
+    } finally {keys.forEach(k=>A.Store[k]=old[k]);A.clearAccountData();}
+  });
+  await test('Sesión sin día y sesión V48: conservar sin convertir ni permitir reemplazo',async()=>{
+    const keys=['ensureProfile','readRutina','saveRutina','listRegistros','listEntrenos','listPesoCorporal'];
+    const old=Object.fromEntries(keys.map(k=>[k,A.Store[k]]));let raw=clone(legacy),written;
+    try {
+      raw.personalizada.days=[];
+      A.Store.ensureProfile=async u=>({id:u.id,name:'Prueba',metaSemanal:3});
+      A.Store.readRutina=async()=>env(raw);
+      A.Store.saveRutina=async(_id,data)=>{written=clone(data);return {ok:true,envelope:env(data)};};
+      A.Store.listRegistros=async()=>[];A.Store.listEntrenos=async()=>[];A.Store.listPesoCorporal=async()=>[];
+      await A.handleAuthStateChange('SIGNED_IN',{user:{id:crypto.randomUUID()}});
+      assert(A.state.unresolvedSession && !A.state.session,'Descartó o convirtió sesión sin día');
+      await A.persistRutina();assert(P.equal(written.sesionActiva,legacy.sesionActiva),'Sobrescribió sesión heredada');
+      raw={...clone(empty),sesionActiva:P.createSessionDraft(day,{slot:'personalizada'})};
+      await A.handleAuthStateChange('SIGNED_IN',{user:{id:crypto.randomUUID()}});
+      A.startSession(day);
+      assert(A.state.unresolvedSession.sessionId===raw.sesionActiva.sessionId && !A.state.session,'Usó UI heredada para sesión V48');
+    } finally {keys.forEach(k=>A.Store[k]=old[k]);A.clearAccountData();}
+  });
+  window.__v48Results={total:results.length,pass:results.filter(x=>x.ok).length,fail:results.filter(x=>!x.ok).length,failures:results.filter(x=>!x.ok)};
+})();
+</script>
