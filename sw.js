@@ -24,10 +24,10 @@ const SHELL = {
   "./vendor/fonts/fonts.css?h=6e2518a7cf7d0f4b82c918fc94226e5d8a463a25e1793bd44284466e4d3b8e2e": "6e2518a7cf7d0f4b82c918fc94226e5d8a463a25e1793bd44284466e4d3b8e2e",
   "./vendor/jspdf-2.5.1/jspdf.umd.min.js?h=98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875": "98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875",
   "./vendor/supabase-js-2.118.0/supabase.js?h=bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af": "bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af",
-  "./index.html": "506b496d47efd2fac5ab12576881f8057495aa5c670cb134df97a3c73539b8ec"
+  "./index.html": "ded16d7127ed375976aced0533c9c1194aa26020e84344439ddaa9a9d39ef79d"
 };
-const SHELL_ID = "815ff89e700d20ddcba95014bf96aa6caf42f479d35c0e0049dd70738c56ceed";
-const BUILD = "556833952ceb4c20513ef0aa69cb0b1137c509218ed34aa93b64b7bd2c858a30";
+const SHELL_ID = "8e575633c6d61a0accc0700f0b2a25f6534f0fad7c6b19f2ffec412d782c1773";
+const BUILD = "2e6e4c0ad2e9ffb7041b81ded524fa24c357992348afe7b7518d16a5277a212a";
 // END SHELL
 const ROOT = new URL('./', self.location.href);
 const PREFIX = 'vodafit-shell-' + encodeURIComponent(ROOT.pathname) + '-';

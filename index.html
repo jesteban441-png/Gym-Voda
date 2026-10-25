@@ -437,6 +437,15 @@
      multiply dejaba pasar el relieve de abajo, que es justo lo que no queremos
      que se marque. El borde se suaviza con un desenfoque chico. */
   .mapa-cobertura{ pointer-events:none; }
+  /* V50 (E10): contorno del sector seleccionado. SIN mix-blend-mode a
+     proposito: las capas de tinte se mezclan con la lamina, pero el contorno
+     tiene que leerse igual sobre cualquier tono de piel, asi que va en trazo
+     plano. `non-scaling-stroke` en el path mantiene el grosor aunque el SVG se
+     escale al ancho de la tarjeta. No recibe clics: la capa de toque va encima. */
+  .mapa-sel{
+    fill:none; stroke:var(--accent); stroke-width:2.2;
+    stroke-linejoin:round; pointer-events:none;
+  }
   /* Capa de toque: invisible y mas grande que el dibujo. */
   .mapa-hit{ fill:#000; fill-opacity:0; cursor:pointer; }
   .mapa-escala{ margin-top:10px; }
@@ -3726,7 +3735,17 @@
     const remaining = Math.max(0, goal-thisWeekCount);
     const todayIdx = (today.getDay()+6)%7;
     const daysLeft = 7-todayIdx;
-    let streak = 0;
+    // V50: la semana EN CURSO suma a la racha en cuanto cumple la meta. Antes el
+    // contador arrancaba en 0 y el cursor en la semana anterior, así que la
+    // semana actual NUNCA entraba: con la meta cumplida hoy y la semana pasada
+    // fallada, la racha daba 0 mientras la MISMA tarjeta decía "¡Meta semanal
+    // cumplida!" tres líneas más abajo (ver rachaCardHtml).
+    //
+    // El cursor sigue arrancando en la semana ANTERIOR a propósito: así, si
+    // todavía no entrenaste esta semana pero venís de cinco cumplidas, la racha
+    // sigue dando cinco en vez de caer a cero todos los lunes a la mañana.
+    // Mover el cursor a la semana actual habría roto justamente ese caso.
+    let streak = thisWeekCount >= goal ? 1 : 0;
     let cursor = new Date(curMonday.getFullYear(), curMonday.getMonth(), curMonday.getDate()-7);
     while(streak<104){
       const key = ymd(cursor);
@@ -4950,14 +4969,13 @@
     const sk = weekScopeKeys(scope);
     const goal = state.profile.metaSemanal || 3;
     const all = state.entrenos||[];
-    // V29: el objetivo semanal NO cuenta los Día Especial (4/4 sigue 4/4).
-    const normal = all.filter(e=>!e.isSpecial);
-    const r = computeRacha(normal, goal);
-    // La RACHA se deja exactamente como estaba en v28.1 (lista completa):
-    // hoy la racha = semanas seguidas que cumplieron el objetivo, o sea que
-    // depende del mismo contador. No se modifica sin la confirmación de Juan
-    // (ver reporte V29).
-    const streak = computeRacha(all, goal).streak;
+    // V50: el Día Especial cuenta para la meta semanal Y para la racha. Hasta
+    // V49 el contador los excluía (filtro !isSpecial) mientras la racha miraba
+    // la lista completa, así que un Día Especial podía sostener una racha sin
+    // mover el contador — dos cifras de la misma tarjeta salían de dos listas
+    // distintas. Ahora hay UNA sola llamada y las dos salen de la misma.
+    const r = computeRacha(all, goal);
+    const streak = r.streak;
     const frase = fraseDelDia();
     const maxOff = maxWeekOffset();
     const offset = Math.min(Math.max(0, state[sk.offset]||0), maxOff);
@@ -4965,7 +4983,9 @@
     const rg = weekRangeFor(offset);
     const inWeek = all.filter(e=> e.date>=rg.start && e.date<=rg.end);
     const specialCount = inWeek.filter(e=>e.isSpecial).length;
-    const normalCount = inWeek.length - specialCount;
+    // V50: cuenta TODOS los entrenamientos de la semana, especiales incluidos.
+    // `specialCount` se conserva sólo para informar cuántos de esos lo son.
+    const weekCount = inWeek.length;
     const daysTrained = new Set(inWeek.map(e=>e.date)).size;
     const nav = `
       <div class="week-nav">
@@ -4973,14 +4993,14 @@
         <span class="week-nav-label">${offset===0 ? "Esta semana" : "Semana del "+weekShortLabel(rg)}</span>
         <span class="iconbtn" id="week-next" aria-disabled="${offset===0}" title="Semana siguiente">${icon("chevronRight")}</span>
       </div>`;
-    const extra = `<p class="helptext week-extra">Días entrenados: <b>${daysTrained}</b>${specialCount?` · +${specialCount} Día Especial (no suma al objetivo)`:""}</p>`;
+    const extra = `<p class="helptext week-extra">Días entrenados: <b>${daysTrained}</b>${specialCount?` · incluye ${specialCount} Día Especial`:""}</p>`;
     const detailOpen = !!state[sk.detail];
     const detailToggle = `<button class="btn btn-ghost btn-sm" id="week-toggle" style="align-self:flex-start">${detailOpen?"Ocultar detalle":"Ver detalle de la semana"}</button>`;
     if(offset>0){
       return `
         <div class="card racha-card">
           ${nav}
-          <div class="racha-count num">${normalCount} entrenamiento${normalCount===1?"":"s"}</div>
+          <div class="racha-count num">${weekCount} entrenamiento${weekCount===1?"":"s"}</div>
           ${extra}
           <p class="helptext">El objetivo semanal de semanas anteriores no se guarda, por eso acá solo se muestra lo que entrenaste.</p>
           ${detailToggle}
@@ -6615,7 +6635,7 @@
         </div>` : "";
       return `
         <h3>Día Especial</h3>
-        <p class="helptext">Un entrenamiento extra de un solo día, aparte de tu rutina semanal. Queda en tu historial y calendario, pero no suma al objetivo semanal. Tu rutina no se modifica.</p>
+        <p class="helptext">Un entrenamiento extra de un solo día, aparte de tu rutina semanal. Queda en tu historial y calendario, y suma a tu objetivo semanal y a tu racha. Tu rutina no se modifica.</p>
         <div class="field">
           <label>Grupos a priorizar (opcional)</label>
           <div class="special-grid">${chips}</div>
@@ -6772,7 +6792,7 @@
           <div class="logrow">
             <div>
               <div class="lex">${esc(e.dayNombre||"Entrenamiento")}</div>
-              <div class="ldate">${calendarOriginLabelHtml(calendarOriginFor(e))}${calendarOriginFor(e)==="especial" ? " · no suma al objetivo semanal" : ""}</div>
+              <div class="ldate">${calendarOriginLabelHtml(calendarOriginFor(e))}${calendarOriginFor(e)==="especial" ? " · suma al objetivo semanal" : ""}</div>
               <div class="helptext">${sessionDurationText(e)}</div>
               ${e.sessionId?`<button class="btn btn-ghost" data-view-native-session="${esc(e.id)}">Ver series</button>`:''}
             </div>
@@ -7471,9 +7491,9 @@
     if(exs.length===0){
       return `<div class="card empty">${icon("routine")}<h3>Este día no tiene ejercicios</h3><p>Agregale ejercicios desde "Rutina" antes de entrenar.</p></div>`;
     }
-    // V29: aviso visible de que es un Día Especial (no suma al objetivo semanal).
+    // V29: aviso visible de que es un Día Especial. V50: ya suma al objetivo semanal.
     const specialNote = (state.session && state.session.slot==="especial")
-      ? `<div class="card special-note"><span class="special-badge">Día Especial</span><span class="helptext">Entrenamiento extra — queda en tu historial y calendario, pero no suma al objetivo semanal.</span></div>`
+      ? `<div class="card special-note"><span class="special-badge">Día Especial</span><span class="helptext">Entrenamiento extra — queda en tu historial y calendario, y suma a tu objetivo semanal.</span></div>`
       : "";
     return specialNote + exs.map(ex=> sessionExerciseCardHtml(ex)).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
   }
@@ -9936,7 +9956,8 @@
   //   4. .mapa-hit     areas de toque ampliadas + nucleos, invisibles
   // Las de toque van ultimas para recibir el clic; dentro de esa capa, las mas
   // chicas al final, para ganarle a una region grande que las contenga.
-  function mapaVistaSvg(viewKey, mapa){
+  // `seleccion` (V50, opcional) es la region DIBUJADA a contornear, o null.
+  function mapaVistaSvg(viewKey, mapa, seleccion){
     const v = MAPA_ANATOMIA.vistas[viewKey];
     if(!v) return "";
     const items = Object.keys(v.regiones).map(k=>({ k:k, pts:v.regiones[k] }));
@@ -9973,6 +9994,20 @@
     const nucleos = items.map(it=>
       '<path class="mapa-hit" data-region="' + esc(mapaRegionBase(it.k)) + '" d="' + mapaAnatomiaPath(mapaEscalarPts(it.pts, MAPA_NUCLEO)) + '"/>'
     ).join("");
+    // V50 (E10): contorno de la region SELECCIONADA. Hasta V49 la figura no
+    // tenia ningun estado de seleccion —mapaVistaSvg pintaba solo por
+    // intensidad y nunca leia state.mapaRegion—, asi que tocar un sector solo
+    // cambiaba el panel de texto de abajo y el dibujo quedaba igual.
+    //
+    // `seleccion` es una region DIBUJADA (ya traducida por el llamador), asi que
+    // el triceps se contornea completo aunque la clave de datos elegida sea una
+    // de sus tres cabezas. Se dibuja sobre el tinte y DEBAJO de las capas de
+    // toque, con pointer-events:none, asi que no cambia que region recibe el
+    // clic. No toca la escala de color ni la clasificacion.
+    const sel = seleccion
+      ? items.filter(it=> mapaRegionBase(it.k) === seleccion)
+          .map(it=> '<path class="mapa-sel" d="' + mapaAnatomiaPath(it.pts) + '" vector-effect="non-scaling-stroke"/>').join("")
+      : "";
     const off = mapaDesplazamiento(v);
     return '' +
       '<div class="mapa-fig">' +
@@ -9981,25 +10016,29 @@
             '<image href="' + esc(v.src) + '" x="' + (-v.ox) + '" y="' + (-v.oy) + '" width="960" height="640"/>' +
             '<g>' + zonas + '</g>' +
             short +
+            '<g>' + sel + '</g>' +
             '<g>' + hits + nucleos + '</g>' +
           '</g>' +
         '</svg>' +
         '<div class="mapa-cap">' + esc(v.label) + '</div>' +
       '</div>';
   }
-  function mapaAnatomiaHtml(targets){
+  // `regionSel` (V50, opcional) es una clave de DATOS; se traduce acá a la
+  // region dibujada que le corresponde, que es lo que mapaVistaSvg contornea.
+  function mapaAnatomiaHtml(targets, regionSel){
     const mapa = {};
     (targets||[]).forEach(t=>{ mapa[t.region] = t.intensity; });
+    const seleccion = regionSel ? mapaRegionDibujada(regionSel) : null;
     // Un solo filtro: desenfoque chico para que el borde de la cobertura no se
     // lea como un recorte. El centro queda solido igual.
     const grad = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>' +
       '<filter id="mapaCoberturaBorde" x="-30%" y="-30%" width="160%" height="160%">' +
       '<feGaussianBlur stdDeviation="1.3"/></filter>' +
       '</defs></svg>';
-    return '<div class="mapa-anat">' + grad + ANAT_VIEWS.map(v=> mapaVistaSvg(v, mapa)).join("") + '</div>';
+    return '<div class="mapa-anat">' + grad + ANAT_VIEWS.map(v=> mapaVistaSvg(v, mapa, seleccion)).join("") + '</div>';
   }
 
-  function muscleMapBodyHtml(stats){
+  function muscleMapBodyHtml(stats, regionSel){
     // Mismo contrato de siempre: [{region,intensity}], una entrada por cada una
     // de las 26 regiones, sin agrupar por grupo muscular. Lo UNICO que cambio en
     // V47 es quien dibuja: antes bodyDiagramSvg (silueta propia), ahora
@@ -10007,7 +10046,7 @@
     // clasificacion y la escala de color siguen intactas, y bodyDiagramSvg
     // sigue sirviendo a la ficha de ejercicio sin cambios.
     const targets = MAPA_REGIONS.map(r=> ({ region:r, intensity: stats.regiones[r].intensidad }));
-    return mapaAnatomiaHtml(targets);
+    return mapaAnatomiaHtml(targets, regionSel);
   }
 
   function muscleMapScaleHtml(){
@@ -10122,7 +10161,7 @@
       <p class="helptext" style="text-align:center">${esc(fmtDate(stats.desde))} al ${esc(fmtDate(stats.hasta))}</p>
 
       <div class="card">
-        <div class="mapa-body">${muscleMapBodyHtml(stats)}</div>
+        <div class="mapa-body">${muscleMapBodyHtml(stats, regionSel)}</div>
         ${muscleMapScaleHtml()}
         <p class="helptext" style="text-align:center; margin-top:8px">Tocá un sector para ver su detalle.</p>
       </div>
@@ -10215,18 +10254,81 @@
     // traduce antes de guardar la seleccion. `base` y `head` ya no existen en el
     // mapa (son parte de la lamina), pero el filtro queda por si vuelve a
     // dibujarse una silueta.
+    //
+    // V50 (R16): las stats se calculan UNA vez acá y se pasan. Antes
+    // mapaClaveDeRegionDibujada se llamaba sin ellas y hacia mapaStatsActuales()
+    // por dentro, o sea un muscleMapStats completo por cada nodo del triceps
+    // —unas seis a ocho corridas del motor por montaje del mapa, y el mapa esta
+    // embebido en Perfil, asi que se pagaba en cada render de esa pantalla.
+    const stats = mapaStatsActuales();
     el.querySelectorAll(".mapa-body [data-region]").forEach(node=>{
       const dibujada = node.getAttribute("data-region");
       if(dibujada === "base" || dibujada === "head") return;
-      const region = mapaClaveDeRegionDibujada(dibujada);
+      const claves = MAPA_ANATOMIA.grupos[dibujada];
+      const region = mapaClaveDeRegionDibujada(dibujada, stats);
       if(!region) return;
       node.style.cursor = "pointer";
       node.setAttribute("tabindex", "0");
       node.setAttribute("role", "button");
-      node.setAttribute("aria-label", MUSCLE_LABELS[region] || region);
-      const elegir = ()=>{ state.mapaRegion = mapaClaveDeRegionDibujada(dibujada); repintar(); };
+      // V50 (E11): en una region agrupada el rotulo nombra el GRUPO, no la cabeza
+      // que ganaria por puntos — tocarla abre el selector, no elige una sola.
+      node.setAttribute("aria-label", (claves && claves.length > 1)
+        ? mapaEtiquetaDeGrupo(dibujada, claves) + ", elegir sector"
+        : (MUSCLE_LABELS[region] || region));
+      // V50 (E11): si la region dibujada agrupa varias claves de datos, tocarla
+      // abre un selector en vez de resolver a la mas trabajada. Hasta V49
+      // elegia siempre la de mas puntos (con > estricto y triceps-long solo como
+      // desempate), asi que con los datos tipicos ganaba SIEMPRE la cabeza
+      // lateral y la larga no se podia alcanzar desde el dibujo. La geometria no
+      // se toca: las tres cabezas siguen siendo una sola mancha.
+      const elegir = ()=>{
+        if(claves && claves.length > 1){ abrirSelectorDeSector(dibujada, claves, stats, repintar); return; }
+        state.mapaRegion = region;
+        repintar();
+      };
       node.onclick = elegir;
       node.onkeydown = (e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); elegir(); } };
+    });
+  }
+
+  // V50 (E11): selector de sector para una region dibujada que agrupa varias
+  // claves de datos. Hoy la unica es el triceps, pero se arma desde
+  // MAPA_ANATOMIA.grupos y no desde una lista nueva: si algun dia se agrupa otra
+  // region, el selector la cubre sin tocar esta funcion.
+  //
+  // Muestra las claves en el orden en que estan declaradas en `grupos` —no por
+  // puntos— para que la posicion de cada cabeza sea estable entre aperturas.
+  // Rotulo de una region AGRUPADA. Se deriva de los dos mapas que ya existen
+  // (REGION_SUBGROUP + SPECIAL_SUBGROUP_LABELS) en vez de abrir una tercera
+  // lista de nombres que habria que mantener sincronizada a mano.
+  function mapaEtiquetaDeGrupo(dibujada, claves){
+    const sg = REGION_SUBGROUP[(claves || [])[0]];
+    return (sg && SPECIAL_SUBGROUP_LABELS[sg]) || dibujada;
+  }
+
+  function abrirSelectorDeSector(dibujada, claves, stats, repintar){
+    const titulo = mapaEtiquetaDeGrupo(dibujada, claves);
+    const filas = claves.map(k=>{
+      const d = stats.regiones[k];
+      const sel = state.mapaRegion === k;
+      return `<button class="btn ${sel?"btn-primary":"btn-outline"} btn-block" data-sector="${esc(k)}" style="text-align:left; margin-bottom:6px">
+        <span style="display:flex; align-items:center; gap:8px">
+          <i class="mapa-dot" style="background:${mapaTinteCss(d ? d.intensidad : 0)}"></i>
+          <span style="flex:1">${esc((d && d.label) || MUSCLE_LABELS[k] || k)}</span>
+          <span class="num">${d ? fmtMapaNum(d.puntosSemana) : "0"}</span>
+        </span>
+      </button>`;
+    }).join("");
+    const m = openModal(`
+      <h3>${esc(titulo)}</h3>
+      <p class="helptext" style="margin:-8px 0 10px">Las tres cabezas se dibujan juntas. Elegí cuál querés ver en detalle.</p>
+      ${filas}
+      <p class="helptext">El número es puntos por semana del período elegido.</p>
+      <div class="modal-actions"><button class="btn btn-ghost btn-block" data-act="cancel">Cancelar</button></div>
+    `);
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    m.querySelectorAll("[data-sector]").forEach(b=>{
+      b.onclick = ()=>{ state.mapaRegion = b.dataset.sector; closeModal(); repintar(); };
     });
   }
 
@@ -10316,10 +10418,10 @@
     const resumen = pesoResumen(state.pesoCorporal||[]);
     const goal = state.profile.metaSemanal || 3;
     const all = state.entrenos||[];
-    // Mismo criterio que la tarjeta de la semana: el objetivo no cuenta los
-    // Día Especial, pero la racha sí mira la lista completa.
-    const r = computeRacha(all.filter(e=>!e.isSpecial), goal);
-    const streak = computeRacha(all, goal).streak;
+    // V50: mismo criterio único que rachaCardHtml — el Día Especial cuenta para
+    // la meta y para la racha, y las dos cifras salen de una sola llamada.
+    const r = computeRacha(all, goal);
+    const streak = r.streak;
     return `
       <div class="section-title"><h2>Resumen</h2></div>
       <div class="card perfil-resumen">
@@ -10671,7 +10773,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "556833952ceb4c20513ef0aa69cb0b1137c509218ed34aa93b64b7bd2c858a30";
+  const APP_BUILD = "2e6e4c0ad2e9ffb7041b81ded524fa24c357992348afe7b7518d16a5277a212a";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -10902,6 +11004,8 @@
     // las clasificaciones no cambiaron.
     MAPA_ANATOMIA, mapaAnatomiaHtml, mapaVistaSvg, mapaAnatomiaPath, mapaRegionDibujada,
     mapaIntensidadDeRegion, mapaRegionBase, mapaEscalarPts, mapaLadoCorto,
+    // V50: selector de sector del tríceps (E11) y rótulo derivado del grupo.
+    abrirSelectorDeSector, mapaEtiquetaDeGrupo,
     MAPA_TOQUE_MIN, MAPA_TOQUE_MAX, MAPA_NUCLEO, MAPA_CURVA_TENSION, MAPA_LIENZO, mapaDesplazamiento,
     mapaTinteCapas, mapaTinteCss, mapaFraccion, mapaAreaPts,
     MAPA_TONO_MIN, MAPA_TONO_MAX, MAPA_SAT_MIN, MAPA_SAT_MAX,

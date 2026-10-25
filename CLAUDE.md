@@ -133,7 +133,8 @@ Tres sistemas distintos, con pools y reglas propias: **Rutina automática semana
 - Enfocada: máximo por cantidad de focos 1→6, 2→8, 3→9, 4→10; tope duro 10; mínimo total 3; mínimo 2 por foco.
 - Perfil 50+: `EXERCISES_RISKY_50PLUS` sale del pool candidato. **Favorece** máquina/polea, nunca prohíbe los libres al 100 %.
 - El prime bump depende **solo de la edad**. El **peso corporal no influye** en la generación de rutinas y no debe volver a influir.
-- El Día Especial **no suma a la meta semanal** y se guarda con `is_special`.
+- El Día Especial **sí suma a la meta semanal y a la racha** (decisión de V50; hasta V49 no sumaba a la meta pero sí a la racha, que era la contradicción) y se guarda con `is_special`. `computeRacha` nunca mira `isSpecial`: el filtro vivía en `rachaCardHtml` y `perfilResumenHtml`, y ahora las dos calculan contador y racha con **una sola llamada** sobre la lista completa. `is_special` y `routine_origin` no cambiaron: el Día Especial se sigue distinguiendo en calendario, historial e insignia.
+- La racha **incluye la semana en curso en cuanto cumple la meta** (V50). El cursor del bucle sigue arrancando en la semana anterior a propósito: así, sin haber entrenado todavía esta semana, una racha previa de 5 sigue mostrando 5 en vez de caer a 0 cada lunes. Se cuentan **entradas de `entrenos`, no días distintos** — dos entrenamientos el mismo día cumplen una meta de 2 (criterio confirmado en V50).
 - Los tres generadores usan **únicamente el catálogo oficial activo**.
 
 ---

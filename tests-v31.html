@@ -4004,30 +4004,89 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
     });
 
-    test("los entrenamientos de la semana se cuentan bien y el Día Especial no suma", function(){
+    test("V50 — los entrenamientos de la semana se cuentan bien y el Día Especial SÍ suma", function(){
+      // REESCRITO EN V50. Hasta V49 este test afirmaba lo contrario: que el Día
+      // Especial no sumaba al objetivo semanal. La contradicción que lo tiró
+      // abajo es que la MISMA tarjeta calculaba el contador con la lista
+      // filtrada (sin especiales) y la racha con la lista completa, así que un
+      // Día Especial podía sostener una racha sin mover el contador. Decisión de
+      // producto de V50: el Día Especial cuenta para las dos cosas, y ahora sale
+      // de una sola llamada a computeRacha.
+      //
       // Las tres fechas "de esta semana" son diasAtras(0), no diasAtras(0) y
       // diasAtras(1). Motivo: computeRacha agrupa por semana ISO (lunes a
       // domingo), así que los LUNES diasAtras(1) cae en la semana ANTERIOR y el
       // control de la prueba se volvía falso — el test fallaba un día de cada
-      // siete. computeRacha cuenta ENTRADAS, no días distintos (byWeek[key]++
-      // por entreno), así que dos entrenos en la misma fecha valen 2 igual y lo
-      // que el test verifica no cambia: que dos normales sumen al objetivo y
-      // que el Día Especial no.
+      // siete. computeRacha cuenta ENTRADAS, no días distintos, criterio que V50
+      // confirma sin cambios.
       conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:4, createdAt:1 }, entrenos:[
         { id:1, date:diasAtras(0) },
         { id:2, date:diasAtras(0) },
-        { id:3, date:diasAtras(0), isSpecial:true },   // no suma al objetivo
+        { id:3, date:diasAtras(0), isSpecial:true },   // V50: ahora SÍ suma
         { id:4, date:diasAtras(400) }                  // fuera de la semana
       ]}, function(){
-        var esperado = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(0)}], 4).thisWeekCount;
-        assert(esperado === 2, "el control de la prueba no es válido: los dos normales deberían dar 2, dieron " + esperado);
         var html = A.perfilResumenHtml();
-        assert(html.indexOf(esperado + "<small> / 4</small>") !== -1,
-          "debería mostrar " + esperado + " / 4");
-        // Y el especial efectivamente no está contado.
-        var conEspecial = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(0)},{date:diasAtras(0)}], 4).thisWeekCount;
-        assert(conEspecial === esperado + 1, "el control de la prueba no es válido");
+        assert(html.indexOf("3<small> / 4</small>") !== -1,
+          "los tres de esta semana (dos normales + un especial) deberían dar 3 / 4, html: " +
+          html.slice(html.indexOf("pesostat-val"), html.indexOf("pesostat-val") + 200));
       });
+    });
+
+    test("V50 — computeRacha no distingue el Día Especial", function(){
+      // El motor nunca miró isSpecial: el filtro vivía en las dos pantallas.
+      // Este test fija que sigue siendo así, para que nadie lo mueva adentro.
+      var sinMarca = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(0)}], 2);
+      var conMarca = A.computeRacha([{date:diasAtras(0)},{date:diasAtras(0),isSpecial:true}], 2);
+      assert(sinMarca.thisWeekCount === conMarca.thisWeekCount,
+        "isSpecial no debería cambiar el conteo del motor: " + sinMarca.thisWeekCount + " vs " + conMarca.thisWeekCount);
+      assert(sinMarca.streak === conMarca.streak,
+        "isSpecial no debería cambiar la racha del motor");
+    });
+
+    test("V50 — la semana en curso suma a la racha cuando cumple la meta", function(){
+      // isoWeekMonday no está exportado, así que se replica acá: construir las
+      // fechas desde el lunes ISO es lo único que hace el test independiente del
+      // día en que se corra (ver el candado 2C más abajo).
+      function lunesISO(d){
+        var dia = (d.getDay()+6)%7;
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate()-dia);
+      }
+      function fecha(d){
+        return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+      }
+      function enSemana(semanasAtras, cuantos){
+        var lun = lunesISO(new Date());
+        var base = new Date(lun.getFullYear(), lun.getMonth(), lun.getDate()-7*semanasAtras);
+        var out = [];
+        for(var i=0;i<cuantos;i++) out.push({ date: fecha(base) });
+        return out;
+      }
+
+      // 1. Meta cumplida esta semana y FALLADA la anterior. Hasta V49 daba 0
+      //    mientras la misma tarjeta decía "¡Meta semanal cumplida!".
+      var r1 = A.computeRacha(enSemana(0,3), 3);
+      assert(r1.thisWeekCount === 3 && r1.remaining === 0, "control inválido: debería estar cumplida, dio " + JSON.stringify(r1));
+      assert(r1.streak === 1, "con la meta cumplida esta semana la racha debería ser 1, dio " + r1.streak);
+
+      // 2. Meta NO cumplida esta semana, con cinco semanas previas cumplidas.
+      //    Es el caso que NO hay que romper: la racha no puede caer a 0 el lunes.
+      var hist = [];
+      for(var s=1; s<=5; s++) hist = hist.concat(enSemana(s,3));
+      var r2 = A.computeRacha(hist.concat(enSemana(0,1)), 3);
+      assert(r2.thisWeekCount === 1, "control inválido: debería haber 1 esta semana, dio " + r2.thisWeekCount);
+      assert(r2.streak === 5, "sin cumplir esta semana la racha debería seguir en 5, dio " + r2.streak);
+
+      // 3. Meta cumplida esta semana Y las cinco anteriores: la actual suma.
+      var r3 = A.computeRacha(hist.concat(enSemana(0,3)), 3);
+      assert(r3.streak === 6, "cumpliendo esta semana y las cinco previas debería dar 6, dio " + r3.streak);
+
+      // 4. Sin datos y tope de 104 (el tope ya estaba, se verifica que el +1
+      //    inicial no lo corra).
+      assert(A.computeRacha([], 3).streak === 0, "sin entrenos la racha debería ser 0");
+      var muchas = [];
+      for(var k=0; k<140; k++) muchas = muchas.concat(enSemana(k,3));
+      assert(A.computeRacha(muchas, 3).streak === 104,
+        "con 140 semanas cumplidas la racha debería topearse en 104, dio " + A.computeRacha(muchas, 3).streak);
     });
 
     test("2C — ningún test de la semana depende del día en que se corre", function(){
@@ -4397,21 +4456,54 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       }catch(e){ return null; }
     })();
 
-    // El predicado, extraído del fuente y convertido en función ejecutable.
-    var isSupabaseUrl = (function(){
+    /* ACTUALIZADO EN V50.4 — qué cambió y por qué.
+
+       Hasta V48 el aislamiento de Supabase vivía en un predicado propio,
+       `isSupabaseUrl(url)`, que miraba el hostname. V49 reescribió sw.js y el
+       aislamiento pasó a ser una propiedad ESTRUCTURAL del fetch handler: su
+       primera sentencia devuelve el control a la red para cualquier origen que
+       no sea el propio. O sea que Supabase queda afuera por ser otro origen, no
+       por estar en una lista.
+
+       Eso es MÁS fuerte que antes, no menos: ya no hay forma de agregarle una
+       estrategia de caché a Supabase sin romper la guarda de todos los orígenes
+       ajenos. Estos tests verifican la garantía funcional —que el Service Worker
+       no toque nada de Supabase y que el corte salga antes del Cache Storage—
+       en vez de la sintaxis de V48. No se aflojó ninguna aserción: las mismas
+       URLs que antes tenían que quedar excluidas siguen teniendo que quedarlo.
+
+       sw.js NO se modificó en V50.4. */
+
+    // La guarda del fetch handler, extraída del fuente y convertida en función
+    // ejecutable. Devuelve true cuando el SW se desentiende del pedido y lo deja
+    // con su semántica de red original.
+    var swPasaDerecho = (function(){
       if(!SW_SRC) return null;
-      var m = SW_SRC.match(/function isSupabaseUrl\(url\)\s*\{[\s\S]*?\n\}/);
+      var m = SW_SRC.match(/const request=event\.request,url=new URL\(request\.url\);[\s\S]*?if\(([\s\S]*?)\)return;/);
       if(!m) return null;
-      try{ return new Function("return (" + m[0] + ")")(); }
+      try{ return new Function("request","url","ROOT","return (" + m[1] + ");"); }
       catch(e){ return null; }
     })();
+    // El ROOT del Service Worker es new URL('./', self.location.href). El harness
+    // se sirve desde la raíz del repo, así que coincide con el origen + "/".
+    var SW_ROOT = new URL("./", location.origin + "/");
 
-    test("sw.js se pudo leer y expone el predicado isSupabaseUrl", function(){
+    test("sw.js se pudo leer y expone la guarda de origen del fetch handler", function(){
       assert(SW_SRC, "no se pudo traer sw.js (¿servidor estático?)");
-      assert(typeof isSupabaseUrl === "function", "no se pudo extraer isSupabaseUrl de sw.js");
+      assert(typeof swPasaDerecho === "function",
+        "no se pudo extraer la guarda del fetch handler de sw.js");
+      // Y la guarda es lo PRIMERO del handler: no hay nada entre el handler y ella.
+      var iHandler = SW_SRC.indexOf("self.addEventListener('fetch'");
+      assert(iHandler !== -1, "no se encontró el fetch handler");
+      var iGuarda = SW_SRC.indexOf("return;", iHandler);
+      var antes = SW_SRC.slice(iHandler, iGuarda);
+      assert(antes.indexOf("caches") === -1, "hay un acceso a caches antes de la guarda de origen");
+      assert(antes.indexOf("respondWith") === -1, "hay un respondWith antes de la guarda de origen");
     });
 
-    test("el predicado excluye REST, Auth y Storage de Supabase", function(){
+    test("REST, Auth y Storage de Supabase quedan fuera del Service Worker", function(){
+      // Mismas URLs que verificaba V48. Lo que cambió es el mecanismo: ahora
+      // quedan afuera por ser otro origen, no por estar en una lista.
       [
         "https://wfuxtbxrjkjtdumgylrt.supabase.co/rest/v1/peso_corporal?select=*",
         "https://wfuxtbxrjkjtdumgylrt.supabase.co/rest/v1/registros?select=id",
@@ -4422,109 +4514,220 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "https://wfuxtbxrjkjtdumgylrt.supabase.co/storage/v1/object/progreso/x.jpg",
         "https://otro-proyecto.supabase.co/rest/v1/cualquier_cosa"
       ].forEach(function(u){
-        assert(isSupabaseUrl(new URL(u)) === true, "debería excluirse: " + u);
+        assert(swPasaDerecho({method:"GET"}, new URL(u), SW_ROOT) === true,
+          "el SW debería desentenderse de: " + u);
       });
     });
 
-    test("una URL firmada de Storage también queda excluida", function(){
-      // Es el caso que motiva el arreglo: el token hace que cada URL sea
-      // distinta, así que se acumularían entradas que nunca se reutilizan, con
-      // bytes privados adentro.
+    test("una URL firmada de Storage también queda fuera", function(){
+      // Es el caso que motivó el arreglo en V40.1: el token hace que cada URL
+      // sea distinta, así que se acumularían entradas que nunca se reutilizan,
+      // con bytes privados adentro. Sigue siendo el caso que no puede romperse.
       var u = "https://wfuxtbxrjkjtdumgylrt.supabase.co/storage/v1/object/sign/progreso/" +
               "abc/frente.jpg?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.firmado";
-      assert(isSupabaseUrl(new URL(u)) === true, "la URL firmada debería excluirse");
+      assert(swPasaDerecho({method:"GET"}, new URL(u), SW_ROOT) === true,
+        "la URL firmada debería quedar fuera del SW");
     });
 
-    test("los assets propios de Voda Fit NO quedan excluidos", function(){
+    test("los assets propios de Voda Fit SÍ los maneja el Service Worker", function(){
+      // El contrapositivo: si la guarda dejara pasar los del propio origen, no
+      // habría shell ni funcionamiento sin conexión.
       var origen = location.origin;
       ["/", "/index.html", "/manifest.json", "/icon-192.png", "/icon-512.png",
        "/icon-512-maskable.png", "/apple-touch-icon.png", "/favicon-32.png"].forEach(function(p){
-        assert(isSupabaseUrl(new URL(origen + p)) === false, "NO debería excluirse: " + p);
+        assert(swPasaDerecho({method:"GET"}, new URL(origen + p), SW_ROOT) === false,
+          "el SW debería manejar: " + p);
       });
     });
 
-    test("las fuentes de Google siguen con la estrategia de siempre", function(){
-      // Son assets estáticos cross-origin: el pedido era excluir Supabase, no
-      // cambiar el comportamiento del resto.
+    test("todo origen ajeno conserva su semántica de red original", function(){
+      // V49 generalizó la exclusión: ya no es "Supabase afuera" sino "cualquier
+      // origen que no sea el propio, afuera". Las fuentes, además, pasaron a ser
+      // locales (./vendor/fonts), así que Google Fonts ya no participa — pero si
+      // volviera a usarse, seguiría con su semántica de red, igual que antes.
       ["https://fonts.googleapis.com/css2?family=Barlow+Condensed",
        "https://fonts.gstatic.com/s/worksans/v24/QGYsz_wNahGAdqQ43Rh_fKDp.woff2",
        "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"].forEach(function(u){
-        assert(isSupabaseUrl(new URL(u)) === false, "NO debería excluirse: " + u);
+        assert(swPasaDerecho({method:"GET"}, new URL(u), SW_ROOT) === true,
+          "un origen ajeno debería conservar su semántica: " + u);
       });
     });
 
-    test("el predicado no se deja engañar por un host parecido", function(){
-      // Compara el host completo, no un `indexOf`.
+    test("la guarda no se deja engañar por un host parecido ni por un método", function(){
+      // Compara el origen completo, así que un host que CONTIENE el nombre no
+      // alcanza para colarse como propio.
       ["https://supabase.co.atacante.com/rest/v1/x",
        "https://notsupabase.com/rest/v1/x",
        "https://example.com/?u=https://proyecto.supabase.co/rest/v1/x"].forEach(function(u){
-        assert(isSupabaseUrl(new URL(u)) === false, "NO debería excluirse: " + u);
+        assert(swPasaDerecho({method:"GET"}, new URL(u), SW_ROOT) === true,
+          "sigue siendo un origen ajeno: " + u);
       });
-      // Y el host pelado sí.
-      assert(isSupabaseUrl(new URL("https://supabase.co/rest/v1/x")) === true, "el host pelado debería excluirse");
+      // Y los no-GET del propio origen también pasan derecho, como en V48.
+      ["POST","PUT","PATCH","DELETE"].forEach(function(m){
+        assert(swPasaDerecho({method:m}, new URL(location.origin + "/index.html"), SW_ROOT) === true,
+          "un " + m + " debería pasar derecho");
+      });
     });
 
     test("la exclusión está por ORIGEN, no por una lista de endpoints", function(){
-      assert(/hostname/.test(SW_SRC), "el predicado debería mirar el hostname");
-      assert(!/rest\/v1["']/.test(SW_SRC), "no debería haber una lista de endpoints en el código");
+      // La garantía que importa, y en V49 es literal: la guarda compara
+      // `url.origin` contra `ROOT.origin`. Y no puede haber una lista de
+      // endpoints de Supabase en ninguna parte del archivo.
+      assert(/url\.origin!==ROOT\.origin/.test(SW_SRC),
+        "la guarda debería comparar el origen completo contra el propio");
+      assert(!/rest\/v1/.test(SW_SRC), "no debería haber endpoints de Supabase en el código");
+      assert(!/supabase\.co/.test(SW_SRC), "no debería haber hosts de Supabase en el código");
     });
 
     test("el corte sale ANTES de tocar el Cache Storage", function(){
-      var iCorte = SW_SRC.indexOf("if (isSupabaseUrl(new URL(event.request.url))) return;");
+      var iHandler = SW_SRC.indexOf("self.addEventListener('fetch'");
+      assert(iHandler !== -1, "no se encontró el fetch handler");
+      var iCorte = SW_SRC.indexOf("return;", iHandler);
       assert(iCorte !== -1, "falta el corte en el fetch handler");
-      var iFetchHandler = SW_SRC.indexOf('self.addEventListener("fetch"');
-      assert(iFetchHandler !== -1 && iCorte > iFetchHandler, "el corte debería estar dentro del fetch handler");
-      // Ni caches.match ni cache.put pueden aparecer antes del corte.
-      var antes = SW_SRC.slice(iFetchHandler, iCorte);
+      // Nada de Cache Storage antes del corte.
+      var antes = SW_SRC.slice(iHandler, iCorte);
+      assert(antes.indexOf("caches.open") === -1, "hay un caches.open antes del corte");
       assert(antes.indexOf("caches.match") === -1, "hay un caches.match antes del corte");
       assert(antes.indexOf("cache.put") === -1, "hay un cache.put antes del corte");
-      // Y sale antes de la rama de navegación, así que un GET de Supabase no
-      // puede confundirse con una navegación.
-      var iNav = SW_SRC.indexOf("const isNavigation");
+      // Y sale antes de la rama de navegación, así que un GET ajeno no puede
+      // confundirse con una navegación.
+      var iNav = SW_SRC.indexOf("const navigation=");
       assert(iNav !== -1 && iCorte < iNav, "el corte debería ir antes de la rama de navegación");
     });
 
-    test("NO se agregó una estrategia de caché propia para Supabase", function(){
-      // El corte es un `return` seco: nada de respondWith para esas URLs.
-      var m = SW_SRC.match(/if \(isSupabaseUrl\(new URL\(event\.request\.url\)\)\) ([^\n]*)/);
-      assert(m, "no se encontró el corte");
-      assert(m[1].trim() === "return;", "el corte debería ser un return seco, dio: " + m[1]);
-    });
-
-    test("la versión de caché subió a v8 y la anterior ya no aparece", function(){
-      // V44.3: el candado pasa de v7 a v8. El motivo del bump cambió de dueño
-      // pero es el mismo mecanismo: V44.2 dejó de usar los .gif y esas entradas
-      // quedaron huérfanas en la caché de los dispositivos, y lo único que las
-      // evacúa es que el nombre de la caché sea distinto (ver el activate).
-      var currentCache = SW_SRC.match(/const CACHE = "([^"]+)";/);
-      assert(currentCache && /^gymapp-/.test(currentCache[1]) && ["gymapp-v6","gymapp-v7","gymapp-v8"].indexOf(currentCache[1])===-1, "La candidata debe retirar las cachés anteriores a V48");
-      assert(!/const CACHE = "gymapp-v7";/.test(SW_SRC), "no debería quedar la v7 como activa");
-    });
-
-    test("el activate sigue borrando las cachés viejas (es lo que evacúa la v6)", function(){
-      assert(/caches\.keys\(\)/.test(SW_SRC), "falta el barrido de cachés");
-      assert(/filter\(\(k\) => k !== CACHE\)/.test(SW_SRC), "falta el filtro por nombre distinto del actual");
-      assert(/caches\.delete\(k\)/.test(SW_SRC), "falta el borrado");
-      assert(/self\.clients\.claim\(\)/.test(SW_SRC), "falta clients.claim");
-      assert(/self\.skipWaiting\(\)/.test(SW_SRC), "falta skipWaiting: el SW nuevo no tomaría el control");
-    });
-
-    test("el precache de los assets estáticos quedó intacto", function(){
-      ["./", "./index.html", "./manifest.json", "./apple-touch-icon.png",
-       "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"].forEach(function(a){
-        assert(SW_SRC.indexOf('"' + a + '"') !== -1, "falta en ASSETS: " + a);
+    test("NO hay una estrategia de caché propia para Supabase", function(){
+      // El corte es un `return` seco: ningún respondWith para esas URLs. En V49
+      // es el mismo return que cubre todos los orígenes ajenos.
+      var m = SW_SRC.match(/if\(request\.method!=='GET'[\s\S]*?\)(return;)/);
+      assert(m && m[1] === "return;", "el corte debería ser un return seco");
+      // Y las únicas cachés que el SW abre son las suyas: shell y media.
+      var abiertas = (SW_SRC.match(/caches\.open\(([^)]*)\)/g) || []);
+      abiertas.forEach(function(a){
+        assert(/CACHE|MEDIA|key/.test(a), "abre una caché inesperada: " + a);
       });
-      assert(/cache: "reload"/.test(SW_SRC), "se perdió el fetch con cache:reload del precache (V38.1)");
     });
 
-    test("la estrategia de los assets propios no cambió", function(){
-      // Navegación: red primero con no-store y caída a la copia guardada.
-      assert(/fetch\(event\.request, \{ cache: "no-store" \}\)/.test(SW_SRC), "se perdió el no-store de la navegación");
-      assert(/caches\.match\("\.\/index\.html"\)/.test(SW_SRC), "se perdió la caída a index.html sin conexión");
-      // Resto: cache-first con refresco en segundo plano.
-      assert(/return cached \|\| fetchPromise;/.test(SW_SRC), "se perdió el cache-first de los assets");
-      // Y los POST siguen saliendo antes que todo.
-      assert(/if \(event\.request\.method !== "GET"\) return;/.test(SW_SRC), "se perdió el corte por método");
+    test("el nombre de la caché cambia con cada release y con el contenido", function(){
+      /* ACTUALIZADO EN V50.4. Hasta V48 el candado era literal: `const CACHE =
+         "gymapp-v8"`, y había que subir el número a mano. V49 lo derivó:
+
+           CACHE = 'vodafit-shell-' + encodeURIComponent(ROOT.pathname) + '-'
+                 + RELEASE + '-' + SHELL_ID
+
+         SHELL_ID es el hash del manifiesto de shell, así que cualquier cambio de
+         contenido cambia el nombre de la caché SOLO. Eso cubre lo que el candado
+         viejo cuidaba a mano —que una entrada huérfana no sobreviva a un cambio
+         de contenido— sin depender de que alguien se acuerde de incrementarlo.
+         Además el nombre lleva el pathname, así que dos despliegues en subrutas
+         del mismo host no se pisan las cachés. */
+      assert(/const CACHE = PREFIX \+ RELEASE \+ '-' \+ SHELL_ID;/.test(SW_SRC),
+        "el nombre de la caché debería derivarse de RELEASE y SHELL_ID");
+      assert(/const PREFIX = 'vodafit-shell-' \+ encodeURIComponent\(ROOT\.pathname\)/.test(SW_SRC),
+        "el prefijo debería incluir el pathname para no pisar otras subrutas");
+      var id = SW_SRC.match(/const SHELL_ID = "([0-9a-f]{64})";/);
+      assert(id, "SHELL_ID debería ser un SHA-256 de 64 hex");
+      assert(!/const CACHE = "gymapp-/.test(SW_SRC), "no debería quedar un nombre de caché literal");
+    });
+
+    test("las cachés viejas se CONSERVAN a propósito y sólo se leen", function(){
+      /* ACTUALIZADO EN V50.4 — esto es una reversión deliberada de V49, no un
+         olvido. El test viejo exigía que el activate borrara toda caché distinta
+         de la actual (`filter(k => k !== CACHE)` + `caches.delete`). V49 hace lo
+         contrario y lo deja escrito: "Retain old shells for suspended clients".
+
+         El motivo: un cliente V48 suspendido todavía sirve desde su caché, y
+         borrársela lo dejaría sin shell en medio de un entrenamiento. Por eso el
+         activate ya no borra nada y las cachés `gymapp-v*` se usan como respaldo
+         de LECTURA para URLs históricas de scripts. La evacuación ya no depende
+         del activate sino del nombre derivado (test anterior): una caché que
+         nadie vuelve a nombrar simplemente deja de usarse.
+
+         Lo que este test fija es lo que no puede cambiar: que el activate no
+         borre, que tampoco borre datos del usuario, y que las cachés legadas
+         sólo se lean. */
+      var iAct = SW_SRC.indexOf("self.addEventListener('activate'");
+      assert(iAct !== -1, "no se encontró el activate");
+      var act = SW_SRC.slice(iAct, SW_SRC.indexOf("async function windows", iAct));
+      assert(act.indexOf("caches.delete") === -1,
+        "el activate NO debería borrar cachés: los clientes suspendidos todavía las usan");
+      assert(/self\.clients\.claim\(\)/.test(act), "falta clients.claim en el activate");
+      // El único caches.delete del archivo es el rollback del install fallido,
+      // y sólo sobre una caché que el propio install acababa de crear.
+      var borrados = (SW_SRC.match(/caches\.delete\([^)]*\)/g) || []);
+      assert(borrados.length === 1 && /caches\.delete\(CACHE\)/.test(borrados[0]),
+        "el único borrado debería ser el rollback del install, dio: " + borrados.join(" | "));
+      assert(/if\(!existed\)await caches\.delete\(CACHE\)/.test(SW_SRC),
+        "el rollback sólo puede borrar la caché si el install la creó recién");
+      // Y las cachés legadas aparecen sólo como respaldo de lectura.
+      assert(/\^gymapp-v\\d\+/.test(SW_SRC), "debería reconocer las cachés gymapp-v* legadas");
+      // IndexedDB es donde viven los borradores: el SW no la toca nunca.
+      assert(!/indexedDB/i.test(SW_SRC), "el Service Worker no debería tocar IndexedDB");
+    });
+
+    test("el shell esencial se precarga completo y verificado por hash", function(){
+      /* ACTUALIZADO EN V50.4. V48 tenía `const ASSETS = [...]` con rutas sueltas
+         y un fetch con `cache:"reload"`. V49 lo reemplazó por un manifiesto
+         ruta → SHA-256 que se descarga y se VERIFICA antes de tocar la caché
+         destino, con `cache:'no-store'` y `redirect:'error'`.
+
+         La entrada "./" ya no existe y no hace falta: la navegación se sirve
+         desde "./index.html" (ver el test de navegación). */
+      var iShell = SW_SRC.indexOf("const SHELL = {");
+      var fShell = SW_SRC.indexOf("};", iShell);
+      assert(iShell !== -1 && fShell !== -1, "no se pudo leer el manifiesto SHELL");
+      var shell = SW_SRC.slice(iShell, fShell);
+      ["./index.html", "./manifest.json", "./apple-touch-icon.png",
+       "./icon-192.png", "./icon-512.png", "./icon-512-maskable.png", "./favicon-32.png"].forEach(function(a){
+        assert(shell.indexOf('"' + a + '"') !== -1, "falta en el shell: " + a);
+      });
+      // Los cinco módulos V48 también son parte del shell esencial.
+      ["v48-persistence.js", "v48-session.js", "v48-lifecycle.js",
+       "v48-reconcile.js", "v48-history.js"].forEach(function(m){
+        assert(shell.indexOf(m) !== -1, "falta en el shell el módulo " + m);
+      });
+      // Toda entrada tiene un SHA-256 de 64 hex: no hay precarga sin verificar.
+      var hashes = shell.match(/:\s*"([0-9a-f]{64})"/g) || [];
+      var rutas = shell.match(/"\.\/[^"]+":/g) || [];
+      assert(hashes.length === rutas.length && rutas.length > 0,
+        "cada ruta del shell debería tener su hash: " + rutas.length + " rutas, " + hashes.length + " hashes");
+      assert(/cache:'no-store',redirect:'error'/.test(SW_SRC),
+        "la descarga del shell debería ser no-store y sin seguir redirecciones");
+      assert(/if\(digest!==hash\) throw Error\('SHELL_INTEGRITY_FAILED'\)/.test(SW_SRC),
+        "falta la verificación de integridad por hash");
+      // Y nada se escribe en la caché destino antes de validar todo.
+      var iInstall = SW_SRC.indexOf("self.addEventListener('install'");
+      var iPut = SW_SRC.indexOf("cache.put", iInstall);
+      var iVerify = SW_SRC.indexOf("await verified", iInstall);
+      assert(iVerify !== -1 && iVerify < iPut, "el install debería verificar antes de escribir");
+    });
+
+    test("navegación y assets propios funcionan sin conexión", function(){
+      /* ACTUALIZADO EN V50.4. V48 servía la navegación con red primero
+         (`cache:"no-store"`) y caída a la copia guardada. V49 la sirve
+         SÓLO desde el shell verificado, y si no está responde 503 con un
+         mensaje propio en vez de un error del navegador.
+
+         Es un cambio de estrategia deliberado —el shell es inmutable y la
+         actualización está coordinada, así que la navegación no necesita ir a
+         la red— y para el funcionamiento offline es estrictamente mejor: no
+         depende de que la red falle rápido. Lo que este test fija es la
+         propiedad funcional: que haya navegación sin conexión y que los assets
+         sean cache-first. */
+      // Navegación: desde la caché del shell, con index.html como respuesta.
+      assert(/const navigation=request\.mode==='navigate'/.test(SW_SRC),
+        "falta la detección de navegación");
+      assert(/caches\.open\(CACHE\)\.then\(c=>c\.match\(absolute\('\.\/index\.html'\)\)\)/.test(SW_SRC),
+        "la navegación debería resolverse desde index.html del shell");
+      assert(/r\|\|unavailable\(\)/.test(SW_SRC), "falta la respuesta de respaldo sin conexión");
+      assert(/status:503/.test(SW_SRC), "la respuesta sin conexión debería ser un 503 explícito");
+      // Assets del shell: cache-first, y si falta se re-verifica contra su hash.
+      assert(/const cache=await caches\.open\(CACHE\),cached=await cache\.match\(request\);\s*\n?\s*if\(cached\)return cached;/.test(SW_SRC),
+        "los assets del shell deberían ser cache-first");
+      // Un script histórico nunca se baja de un despliegue posterior.
+      assert(/Never fetch a historical script URL from a later deployment/.test(SW_SRC),
+        "falta la rama que resuelve URLs históricas de scripts desde cachés previas");
+      // Y el corte por método sigue primero que todo.
+      assert(/request\.method!=='GET'/.test(SW_SRC), "se perdió el corte por método");
     });
 
     /* ---------------- V43 — MAPA MUSCULAR ----------------
@@ -5063,6 +5266,63 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         });
       });
       assert(raras.length === 0, raras.join(" | "));
+    });
+
+    group("V50 — Mapa muscular: selección visible y sector del tríceps");
+
+    test("E10 — la figura dibuja el contorno de la región seleccionada", function(){
+      var s = mmStats([mmReg("Press de banca con barra", MM_HOY, 3, 80)]);
+      // Sin selección no hay contorno: es el estado en que quedaba SIEMPRE
+      // hasta V49, porque mapaVistaSvg nunca leía state.mapaRegion.
+      var sinSel = A.muscleMapBodyHtml(s, null);
+      assert(sinSel.indexOf('class="mapa-sel"') === -1, "sin selección no debería haber contorno");
+      // Con selección aparece, y una vez por cada forma de esa región dibujada.
+      var conSel = A.muscleMapBodyHtml(s, "chest-mid");
+      assert(conSel.indexOf('class="mapa-sel"') !== -1, "con chest-mid seleccionado debería haber contorno");
+      // El contorno no puede recibir clics: la capa de toque va encima.
+      assert(conSel.indexOf('class="mapa-hit"') !== -1, "la capa de toque tiene que seguir existiendo");
+    });
+
+    test("E10 — seleccionar una cabeza del tríceps contornea la mancha agrupada", function(){
+      var s = mmStats([mmReg("Press francés", MM_HOY, 3, 30)]);
+      // La clave de datos es triceps-long, pero la forma dibujada es "triceps".
+      // Si el contorno se buscara por la clave de datos no habría ninguna forma
+      // que machear y no se dibujaría nada — que es el bug que E10 arregla.
+      var html = A.muscleMapBodyHtml(s, "triceps-long");
+      assert(html.indexOf('class="mapa-sel"') !== -1,
+        "seleccionar triceps-long debería contornear la mancha del tríceps");
+      // Y las tres cabezas contornean la MISMA mancha: la geometría no cambió.
+      var larga = A.muscleMapBodyHtml(s, "triceps-long");
+      var lateral = A.muscleMapBodyHtml(s, "triceps-lateral");
+      var medial = A.muscleMapBodyHtml(s, "triceps-medial");
+      assert(larga === lateral && lateral === medial,
+        "las tres cabezas comparten una sola mancha, así que el dibujo tiene que ser idéntico");
+    });
+
+    test("E11 — el tríceps es la única región agrupada y tiene sus tres cabezas", function(){
+      var g = A.MAPA_ANATOMIA.grupos;
+      assert(Object.keys(g).length === 1 && g.triceps, "hoy la única región agrupada es el tríceps");
+      assert(g.triceps.length === 3, "deberían ser tres cabezas, son " + g.triceps.length);
+      assert(g.triceps[0] === "triceps-long", "el orden declarado arranca en la cabeza larga");
+      // El rótulo del grupo se deriva de los mapas que ya existen, sin una
+      // tercera lista de nombres que mantener a mano.
+      assert(A.mapaEtiquetaDeGrupo("triceps", g.triceps) === "Tríceps",
+        "dio " + A.mapaEtiquetaDeGrupo("triceps", g.triceps));
+    });
+
+    test("R16 — mapaClaveDeRegionDibujada usa las stats que recibe", function(){
+      // Dos escenarios donde gana una cabeza distinta. Si la función ignorara el
+      // argumento y recalculara por dentro (lo que hacía hasta V49 en cada nodo
+      // del dibujo), los dos darían lo mismo.
+      var conLarga = mmStats([mmReg("Press francés", MM_HOY, 3, 30)]);
+      var conLateral = mmStats([mmReg("Extensión de tríceps en polea", MM_HOY, 3, 25)]);
+      var a = A.mapaClaveDeRegionDibujada("triceps", conLarga);
+      var b = A.mapaClaveDeRegionDibujada("triceps", conLateral);
+      assert(a === "triceps-long", "con Press francés debería ganar la cabeza larga, dio " + a);
+      assert(b === "triceps-lateral", "con extensión en polea debería ganar la lateral, dio " + b);
+      // Una región no agrupada se devuelve tal cual, sin mirar stats.
+      assert(A.mapaClaveDeRegionDibujada("chest-mid", conLarga) === "chest-mid", "chest-mid no está agrupada");
+      assert(A.mapaClaveDeRegionDibujada("no-existe", conLarga) === null, "una región inexistente debería dar null");
     });
 
     group("V43 — Mapa muscular: independencia del orden y escala");
@@ -6332,24 +6592,46 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     test("sw.js NO precarga ningún medio en la instalación", function(){
+      /* ACTUALIZADO EN V50.4. V48 leía `const ASSETS = [...]`; V49 usa el
+         manifiesto SHELL (ruta → SHA-256). La garantía es la misma y sigue
+         siendo la que importa: la carga inicial de la app descarga CERO medios.
+         sw.js no se modificó. */
       assert(SW_SRC, "no se pudo traer sw.js");
-      var ini = SW_SRC.indexOf("const ASSETS = [");
-      assert(ini !== -1, "no se pudo leer ASSETS de sw.js");
-      var assets = SW_SRC.slice(ini, SW_SRC.indexOf("]", ini)).toLowerCase();
-      assert(assets.indexOf(".webp") === -1 && assets.indexOf(".gif") === -1,
-        "hay animaciones en los ASSETS que se precargan: " + assets);
+      var ini = SW_SRC.indexOf("const SHELL = {");
+      var fin = SW_SRC.indexOf("};", ini);
+      assert(ini !== -1 && fin !== -1, "no se pudo leer el manifiesto SHELL de sw.js");
+      var shell = SW_SRC.slice(ini, fin).toLowerCase();
+      assert(shell.indexOf(".webp") === -1 && shell.indexOf(".gif") === -1,
+        "hay animaciones en el shell que se precargan");
+      assert(shell.indexOf("ejercicios/") === -1,
+        "no debería haber nada de ejercicios/ en el shell precargado");
     });
 
-    test("sw.js cubre .webp y sirve los medios cache-first SIN revalidar", function(){
-      // La rama general arma el fetch SIEMPRE y devuelve "cached || fetchPromise",
-      // así que con la copia ya guardada igual vuelve a bajar el archivo entero.
-      // Los medios tienen rama propia, y desde V44.2 tiene que cubrir .webp.
+    test("sw.js cubre los medios con rama propia, cache-first SIN revalidar", function(){
+      /* ACTUALIZADO EN V50.4. V48 identificaba los medios por extensión
+         (`/\.(gif|webp)$/i`); V49 los identifica por RUTA: todo lo que cae bajo
+         `ejercicios/` va a la caché de medios, que es un criterio más amplio y
+         cubre .webp igual.
+
+         La propiedad que no puede perderse es la misma de V44.2: con la copia ya
+         guardada NO se rearma el fetch. La rama general de V48 devolvía
+         `cached || fetchPromise`, y como construía la promesa siempre, volvía a
+         bajar el archivo entero con la copia en mano (medido). En V49 el
+         `return cached` sale antes de cualquier fetch. */
       assert(SW_SRC, "no se pudo traer sw.js");
-      var i = SW_SRC.indexOf("(gif|webp)");
-      assert(i !== -1, "sw.js no tiene una rama que cubra .webp");
-      var rama = SW_SRC.slice(i, i + 400);
-      assert(rama.indexOf("cached || fetch(event.request)") !== -1,
-        "la rama de medios no es cache-first seco");
+      var i = SW_SRC.indexOf("url.pathname.startsWith(new URL('ejercicios/'");
+      assert(i !== -1, "sw.js no tiene una rama propia para los medios de ejercicios/");
+      var rama = SW_SRC.slice(i, i + 700);
+      // Cache-first seco: el cached se devuelve antes de que aparezca un fetch.
+      var iCached = rama.indexOf("if(cached)return cached;");
+      var iFetch = rama.indexOf("await fetch(request)");
+      assert(iCached !== -1, "la rama de medios debería devolver la copia guardada sin más");
+      assert(iFetch !== -1 && iCached < iFetch,
+        "el return de la copia guardada tiene que salir ANTES del fetch, o se rebaja el archivo entero");
+      // Y usa su propia caché de medios, separada del shell.
+      assert(/const MEDIA = 'vodafit-media-'/.test(SW_SRC),
+        "los medios deberían vivir en su propia caché, aparte del shell");
+      assert(rama.indexOf("caches.open(MEDIA)") !== -1, "la rama de medios debería abrir la caché MEDIA");
     });
 
     test("nada de lo que ya existía cambió por las animaciones", function(){
