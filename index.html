@@ -764,7 +764,7 @@
 
 <script src="./vendor/supabase-js-2.118.0/supabase.js?h=bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp sha384-tmpgmcXGo7hB00jjx4npEYkP3lFx3y6Y/P5NH8FMxDPP4EAYAoDgFSHUyCVIftZC" crossorigin="anonymous"></script>
 <script src="./vendor/jspdf-2.5.1/jspdf.umd.min.js?h=98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk sha384-yHOtnsGdlMTUp9Ms8VHzgbg6kxjCkt9HlQw72Z3A21SnFoZBmDAFwpCP/SNcfWvz" crossorigin="anonymous"></script>
-<script src="./v48-persistence.js?v=49.1&h=953ce7530e3ab0bbd0b4ad8a5d89910ea177d490a9a6cfa4e504c55c1bba6286" integrity="sha384-pSHPbj3SITQUzm2G0pkaSJi8kV4KXvdnZFAlpspXHCegWTebEaoWo3ZRd04/jWnv sha384-bGtaeklxAZ1+3wCQrjsl9IZ1JShlCBgeC3UMzQgY7qE2kSa71RYB70W7CD13wLn9" crossorigin="anonymous"></script>
+<script src="./v48-persistence.js?v=49.1&h=ef2f59d8e98a29a83a99738fcf6799b0ce38cef50ff30d29f81251785b0600c9" integrity="sha384-hAsnoxK+xmZJ8TOSdJM9YQDBAjeE0+KbTQvG+Omvn9ZEaWiVeZnBjG18kZ/+dWcJ sha384-vHYPLmrmdG1N21nhvOeLfVy8mRQv5+E5NANKe6I9/PmOqki6y9pLQWAac7knZQTH" crossorigin="anonymous"></script>
 <script src="./v48-session.js?v=49.1&h=b159f8e75af9f2b134c26e00f69fd7982115079388184f25601d39f6cb7a561b" integrity="sha384-z8cPbqdPZWAZlxvsF+QSqLMr60kqcZP7aNyCprmTUTtGEyT0bqQCWab513wDchru sha384-OhweP7K4vLPahoV8Vs5J8IlcKPAmY8/BLcc34sJLuwgAHNd6tTqIVRD0nhdhZZf8" crossorigin="anonymous"></script>
 <script src="./v48-lifecycle.js?v=49.1&h=06eaaa5a989b3dbff6caea74f45452fa410ce78b02870ee834dad1b93df44732" integrity="sha384-G13PU3YMZjI9RB0XLqOuKm540s3pM9Ct+e5JazC7mNPfVYquH04Y0JOBZrj+mdxK sha384-tm9/oeOalAYGt3XmgwzN+L9j/s+UzO6FQ0WsFO3fCrQxrLmlzes4gzsqQQbhfHlY" crossorigin="anonymous"></script>
 <script src="./v48-reconcile.js?v=49.1&h=f1c7f62880851713f9ad8ca47ed4a3fe1ecc1f82153b42aa7365c4f2b6a55c82" integrity="sha384-VtceFs/X2r2e1oGzv2YkFTvJUA4UI/Nc9doDyXqz0YcTbODsKLQOUIwLe/a1kNy8 sha384-OOar9SdHQiRERtoL+W+l0X8OND/KlwyPMVmURlP5qTSF8ICmqX9VIeQIzwZB10HC" crossorigin="anonymous"></script>
@@ -4346,6 +4346,14 @@
       return;
     }
 
+    // V50.1: el conflicto local va ANTES que cualquier otra pantalla. Mientras
+    // no se resuelva, la sincronización está bloqueada y todo lo que el usuario
+    // haga en otra pantalla se pierde al guardar — así que primero se resuelve.
+    if(state.tab==="conflictos" && state.persistence && state.persistence.conflict){
+      renderConflictos();
+      return;
+    }
+
     if(state.tab==="sesion" && (state.session || nativeSession())){
       app.classList.remove("app-wide");
       renderSession();
@@ -4681,7 +4689,13 @@
     if(generation !== authLoadGeneration || !state.profile || state.profile.id !== ownerId || !loaded.ok) return;
     const raw=loaded.data;
     state.rutinaRaw=deepClone(raw); state.persistence=loaded; state.unresolvedSession=null;
-    if(loaded.conflict) showToast("Hay cambios en otra copia. El borrador local se conserva; la sincronización quedó bloqueada.");
+    // V50.1: un conflicto local ya no se comunica con un toast que se va solo y
+    // deja la cuenta bloqueada sin salida: manda a la pantalla que lo resuelve.
+    // No se fuerza si el usuario está en medio de un entrenamiento recuperado
+    // (nativeOffline ya fijó la pestaña "sesion"): ahí el aviso alcanza y la
+    // pantalla sigue accesible desde Perfil.
+    if(loaded.conflict && !state.nativeOffline) state.tab="conflictos";
+    if(loaded.conflict) showToast("Hay copias en conflicto. Elegí con cuál seguir para volver a guardar.");
     else if(loaded.recovered) showToast("Borrador local recuperado. Hay cambios pendientes de sincronizar.");
     else if(loaded.localError) showToast("El almacenamiento local no está disponible en este dispositivo.");
 
@@ -10332,6 +10346,234 @@
     });
   }
 
+  /* ================= V50.1: SALIDA DEL CONFLICTO LOCAL (E1) =================
+     Pantalla propia, con el mismo patrón que el Mapa muscular y Estiramientos:
+     `state.tab = "conflictos"`, sin botón en la barra inferior, con entrada
+     automática cuando la carga detecta un conflicto y entrada manual desde
+     Perfil por si se cerró sin resolver.
+
+     El problema que resuelve: hasta V50.4, cuando dos contextos de la misma
+     cuenta escribían (dos pestañas, o la PWA y el navegador), IndexedDB
+     guardaba una copia de respaldo en el store `conflicts` y la sincronización
+     quedaba bloqueada. Nada borraba ese store nunca, así que `load()` volvía a
+     bloquear en cada arranque: la cuenta no podía guardar más, de forma
+     permanente, y la app sólo mostraba un toast.
+
+     Lo que NO hace, a propósito: borrar copias al iniciar. Esas copias son el
+     respaldo de un borrador que no se sincronizó; barrerlas convertiría un
+     bloqueo visible en una pérdida invisible. Sólo se descartan con una
+     elección explícita, y después de guardar la copia elegida. */
+
+  // Resumen legible de un documento de rutina, para poder elegir sin leer JSON.
+  // No interpreta nada que no esté ya en el documento.
+  function resumenDeCopia(data){
+    const d = data || {};
+    const slot = (k)=>{
+      const dias = (d[k] && Array.isArray(d[k].days)) ? d[k].days : [];
+      return { dias: dias.length, ejercicios: dias.reduce((t,x)=> t + ((x && x.exercises) ? x.exercises.length : 0), 0) };
+    };
+    const s = d.sesionActiva || null;
+    let sesion = null;
+    if(s){
+      const nativa = VodaFitSession.isNative(s);
+      let hechas = null, total = null;
+      if(nativa){ const p = VodaFitSession.progress(s); hechas = p.done; total = p.total; }
+      else if(s.sets){
+        total = 0; hechas = 0;
+        Object.keys(s.sets).forEach(id=> (s.sets[id]||[]).forEach(v=>{ total++; if(v) hechas++; }));
+      }
+      sesion = { nativa, dia: s.dayNombre || (s.day && s.day.nombre) || "sin nombre",
+        slot: s.slot || "?", hechas, total,
+        cerrandose: nativa && VodaFitLifecycle.pending(s) };
+    }
+    return {
+      slots: { personalizada: slot("personalizada"), automatica: slot("automatica"), enfocada: slot("enfocada") },
+      activo: RUTINA_SLOTS.indexOf(d.activeSlot)!==-1 ? d.activeSlot : null,
+      referencias: d.referenciasEjercicios ? Object.keys(d.referenciasEjercicios).length : 0,
+      sesion,
+      terminalPendiente: !!d.__v48TerminalRequest,
+      inicioPendiente: !!d.__v48StartRequest,
+    };
+  }
+
+  // Las copias disponibles, normalizadas. La remota siempre primero: es la que
+  // el servidor tiene y la opción más conservadora.
+  function copiasEnConflicto(){
+    const p = state.persistence || {};
+    const out = [{ id:"__remota__", origen:"remota", cuando:null, data:p.data || {days:[]} }];
+    (p.localDrafts || []).forEach(fila=>{
+      out.push({ id:fila.id, origen:"local", cuando:fila.updatedAt || null, data:fila.draft || {} });
+    });
+    // Rama REVISION_CONFLICT: no hay filas en `conflicts`, pero sí un borrador
+    // local divergente que también dejaba la sincronización bloqueada.
+    if(!(p.localDrafts || []).length && p.localDraft){
+      out.push({ id:"__pendiente__", origen:"local", cuando:null, data:p.localDraft });
+    }
+    return out;
+  }
+
+  function copiaFechaTexto(cuando){
+    if(!cuando) return "sin fecha registrada";
+    try {
+      const d = new Date(cuando);
+      return d.toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"numeric"}) + " " +
+             d.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+    } catch(e){ return "sin fecha registrada"; }
+  }
+
+  function copiaResumenHtml(copia){
+    const r = resumenDeCopia(copia.data);
+    const fila = (k,label)=>{
+      const s = r.slots[k];
+      return `<div class="statline"><span class="helptext" style="font-size:13px; color:var(--text)">${label}${r.activo===k?" · activa":""}</span>`
+        + `<span class="num">${s.dias} día${s.dias===1?"":"s"} · ${s.ejercicios} ej.</span></div>`;
+    };
+    const ses = r.sesion
+      ? `<div class="banner" style="margin-top:6px">${icon("play")}<div><b>Entrenamiento en curso</b>
+          <div class="helptext">${esc(r.sesion.dia)} · ${r.sesion.hechas==null?"?":r.sesion.hechas}/${r.sesion.total==null?"?":r.sesion.total} series`
+          + `${r.sesion.nativa?" · V48":""}${r.sesion.cerrandose?" · cierre pendiente":""}</div></div></div>`
+      : `<p class="helptext" style="margin-top:6px">Sin entrenamiento en curso.</p>`;
+    return `
+      ${fila("personalizada","Mi rutina")}
+      ${fila("automatica","Rutina automática")}
+      ${fila("enfocada","Rutina enfocada")}
+      <div class="statline"><span class="helptext" style="font-size:13px; color:var(--text)">Referencias de ejercicios</span><span class="num">${r.referencias}</span></div>
+      ${ses}
+      ${r.terminalPendiente?`<p class="helptext">Tiene una operación de cierre pendiente de confirmar.</p>`:""}
+      ${r.inicioPendiente?`<p class="helptext">Tiene un inicio de entrenamiento pendiente de confirmar.</p>`:""}
+    `;
+  }
+
+  function screenConflictos(){
+    const copias = copiasEnConflicto();
+    const locales = copias.filter(c=>c.origen==="local").length;
+    return `
+      <div class="banner">${icon("info")}<div>
+        <b>No se perdió nada.</b>
+        <div class="helptext">La app guardó ${locales===1?"una copia":locales+" copias"} de tu rutina porque
+        se editó desde más de un lugar a la vez (por ejemplo dos pestañas, o la app instalada y el navegador).
+        Para volver a guardar hay que elegir con cuál seguir. Las otras se pueden descargar antes de descartarlas.</div>
+      </div>
+
+      ${copias.map((c,i)=>`
+        <div class="section-title" style="margin-top:10px">
+          <h2>${c.origen==="remota" ? "Copia del servidor" : "Copia de este dispositivo"+(locales>1?" #"+i:"")}</h2>
+          ${c.origen==="local" ? `<span class="muted">${esc(copiaFechaTexto(c.cuando))}</span>` : `<span class="muted">la más reciente sincronizada</span>`}
+        </div>
+        <div class="card stack">
+          ${copiaResumenHtml(c)}
+          <div class="row" style="gap:8px; margin-top:4px">
+            <button class="btn btn-ghost btn-sm" data-bajar-copia="${esc(c.id)}" style="flex:1">${icon("download")} Descargar</button>
+            <button class="btn btn-primary btn-sm" data-usar-copia="${esc(c.id)}" style="flex:1">Usar esta copia</button>
+          </div>
+        </div>
+      `).join("")}
+
+      <p class="helptext" style="margin-top:12px">Al elegir una copia, esa queda como tu rutina y las demás se
+      descartan. Primero se guarda la elegida y sólo después se borran las otras: si algo falla en el medio,
+      nada se pierde y se puede reintentar.</p>
+    `;
+  }
+
+  function renderConflictos(){
+    app.classList.remove("app-wide");
+    app.innerHTML = `
+      <div class="topbar">
+        <span class="iconbtn" id="btn-conf-back">${icon("back")}</span>
+        <h1 style="font-size:18px; flex:1; text-align:center">Copias en conflicto</h1>
+        <span style="width:30px"></span>
+      </div>
+      <main><div class="screen" id="screen"></div></main>
+    `;
+    document.getElementById("btn-conf-back").onclick = ()=>{ state.tab = "perfil"; render(); };
+    document.getElementById("screen").innerHTML = screenConflictos();
+    mountConflictos();
+  }
+
+  function mountConflictos(){
+    const el = document.getElementById("screen");
+    if(!el) return;
+    const copias = copiasEnConflicto();
+    const buscar = (id)=> copias.find(c=> String(c.id)===String(id)) || null;
+
+    el.querySelectorAll("[data-bajar-copia]").forEach(b=>{
+      b.onclick = ()=>{
+        const c = buscar(b.dataset.bajarCopia);
+        if(!c) return;
+        const nombre = "vodafit-copia-" + (c.origen==="remota" ? "servidor" : "dispositivo") + "-" + Date.now() + ".json";
+        try {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([JSON.stringify(c.data,null,2)],{type:"application/json"}));
+          a.download = nombre;
+          document.body.appendChild(a); a.click(); a.remove();
+          showToast("Copia descargada");
+        } catch(e){ showToast("No se pudo descargar la copia en este navegador"); }
+      };
+    });
+
+    el.querySelectorAll("[data-usar-copia]").forEach(b=>{
+      b.onclick = async ()=>{
+        const c = buscar(b.dataset.usarCopia);
+        if(!c || b.disabled) return;
+        const owner = state.profile && state.profile.id, generation = authLoadGeneration;
+        if(!owner) return;
+        const descartar = copias.filter(x=> x.origen==="local" && x.id!==c.id && String(x.id).indexOf("__")!==0).length;
+        const ok = await confirmDialog("Usar esta copia",
+          (c.origen==="remota" ? "Se va a conservar la copia del servidor" : "Se va a conservar esta copia del dispositivo")
+          + (descartar ? " y se descartarán las otras " + descartar + "." : ".")
+          + " Si todavía no descargaste las que vas a descartar, cancelá y descargalas primero.",
+          "Usar esta copia");
+        if(!ok || state.profile?.id!==owner || generation!==authLoadGeneration) return;
+        b.disabled = true;
+        // Los ids a descartar son SÓLO los de filas reales del store `conflicts`.
+        const ids = copias.filter(x=> x.origen==="local" && String(x.id).indexOf("__")!==0).map(x=> x.id);
+        let res;
+        try { res = await rutinaSync.resolve(owner, c.data, ids); }
+        catch(error){ res = { ok:false, code:"LOCAL_STORAGE_ERROR", error }; }
+        if(state.profile?.id!==owner || generation!==authLoadGeneration) return;
+        if(!res || !res.ok){
+          b.disabled = false;
+          showToast(res && res.stage==="discard"
+            ? "La copia elegida quedó guardada, pero no se pudieron descartar las otras. Reintentá."
+            : "No se pudo guardar la copia elegida (" + ((res && res.code) || "error") + "). No se descartó nada.");
+          return;
+        }
+        // Recarga completa: load() vuelve a leer el store, confirma que ya no
+        // hay copias y devuelve un contexto limpio, sin tocar `blocked` a mano.
+        try { await loadProfileData(); }
+        catch(error){ showToast("Conflicto resuelto. Falta actualizar esta pantalla; recargá la app."); return; }
+        if(state.profile?.id!==owner || generation!==authLoadGeneration) return;
+        // Si la copia elegida difería de la del servidor, queda como borrador
+        // PENDIENTE. Eso basta para guardar, pero el inicio de un entrenamiento
+        // V48 exige no tener cambios sin sincronizar (v48-lifecycle.js:66) y
+        // rechazaría con UNSYNCED_CHANGES justo después de resolver. Un guardado
+        // la sincroniza, con la vía de siempre y sobre el estado ya recargado
+        // —nunca antes de recargar, que empujaría la copia vieja—. Si falla
+        // (sin conexión), queda pendiente como cualquier otro guardado.
+        if(state.persistence && state.persistence.pending){
+          let sinc;
+          try { sinc = await persistRutina(); } catch(error){ sinc = { ok:false, code:"LOCAL_STORAGE_ERROR" }; }
+          if(state.profile?.id!==owner || generation!==authLoadGeneration) return;
+          // Si en el medio otro dispositivo cambió la rutina, el CAS rechaza el
+          // guardado —no lo pisa— y la copia elegida queda pendiente. Eso es un
+          // conflicto NUEVO, no un éxito: hay que volver a cargar para que la
+          // pantalla ofrezca la decisión otra vez contra el estado remoto
+          // vigente, en vez de anunciar que todo quedó resuelto.
+          if(!sinc || !sinc.ok){
+            try { await loadProfileData(); } catch(error){}
+            if(state.profile?.id!==owner || generation!==authLoadGeneration) return;
+            render();
+            showToast("Tu copia quedó guardada, pero la rutina cambió en otro dispositivo. Elegí de nuevo.");
+            return;
+          }
+        }
+        state.tab = "rutina";
+        render();
+        showToast("Conflicto resuelto. Ya podés volver a guardar.");
+      };
+    });
+  }
+
   /* ================= V42: PERFIL COMO DASHBOARD =================
      Perfil es LECTURA de progreso. Todo lo de acá lee `state` y no hace una
      sola consulta nueva: las cuatro fuentes (profile, entrenos, registros,
@@ -10558,6 +10800,22 @@
     `;
   }
 
+  // V50.1: entrada manual a la pantalla de conflictos. Sólo aparece si hay un
+  // conflicto sin resolver — mientras lo haya, la sincronización está bloqueada,
+  // así que es lo más importante de Perfil y va arriba de todo.
+  function perfilConflictoHtml(){
+    if(!(state.persistence && state.persistence.conflict)) return "";
+    return `
+      <div class="section-title"><h2>Copias en conflicto</h2></div>
+      <div class="card stack">
+        <div class="banner">${icon("info")}<div><b>La sincronización está detenida.</b>
+          <div class="helptext">Hay más de una copia de tu rutina en este dispositivo. Nada se perdió,
+          pero hasta elegir con cuál seguir no se puede guardar.</div></div>
+        <button class="btn btn-primary btn-block" id="btn-perfil-conflictos">Resolver ahora</button>
+      </div>
+    `;
+  }
+
   function perfilConfigHtml(){
     return `
       <div class="section-title" style="margin-top:6px"><h2>Configuración</h2></div>
@@ -10610,6 +10868,7 @@
   // "perfil" para que la navegación semanal tenga su propio estado.
   function screenPerfil(){
     return `
+      ${perfilConflictoHtml()}
       ${perfilCuentaHtml()}
       ${perfilResumenHtml()}
 
@@ -10652,6 +10911,10 @@
 
     // V46: Estiramientos. Misma mecánica que el Mapa muscular, incluido el
     // guardado del scroll para volver al mismo lugar de Perfil.
+    // V50.1: entrada manual a la pantalla de conflictos.
+    const irConf = el.querySelector("#btn-perfil-conflictos");
+    if(irConf) irConf.onclick = ()=>{ state.tab = "conflictos"; render(); };
+
     const irEstir = el.querySelector("#btn-perfil-estiramientos");
     if(irEstir) irEstir.onclick = ()=>{
       state.perfilScrollY = window.scrollY;
@@ -10773,7 +11036,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "2e6e4c0ad2e9ffb7041b81ded524fa24c357992348afe7b7518d16a5277a212a";
+  const APP_BUILD = "76725afd00b17c0c9f113ec0566f2170f73ac01118b6e00be75ee23c497a2ef0";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -11024,6 +11287,9 @@
     abrirEstiramientos, estiramientosModalHtml,
     // V42: dashboard de Perfil. Todo lee state, ninguna consulta nueva.
     screenPerfil, mountPerfil, perfilCuentaHtml, perfilResumenHtml, perfilPesoHtml, perfilMapaHtml, mapaClaveDeRegionDibujada, mapaStatsActuales,
+    // V50.1: salida del conflicto local (E1).
+    resumenDeCopia, copiasEnConflicto, copiaFechaTexto, copiaResumenHtml,
+    screenConflictos, renderConflictos, mountConflictos, perfilConflictoHtml, rutinaSync,
     perfilEntrenamientoHtml, perfilConfigHtml, primerDatoFecha, ejerciciosDistintosCount,
     entrenosPorOrigen, rachaCardHtml, mountWeekNav, weekScopeKeys, WEEK_SCOPE_KEYS, PERFIL_ORIGIN_ORDER, setTab,
     currentWorkoutElapsed, fmtElapsed, workoutClockHtml, persistWorkoutClock,

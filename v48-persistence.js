@@ -128,7 +128,32 @@
         tx.onerror=tx.onabort=()=>reject(tx.error || new Error('No se pudieron leer las copias en conflicto'));
       });
     }
-    return {get,put,conflicts};
+    // V50.1: borrado SELECTIVO de copias en conflicto. Hasta V50.4 este store se
+    // escribía y se leía, y nada lo borraba nunca: por eso una sola copia dejaba
+    // la cuenta sin poder guardar para siempre (E1). No cambia el formato ni la
+    // versión del store — borra por `id`, que ya era su keyPath.
+    //
+    // Recorre por el índice de ownerId y sólo borra los ids pedidos QUE ADEMÁS
+    // pertenezcan a ese dueño: un id de otra cuenta no se toca ni por error.
+    // Devuelve qué borró y qué quedó, para que la UI no tenga que adivinar.
+    async function discardConflicts(ownerId,ids){
+      const pedidos=new Set(Array.isArray(ids)?ids:[ids]);
+      if(!pedidos.size) return {deleted:0,kept:0,missing:[]};
+      const db=await open();
+      return new Promise((resolve,reject)=>{
+        const tx=db.transaction('conflicts','readwrite');
+        const vistos=new Set(); let deleted=0,kept=0;
+        const req=tx.objectStore('conflicts').index('ownerId').openCursor(ownerId);
+        req.onsuccess=()=>{
+          const cur=req.result; if(!cur) return;
+          if(pedidos.has(cur.value.id)){vistos.add(cur.value.id);cur.delete();deleted++;} else kept++;
+          cur.continue();
+        };
+        tx.oncomplete=()=>resolve({deleted,kept,missing:[...pedidos].filter(id=>!vistos.has(id))});
+        tx.onerror=tx.onabort=()=>reject(tx.error || new Error('No se pudieron descartar las copias en conflicto'));
+      });
+    }
+    return {get,put,conflicts,discardConflicts};
   }
 
   function createSync(repository,cache){
@@ -195,7 +220,61 @@
       };
       const result=tail.then(task,task); tail=result.catch(()=>{}); return result;
     }
-    return {load,save,detach,getContext:()=>active ? clone(active) : null};
+    /* V50.1 — salida del conflicto local (E1).
+       Hasta V50.4, una vez que `blocked` quedaba puesto no había forma de
+       salir: `load()` lo volvía a poner en cada arranque mientras hubiera una
+       copia en `conflicts`, y nada borraba ese store. Esto es la salida.
+
+       ORDEN DELIBERADO, y es lo que hace la operación segura:
+         1. se escribe la copia ELEGIDA como borrador vigente;
+         2. recién entonces se descartan las copias en conflicto.
+       Si (2) falla, el borrador elegido ya está durable y las copias siguen
+       ahí: la operación se reintenta sin haber perdido nada. Al revés —borrar
+       primero— una falla en el medio dejaría la cuenta sin copias y sin
+       borrador. Nunca invertir este orden.
+
+       `elegido` es el documento (rutinas.data) que el usuario eligió conservar:
+       puede ser el remoto, una de las copias locales, o cualquiera de las dos
+       editada. No se interpreta su contenido acá.
+
+       No borra nada por su cuenta y no se llama al iniciar: sólo desde la
+       pantalla de conflictos, con una elección explícita. */
+    function resolve(ownerId,elegido,ids){
+      const ctx=active;
+      const task=async()=>{
+        if(!ctx || !ctx.base) return failure('NOT_LOADED');
+        if(ctx.ownerId!==ownerId) return failure('ACCOUNT_CHANGED');
+        if(!cache.discardConflicts) return failure('DISCARD_NOT_SUPPORTED');
+        const snapshot=clone(elegido);
+        // 1. El borrador elegido, primero. Se lee la versión local vigente para
+        // que el put sea autoritativo en vez de entrar por la rama de conflicto
+        // (save() pasa -1 mientras está bloqueado, que nunca machea a propósito).
+        let fila,puesto;
+        try {
+          fila=await cache.get(ownerId);
+          if(!current(ctx)) return failure('ACCOUNT_CHANGED');
+          puesto=await cache.put({version:1,ownerId,base:clone(ctx.base),draft:snapshot,
+            pending:!equal(snapshot,ctx.base.data),updatedAt:Date.now()},fila?fila.localVersion:0);
+        } catch(error){ return {...failure('LOCAL_STORAGE_ERROR',error),stage:'draft'}; }
+        if(puesto.conflict) return {...failure('LOCAL_CONFLICT'),stage:'draft'};
+        if(!current(ctx)) return failure('ACCOUNT_CHANGED');
+        // 2. Y sólo ahora las copias. Un fallo acá deja todo recuperable.
+        let descartadas;
+        try { descartadas=await cache.discardConflicts(ownerId,ids||[]); }
+        catch(error){ return {...failure('DISCARD_FAILED',error),stage:'discard',draftSaved:true,
+          localVersion:puesto.localVersion}; }
+        if(!current(ctx)) return {ok:true,draftSaved:true,discarded:descartadas,detached:true};
+        // Con el store vacío ya no hay motivo para seguir bloqueado. load() lo
+        // confirmaría igual en la próxima carga; esto evita depender de ella.
+        const quedan=await cache.conflicts(ownerId).catch(()=>null);
+        if(quedan && quedan.length===0) ctx.blocked=null;
+        ctx.localVersion=puesto.localVersion;
+        return {ok:true,draftSaved:true,discarded:descartadas,
+          remaining:quedan?quedan.length:null,envelope:clone(ctx.base),pending:!equal(snapshot,ctx.base.data)};
+      };
+      const result=tail.then(task,task); tail=result.catch(()=>{}); return result;
+    }
+    return {load,save,resolve,detach,getContext:()=>active ? clone(active) : null};
   }
 
   function createSessionDraft(day,{sessionId=root.crypto.randomUUID(),slot,startedAt=Date.now(),timezone=Intl.DateTimeFormat().resolvedOptions().timeZone}={}){

@@ -186,6 +186,273 @@
       assert(A.state.unresolvedSession.sessionId===raw.sesionActiva.sessionId && !A.state.session,'Usó UI heredada para sesión V48');
     } finally {keys.forEach(k=>A.Store[k]=old[k]);A.clearAccountData();}
   });
+  /* ===================== V50.1 — salida del conflicto local (E1) =====================
+     Hasta V50.4 el store `conflicts` se escribía y se leía, y nada lo borraba:
+     una sola copia dejaba la cuenta sin poder guardar para siempre, porque
+     load() volvía a bloquear en cada arranque. Estos tests cubren la salida. */
+
+  await test('V50.1 — descartar copias: sólo los ids pedidos, sólo de ese dueño',async()=>{
+    const db=cache(),repo=memoryRepo(empty);
+    // Dos pestañas de 'a' generan una copia; una tercera genera la segunda.
+    const a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');await a.save(legacy);
+    await b.save({...legacy,extra:'b'});
+    const c=P.createSync(repo,db);await c.load('a');await c.save({...legacy,extra:'c'});
+    const copias=await db.conflicts('a');
+    assert(copias.length===2,'Control inválido: esperaba 2 copias, hay '+copias.length);
+    // Y una copia de OTRO usuario, que no se puede tocar.
+    const x=P.createSync(repo,db),y=P.createSync(repo,db);
+    await x.load('z');await y.load('z');await x.save(legacy);await y.save({...legacy,extra:'z'});
+    assert((await db.conflicts('z')).length===1,'Control inválido: falta la copia de z');
+    const r=await db.discardConflicts('a',[copias[0].id]);
+    assert(r.deleted===1 && r.kept===1 && r.missing.length===0,'Descarte selectivo incorrecto: '+JSON.stringify(r));
+    assert((await db.conflicts('a')).length===1,'No quedó exactamente una copia de a');
+    assert((await db.conflicts('z')).length===1,'Tocó la copia de otro usuario');
+    // Un id de otro dueño no borra nada.
+    const ajeno=(await db.conflicts('z'))[0].id;
+    const r2=await db.discardConflicts('a',[ajeno]);
+    assert(r2.deleted===0 && r2.missing.length===1,'Borró por id sin validar el dueño');
+    assert((await db.conflicts('z')).length===1,'Borró la copia de z desde la cuenta a');
+  });
+
+  await test('V50.1 — resolver con la copia LOCAL: desbloquea y vuelve a guardar',async()=>{
+    const db=cache(),repo=memoryRepo(empty),a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');await a.save(legacy);
+    const bloqueado=await b.save({...legacy,extra:'local'});
+    assert(bloqueado.code==='LOCAL_CONFLICT','Control inválido: no quedó bloqueado');
+    // Nueva carga: load() ve la copia y bloquea, como en cada arranque.
+    const sync=P.createSync(repo,db),loaded=await sync.load('a');
+    assert(loaded.conflict && loaded.localDrafts.length===1,'No ofreció la copia para elegir');
+    const elegida=loaded.localDrafts[0].draft;
+    const res=await sync.resolve('a',elegida,loaded.localDrafts.map(x=>x.id));
+    assert(res.ok && res.draftSaved && res.discarded.deleted===1,'Resolución incompleta: '+JSON.stringify(res));
+    assert((await db.conflicts('a')).length===0,'Quedaron copias sin descartar');
+    assert(P.equal((await db.get('a')).draft,elegida),'No conservó la copia elegida');
+    // Y lo que importa: se puede guardar otra vez, sin recargar.
+    const despues=await sync.save({...elegida,extra:'después de resolver'});
+    assert(despues.ok,'Sigue bloqueado tras resolver: '+JSON.stringify(despues));
+    // Y una carga nueva ya no reporta conflicto.
+    assert(!(await P.createSync(repo,db).load('a')).conflict,'load() sigue viendo conflicto');
+  });
+
+  await test('V50.1 — resolver con la copia REMOTA: descarta la local y no queda pendiente',async()=>{
+    const db=cache(),repo=memoryRepo(empty),a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');await a.save(legacy);
+    await b.save({...legacy,extra:'descartable'});
+    const sync=P.createSync(repo,db),loaded=await sync.load('a');
+    const res=await sync.resolve('a',loaded.data,loaded.localDrafts.map(x=>x.id));
+    assert(res.ok && res.discarded.deleted===1,'No descartó la copia local');
+    const fila=await db.get('a');
+    assert(P.equal(fila.draft,loaded.data),'No conservó la copia remota');
+    assert(fila.pending===false,'Marcó pendiente un borrador idéntico al remoto');
+    assert((await sync.save(loaded.data)).ok,'No se puede guardar tras elegir la remota');
+  });
+
+  await test('V50.1 — si falla el descarte, la copia elegida YA está guardada',async()=>{
+    const db=cache(),repo=memoryRepo(empty),a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');await a.save(legacy);
+    await b.save({...legacy,extra:'local'});
+    // Se rompe SÓLO el descarte: el orden escribir→borrar tiene que proteger.
+    const roto={...db,discardConflicts:async()=>{throw new Error('almacenamiento caído');}};
+    const sync=P.createSync(repo,roto),loaded=await sync.load('a');
+    const elegida=loaded.localDrafts[0].draft;
+    const res=await sync.resolve('a',elegida,loaded.localDrafts.map(x=>x.id));
+    assert(!res.ok && res.code==='DISCARD_FAILED' && res.stage==='discard','Código de fallo inesperado: '+JSON.stringify(res));
+    assert(res.draftSaved===true,'No informó que el borrador quedó a salvo');
+    assert(P.equal((await db.get('a')).draft,elegida),'Perdió la copia elegida al fallar el descarte');
+    assert((await db.conflicts('a')).length===1,'Borró copias pese a fallar el descarte');
+    // Reintento con el store sano: termina el trabajo sin pérdida.
+    const sano=P.createSync(repo,db),recargado=await sano.load('a');
+    const r2=await sano.resolve('a',elegida,recargado.localDrafts.map(x=>x.id));
+    assert(r2.ok && (await db.conflicts('a')).length===0,'El reintento no cerró la resolución');
+  });
+
+  await test('V50.1 — IndexedDB caído: no dice que guardó lo que no guardó',async()=>{
+    const sync=P.createSync(memoryRepo(empty),P.createCache(null));
+    await sync.load('a');
+    const res=await sync.resolve('a',legacy,['x']);
+    assert(!res.ok && res.stage==='draft','Debería fallar antes de descartar: '+JSON.stringify(res));
+    assert(!res.draftSaved,'Declaró un borrador guardado sin almacenamiento');
+  });
+
+  await test('V50.1 — resolver no toca otra cuenta ni borra sin elección',async()=>{
+    const db=cache(),repo=memoryRepo(empty),sync=P.createSync(repo,db);
+    const a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');await a.save(legacy);await b.save({...legacy,extra:'b'});
+    await sync.load('a');
+    // Resolver con el dueño equivocado no hace nada.
+    const ajeno=await sync.resolve('otro',legacy,[]);
+    assert(!ajeno.ok && ajeno.code==='ACCOUNT_CHANGED','Resolvió para otra cuenta');
+    assert((await db.conflicts('a')).length===1,'Descartó copias con dueño equivocado');
+    // Resolver sin ids guarda la elección y NO borra nada: el descarte es explícito.
+    const sinIds=await sync.resolve('a',legacy,[]);
+    assert(sinIds.ok && sinIds.discarded.deleted===0,'Borró sin que se lo pidieran');
+    assert((await db.conflicts('a')).length===1,'Descartó copias sin ids');
+  });
+
+  await test('V50.1 — tras resolver y sincronizar, el inicio V48 deja de rechazar',async()=>{
+    // Elegir una copia local que difiere del servidor deja el borrador PENDIENTE,
+    // y el inicio de un entrenamiento V48 exige no tener cambios sin sincronizar
+    // (v48-lifecycle.js:66). Sin sincronizar, iniciar daría UNSYNCED_CHANGES justo
+    // después de resolver; con un guardado, el camino queda libre. La pantalla de
+    // conflictos hace ese guardado sola (ver mountConflictos).
+    const db=cache();
+    let remoto=env(empty);
+    const repo={read:async()=>clone(remoto),
+      write:async(_u,d)=>{remoto=env(d);return {ok:true,envelope:clone(remoto)};}};
+    const a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');
+    await a.save({...empty,extra:'p1'});await b.save({...empty,extra:'p2'});
+    const sync=P.createSync(repo,db),loaded=await sync.load('a');
+    const elegida=loaded.localDrafts[0].draft;
+    await sync.resolve('a',elegida,loaded.localDrafts.map(x=>x.id));
+    assert((await db.get('a')).pending===true,'Control inválido: debería quedar pendiente');
+    assert((await sync.save(elegida)).ok,'No se pudo sincronizar la copia elegida');
+    assert((await db.get('a')).pending===false,'El guardado no limpió el pendiente');
+    // Y una recarga ya no reporta ni conflicto ni recuperación pendiente.
+    const final=await P.createSync(repo,db).load('a');
+    assert(!final.conflict && !final.pending,'Quedó estado pendiente tras sincronizar: '+JSON.stringify({c:final.conflict,p:final.pending}));
+  });
+
+  await test('V50.1 — si el remoto avanzó, el guardado posterior NO lo sobrescribe',async()=>{
+    /* El punto crítico: después de resolver, la pantalla sincroniza la copia
+       elegida con un persistRutina(). Si entre la resolución y ese guardado otro
+       dispositivo cambió la rutina, ese guardado NO puede pisarlo en silencio.
+       Y la copia elegida tiene que seguir recuperable para volver a decidir. */
+    const db=cache();
+    let remoto=env(empty);
+    let escrituras=0;
+    const repo={read:async()=>clone(remoto),write:async(_u,d,base)=>{
+      escrituras++;
+      // CAS: igual que el camino real (RPC con p_revision en V48, read+compare en V47).
+      if(base.revision!==remoto.revision || !P.equal(base.data,remoto.data)) return {ok:false,code:'REVISION_CONFLICT'};
+      remoto={data:clone(d),revision:(remoto.revision||0)+1,clienteV48:false,schemaReady:false};
+      return {ok:true,envelope:clone(remoto)};
+    }};
+    remoto={data:clone(empty),revision:3,clienteV48:false,schemaReady:false};
+    // Conflicto local entre dos contextos.
+    const a=P.createSync(repo,db),b=P.createSync(repo,db);
+    await a.load('a');await b.load('a');
+    await a.save({...empty,extra:'p1'});
+    await b.save({...empty,extra:'p2'});
+    assert((await db.conflicts('a')).length===1,'Control inválido: falta la copia en conflicto');
+
+    const sync=P.createSync(repo,db),cargado=await sync.load('a');
+    const elegida=clone(cargado.localDrafts[0].draft);
+    const res=await sync.resolve('a',elegida,cargado.localDrafts.map(x=>x.id));
+    assert(res.ok,'No resolvió');
+
+    // Otro dispositivo cambia la rutina DESPUÉS de resolver y ANTES de sincronizar.
+    remoto={data:{...clone(empty),extra:'otro dispositivo'},revision:remoto.revision+5,clienteV48:false,schemaReady:false};
+    const antes=escrituras;
+    const guardado=await sync.save(elegida);
+    assert(!guardado.ok && guardado.code==='REVISION_CONFLICT','Debería detectar el conflicto de revisión: '+JSON.stringify(guardado));
+    assert(remoto.data.extra==='otro dispositivo','PISÓ el cambio remoto posterior');
+    assert(escrituras===antes+1,'Reintentó la escritura a ciegas');
+    // Y la copia elegida sigue guardada y pendiente: nada se perdió.
+    const fila=await db.get('a');
+    assert(P.equal(fila.draft,elegida) && fila.pending===true,'Perdió la copia elegida al chocar la revisión');
+
+    // Una carga nueva la ofrece otra vez para decidir, en vez de dejarla muerta.
+    const recarga=await P.createSync(repo,db).load('a');
+    assert(recarga.conflict===true,'No volvió a ofrecer la decisión');
+    assert(P.equal(recarga.localDraft,elegida),'No conservó la copia elegida como recuperable');
+    assert(P.equal(recarga.data,remoto.data),'No mostró el estado remoto vigente');
+  });
+
+  await test('V50.1 — ciclo completo tras resolver: iniciar, registrar series y finalizar',async()=>{
+    /* Punto 2: que después de resolver el ciclo de entrenamiento V47 funcione de
+       punta a punta. Datos sintéticos y Store simulado: no se escribe en ninguna
+       base. Se usa el camino heredado porque el nativo exige las RPC reales. */
+    const keys=['addRegistro','addEntreno','listEntrenos','listRegistros','historyCompat','historyStatus'];
+    const old={};keys.forEach(k=>old[k]=A.Store[k]);
+    const escrituras={registros:[],entrenos:[]};
+    const prevState={profile:A.state.profile,authSession:A.state.authSession,persistence:A.state.persistence,
+      rutinaRaw:A.state.rutinaRaw,rutinaSlots:A.state.rutinaSlots,rutina:A.state.rutina,
+      session:A.state.session,registros:A.state.registros,entrenos:A.state.entrenos,tab:A.state.tab};
+    try {
+      A.Store.addRegistro=async(_p,d)=>{escrituras.registros.push(clone(d));return {ok:true,id:'reg-'+escrituras.registros.length};};
+      A.Store.addEntreno=async(_p,d)=>{escrituras.entrenos.push(clone(d));return {ok:true,id:'ent-1'};};
+      A.Store.listEntrenos=async()=>escrituras.entrenos.map((e,i)=>({...e,id:'ent-'+(i+1)}));
+      A.Store.listRegistros=async()=>[];
+      A.Store.historyCompat={mode:()=>({ok:true,mode:'v47'}),acknowledge:async()=>{}};
+      A.Store.historyStatus=()=>null;
+
+      const dia={id:'dd',nombre:'Día sintético',exercises:[{id:'ee',nombre:'Dominadas',series:'2',reps:'8'}]};
+      const conRutina={...clone(empty),personalizada:{days:[dia]}};
+      // Estado posterior a una resolución: la copia elegida ya es la rutina vigente.
+      A.state.profile={id:'p',name:'Prueba',metaSemanal:3};
+      A.state.authSession={user:{id:'p'}};
+      A.state.persistence={ok:true,data:clone(conRutina),revision:1,clienteV48:false,schemaReady:false};
+      A.state.rutinaRaw=clone(conRutina);
+      A.state.rutinaSlots={personalizada:{days:[dia]},automatica:{days:[]},enfocada:{days:[]}};
+      A.state.rutina=A.state.rutinaSlots.personalizada;A.state.activeSlot='personalizada';
+      A.state.session=null;A.state.unresolvedSession=null;A.state.registros=[];A.state.entrenos=[];
+
+      // 1. Iniciar
+      A.startSession(A.state.rutina.days[0]);
+      assert(A.state.session && A.state.session.dayId==='dd','No inició la sesión tras resolver');
+      assert(A.state.tab==='sesion','No navegó a la pantalla de entrenamiento');
+      assert(A.sessionProgress().total===2,'Plan de series incorrecto: '+JSON.stringify(A.sessionProgress()));
+
+      // 2. Registrar series (marcado + alta de registro por serie)
+      A.state.session.sets.ee[0]=true;
+      const res1=await A.Store.addRegistro('p',{exercise:'Dominadas',peso:10,date:'2026-10-25',series:'1',reps:'8',setNumber:1,createdAt:1});
+      assert(res1.ok,'No se pudo registrar la serie');
+      A.state.session.setLogs.ee[0]={registroId:res1.id,peso:10,reps:'8',nota:'',date:'2026-10-25'};
+      A.state.session.sets.ee[1]=true;
+      assert(A.sessionProgress().done===2,'No contó las series marcadas');
+
+      // 3. Finalizar
+      await A.finalizeSession(A.state.rutina.days[0]);
+      assert(escrituras.entrenos.length===1,'No registró el entrenamiento: '+escrituras.entrenos.length);
+      const ent=escrituras.entrenos[0];
+      assert(ent.setsCompletados===2 && ent.setsTotales===2,'Series mal contadas en entrenos: '+JSON.stringify(ent));
+      assert(ent.dayNombre==='Día sintético' && ent.routineOrigin==='personalizada','Origen o día incorrectos');
+      assert(A.state.session===null,'No cerró la sesión al finalizar');
+      assert(escrituras.registros.length===1,'Perdió el registro de la serie');
+    } finally {
+      keys.forEach(k=>A.Store[k]=old[k]);
+      Object.keys(prevState).forEach(k=>{A.state[k]=prevState[k];});
+    }
+  });
+
+  await test('V50.1 — formato de IndexedDB intacto: mismos stores y misma versión',async()=>{
+    // El arreglo no puede migrar nada: un borrador escrito por V48/V49 tiene que
+    // seguir leyéndose igual, y al revés.
+    const nombre='v48-test-'+crypto.randomUUID();
+    const db=P.createCache(frame.contentWindow.indexedDB,nombre);
+    await db.put({version:1,ownerId:'a',base:env(empty),draft:clone(legacy),pending:true,updatedAt:1},0);
+    const abierta=await new Promise((ok,err)=>{const q=frame.contentWindow.indexedDB.open(nombre);q.onsuccess=()=>ok(q.result);q.onerror=()=>err(q.error);});
+    assert(abierta.version===1,'Cambió la versión del store: '+abierta.version);
+    const stores=[...abierta.objectStoreNames].sort();
+    assert(P.equal(stores,['conflicts','drafts']),'Cambiaron los stores: '+stores.join(','));
+    const fila=await db.get('a');
+    assert(fila.version===1 && P.equal(fila.draft,legacy),'Cambió la forma de la fila');
+    abierta.close();
+  });
+
+  await test('V50.1 — regresión V47/V48: guardar y recuperar siguen igual sin conflicto',async()=>{
+    // Sin copias en conflicto, nada de V50.1 debe cambiar el camino normal.
+    const db=cache(),repo=memoryRepo(empty),sync=P.createSync(repo,db);
+    const inicial=await sync.load('a');
+    assert(!inicial.conflict && !inicial.localDrafts,'Reportó conflicto sin haberlo');
+    assert((await sync.save(legacy)).ok,'Rompió el guardado normal');
+    assert((await db.conflicts('a')).length===0,'Creó una copia en conflicto de la nada');
+    // Recuperación de un borrador pendiente: misma rama `recovered` de siempre.
+    const db2=cache();
+    await db2.put({version:1,ownerId:'a',base:env(empty),draft:clone(legacy),pending:true,updatedAt:1},0);
+    const rec=await P.createSync(memoryRepo(empty),db2).load('a');
+    assert(rec.recovered && rec.pending && P.equal(rec.data,legacy),'Rompió la recuperación del borrador');
+    assert(!rec.conflict,'Confundió recuperación con conflicto');
+    // Y una sesión V48 nativa sigue reconociéndose en el borrador recuperado.
+    const nativa=P.createSessionDraft(day,{slot:'personalizada',startedAt:123,timezone:'America/Montevideo'});
+    const db3=cache();
+    await db3.put({version:1,ownerId:'a',base:env(empty),draft:{...clone(empty),sesionActiva:nativa},pending:true,updatedAt:1},0);
+    const rec3=await P.createSync(memoryRepo(empty),db3).load('a');
+    assert(A.persistence.equal(rec3.data.sesionActiva,nativa),'Alteró una sesión V48 al recuperar');
+  });
+
   window.__v48Results={total:results.length,pass:results.filter(x=>x.ok).length,fail:results.filter(x=>!x.ok).length,failures:results.filter(x=>!x.ok)};
 })();
 </script>
