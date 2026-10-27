@@ -4103,7 +4103,13 @@
     // Token capturado para el propietario; un cambio de cuenta no redirige la RPC.
     async function nativeRpc(owner,name,args){
       if(!VodaFitPersistence.capabilities.metadata || !VodaFitPersistence.capabilities.rpc) throw new Error("V48_NOT_READY");
-      if(!["v48_iniciar","v48_estado","v48_finalizar","v48_cancelar","v48_eliminar","v48_registro_guardar","v48_registro_eliminar","v48_marcar_dia","v48_historico_eliminar"].includes(name)) throw new Error("RPC_NOT_ENABLED");
+      // V50.5: se suma v48_activar a la allowlist. Es la RPC que YA existe en el
+      // paquete (supabase/v48/02_rpc.sql:137) y que 04_activar_acceso.sql concede
+      // a `authenticated`; no se inventa un mecanismo nuevo ni se toca el esquema.
+      // Activa la cuenta de QUIEN LA LLAMA —deriva el usuario de auth.uid()—, así
+      // que tiene que salir por acá, con la sesión autenticada del propio usuario:
+      // es el único camino que no obliga a manipular tokens a mano.
+      if(!["v48_iniciar","v48_estado","v48_finalizar","v48_cancelar","v48_eliminar","v48_registro_guardar","v48_registro_eliminar","v48_marcar_dia","v48_historico_eliminar","v48_activar"].includes(name)) throw new Error("RPC_NOT_ENABLED");
       const {data,error}=await client().auth.getSession();
       if(error || !data.session || data.session.user.id!==owner) throw new Error("ACCOUNT_CHANGED");
       const response=await fetch(SUPABASE_URL+"/rest/v1/rpc/"+name,{method:"POST",
@@ -10816,6 +10822,193 @@
     `;
   }
 
+  /* ================= V50.5: ACTIVACIÓN DE LAS FUNCIONES V48 =================
+     `v48_activar` activa la cuenta de QUIEN LA LLAMA: deriva el usuario de
+     auth.uid() (supabase/v48/02_rpc.sql:8-14 y :137-148). No se puede correr
+     desde el SQL Editor —ahí no hay auth.uid()— y no acepta un parámetro con la
+     cuenta a activar. Por eso tiene que salir desde la sesión del propio
+     usuario, y por eso vive acá en vez de en un procedimiento de operación.
+
+     Usa la infraestructura que ya existe: `Store.nativeRpc`, que resuelve la
+     sesión, verifica que el token sea del dueño y hace el POST. No se crea un
+     cliente de Supabase paralelo, no se expone ningún token y no se agrega
+     ninguna RPC ni se toca el esquema.
+
+     La RPC sólo hace `UPDATE rutinas SET cliente_v48=true`: no mueve rutinas,
+     registros ni historial. Y es idempotente — si ya está activada devuelve el
+     sobre sin cambiar nada. */
+
+  // Estado de la activación. Función de LECTURA sobre `state`, sin efectos, para
+  // poder probar cada precondición por separado.
+  function activacionV48Estado(){
+    const p = state.persistence;
+    const caps = VodaFitPersistence.capabilities;
+    if(!p || !p.schemaReady || !caps.metadata || !caps.rpc) return { visible:false, motivo:"esquema" };
+    if(p.clienteV48) return { visible:false, motivo:"ya-activada" };
+
+    const bloqueos = [];
+    // 1. Cliente actualizado. El coordinador de V49 sabe si hay una versión nueva
+    // descargada esperando aplicarse; activar con el cliente viejo lo dejaría sin
+    // camino de escritura (el trigger rechaza el DML V47 y ese cliente no usa RPC).
+    let pendienteApp = null;
+    try { pendienteApp = (typeof updates!=="undefined" && updates.status) ? updates.status().pending : null; }
+    catch(e){ pendienteApp = null; }
+    if(pendienteApp) bloqueos.push({ clave:"actualizacion",
+      titulo:"Hay una versión nueva de la app sin aplicar",
+      queHacer:"Cerrá VodaFit y volvé a abrirla para que se actualice. Después volvé acá." });
+
+    // 2. Sesión heredada. La RPC también lo rechaza (LEGACY_SESSION_MUST_BE_FINISHED),
+    // pero avisarlo antes evita que el usuario llegue a un error.
+    if(state.session || state.unresolvedSession || (state.rutinaRaw && state.rutinaRaw.sesionActiva))
+      bloqueos.push({ clave:"sesion",
+        titulo:"Tenés un entrenamiento sin terminar",
+        queHacer:"Finalizalo o cancelalo desde Mi rutina y volvé acá. No se pierde nada de lo que cargaste." });
+
+    // 3. Borrador pendiente. Esta es la ÚNICA precondición que la base no verifica:
+    // son cambios que todavía no llegaron a `rutinas`.
+    if(p.pending) bloqueos.push({ clave:"pendiente",
+      titulo:"Hay cambios de tu rutina sin sincronizar",
+      queHacer:"Conectate a internet y esperá a que se guarden. Si no se sincronizan, avisá antes de activar." });
+
+    // 4. Conflictos sin resolver.
+    if(p.conflict) bloqueos.push({ clave:"conflicto",
+      titulo:"Hay copias en conflicto de tu rutina",
+      queHacer:'Resolvelas primero en "Copias en conflicto", acá arriba.' });
+
+    // 5. Revisión legible: es el CAS que protege la activación.
+    if(!Number.isSafeInteger(p.revision) || p.revision < 0)
+      bloqueos.push({ clave:"revision",
+        titulo:"No se pudo leer la versión de tu rutina",
+        queHacer:"Recargá la app con conexión y volvé a intentar." });
+
+    return { visible:true, revision:p.revision, bloqueos, listo:bloqueos.length===0 };
+  }
+
+  // Mensajes de error en castellano, a partir de lo que devuelve la RPC.
+  function activacionV48Error(res){
+    const e = (res && res.error) || {};
+    const codigo = e.code || res?.code || "";
+    const msg = String(e.message || "");
+    if(codigo==="40001" || /REVISION_CONFLICT/.test(msg))
+      return "Tu rutina cambió mientras confirmabas. Volvimos a leerla: probá de nuevo.";
+    if(codigo==="55000" || /LEGACY_SESSION_MUST_BE_FINISHED/.test(msg))
+      return "Tenés un entrenamiento sin terminar. Finalizalo desde Mi rutina y volvé a intentar.";
+    if(codigo==="42501" || /AUTH_REQUIRED/.test(msg))
+      return "Tu sesión expiró. Volvé a iniciar sesión y probá otra vez.";
+    if(/INVALID_ROUTINE_STATE/.test(msg))
+      return "Tu rutina tiene un formato que no se puede activar. No se cambió nada; avisá para revisarlo.";
+    if(codigo==="NETWORK_ERROR" || /failed to fetch|networkerror/i.test(msg))
+      return "Sin conexión. No se activó nada: probá de nuevo con internet.";
+    if(codigo==="RPC_NOT_ENABLED" || codigo==="V48_NOT_READY")
+      return "Esta versión de la app no puede activar las funciones nuevas.";
+    if(res && res.status===404)
+      return "La activación todavía no está habilitada en el servidor. No se cambió nada.";
+    return "No se pudo activar (" + (codigo || msg || "error desconocido") + "). No se cambió nada.";
+  }
+
+  let activacionEnCurso = false;
+
+  async function activarV48(){
+    const owner = state.profile && state.profile.id, generation = authLoadGeneration;
+    if(!owner || activacionEnCurso) return { ok:false, code:"EN_CURSO" };   // (9) sin duplicados
+    const previo = activacionV48Estado();
+    if(!previo.visible || !previo.listo) return { ok:false, code:"NO_APLICABLE" };
+
+    const ok = await confirmDialog("Activar las funciones nuevas",
+      "Se van a habilitar la duración del entrenamiento, el detalle de series por sesión y el guardado más seguro. " +
+      "Tus rutinas, registros e historial quedan como están. Es un cambio que no se deshace desde la app.",
+      "Activar");
+    if(!ok || state.profile?.id!==owner || generation!==authLoadGeneration) return { ok:false, code:"CANCELADO" };
+
+    // Revalidar DESPUÉS del diálogo: en el medio pudo arrancar un entrenamiento
+    // en otra pestaña, o llegar una actualización.
+    const ahora = activacionV48Estado();
+    if(!ahora.visible || !ahora.listo){
+      render();
+      showToast("Cambió algo mientras confirmabas. Revisá los avisos y volvé a intentar.");
+      return { ok:false, code:"PRECONDICION" };
+    }
+
+    activacionEnCurso = true;
+    render();   // deja el botón en "Activando…"
+    try {
+      let res;
+      try { res = await Store.nativeRpc(owner, "v48_activar", { p_revision: ahora.revision }); }
+      catch(error){ res = { error:{ code:/AUTH|ACCOUNT/.test(String(error.message))?"42501":"NETWORK_ERROR", message:String(error.message) } }; }
+      if(state.profile?.id!==owner || generation!==authLoadGeneration) return { ok:false, code:"ACCOUNT_CHANGED" };
+
+      if(!res || res.error){
+        // Una revisión vieja se corrige releyendo: el usuario reintenta sin pensar.
+        const esCas = (res && res.error && (res.error.code==="40001" || /REVISION_CONFLICT/.test(String(res.error.message))));
+        if(esCas){ try { await loadProfileData(); } catch(e){} }
+        if(state.profile?.id!==owner || generation!==authLoadGeneration) return { ok:false, code:"ACCOUNT_CHANGED" };
+        render();
+        showToast(activacionV48Error(res));
+        return { ok:false, code:(res && res.error && res.error.code) || "ERROR" };
+      }
+
+      const sobre = res.data;
+      if(!sobre || sobre.clienteV48 !== true){
+        render();
+        showToast("El servidor no confirmó la activación. No se cambió nada: probá de nuevo.");
+        return { ok:false, code:"NO_CONFIRMADA" };
+      }
+
+      // (7) Estado de la app al día, y verificación contra el servidor.
+      try { await loadProfileData(); }
+      catch(error){
+        showToast("Cuenta activada. Falta actualizar esta pantalla: recargá la app.");
+        return { ok:true, code:"ACTIVADA_SIN_RECARGA" };
+      }
+      if(state.profile?.id!==owner || generation!==authLoadGeneration) return { ok:true, code:"ACTIVADA" };
+
+      // v48_estado es de sólo lectura y no exige cuenta activada: sirve para que
+      // el SERVIDOR confirme el acceso V48, sin crear ni modificar nada.
+      let acceso = null;
+      try {
+        const chequeo = await Store.nativeRpc(owner, "v48_estado", {});
+        acceso = !!(chequeo && chequeo.data && chequeo.data.clienteV48 === true);
+      } catch(error){ acceso = null; }
+
+      state.tab = "perfil";
+      render();
+      showToast(acceso === false
+        ? "Activación guardada, pero el servidor todavía no la refleja. Recargá la app."
+        : "¡Listo! Ya tenés las funciones nuevas.");
+      return { ok:true, code:"ACTIVADA", accesoV48:acceso, revision:sobre.revision };
+    } finally {
+      activacionEnCurso = false;
+    }
+  }
+
+  function perfilActivacionHtml(){
+    const est = activacionV48Estado();
+    if(!est.visible) return "";                 // (1) sólo con cliente_v48 = false
+    const listo = est.listo;
+    return `
+      <div class="section-title"><h2>Funciones nuevas</h2></div>
+      <div class="card stack">
+        <div class="helptext" style="color:var(--text)">Podés habilitar la <b>duración de cada entrenamiento</b>,
+        el <b>detalle de series</b> en el historial y un guardado más seguro. Tus rutinas, registros e historial
+        no se modifican.</div>
+        ${listo ? "" : `
+          <div class="banner">${icon("info")}<div><b>Antes de activar hay que resolver esto:</b></div></div>
+          <div class="loglist">
+            ${est.bloqueos.map(b=>`
+              <div class="logrow"><div>
+                <div class="lex">${esc(b.titulo)}</div>
+                <div class="ldate">${esc(b.queHacer)}</div>
+              </div></div>`).join("")}
+          </div>`}
+        <button class="btn ${listo?"btn-primary":"btn-outline"} btn-block" id="btn-perfil-activar"
+          ${listo && !activacionEnCurso ? "" : "disabled"}>
+          ${activacionEnCurso ? "Activando…" : (listo ? "Activar funciones nuevas" : "Activación no disponible todavía")}
+        </button>
+        ${listo ? `<p class="helptext">Se te va a pedir confirmación. No se puede deshacer desde la app.</p>` : ""}
+      </div>
+    `;
+  }
+
   function perfilConfigHtml(){
     return `
       <div class="section-title" style="margin-top:6px"><h2>Configuración</h2></div>
@@ -10869,6 +11062,7 @@
   function screenPerfil(){
     return `
       ${perfilConflictoHtml()}
+      ${perfilActivacionHtml()}
       ${perfilCuentaHtml()}
       ${perfilResumenHtml()}
 
@@ -10912,6 +11106,10 @@
     // V46: Estiramientos. Misma mecánica que el Mapa muscular, incluido el
     // guardado del scroll para volver al mismo lugar de Perfil.
     // V50.1: entrada manual a la pantalla de conflictos.
+    // V50.5: activación de las funciones V48 desde Perfil.
+    const irAct = el.querySelector("#btn-perfil-activar");
+    if(irAct && !irAct.disabled) irAct.onclick = ()=> activarV48();
+
     const irConf = el.querySelector("#btn-perfil-conflictos");
     if(irConf) irConf.onclick = ()=>{ state.tab = "conflictos"; render(); };
 
@@ -11036,7 +11234,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "76725afd00b17c0c9f113ec0566f2170f73ac01118b6e00be75ee23c497a2ef0";
+  const APP_BUILD = "bb5762af684226b6adaef18db6ece918c67b589eefcf4c48e97d97c40e1fbf80";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -11290,6 +11488,8 @@
     // V50.1: salida del conflicto local (E1).
     resumenDeCopia, copiasEnConflicto, copiaFechaTexto, copiaResumenHtml,
     screenConflictos, renderConflictos, mountConflictos, perfilConflictoHtml, rutinaSync,
+    // V50.5: activación de las funciones V48.
+    activacionV48Estado, activacionV48Error, activarV48, perfilActivacionHtml,
     perfilEntrenamientoHtml, perfilConfigHtml, primerDatoFecha, ejerciciosDistintosCount,
     entrenosPorOrigen, rachaCardHtml, mountWeekNav, weekScopeKeys, WEEK_SCOPE_KEYS, PERFIL_ORIGIN_ORDER, setTab,
     currentWorkoutElapsed, fmtElapsed, workoutClockHtml, persistWorkoutClock,

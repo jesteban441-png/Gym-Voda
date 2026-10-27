@@ -453,6 +453,255 @@
     assert(A.persistence.equal(rec3.data.sesionActiva,nativa),'Alteró una sesión V48 al recuperar');
   });
 
+  /* ===================== V50.5 — activación de las funciones V48 =====================
+     `v48_activar` activa la cuenta de quien la llama (auth.uid()), así que sale
+     desde la sesión del propio usuario a través de Store.nativeRpc. Estas pruebas
+     SUSTITUYEN nativeRpc: en ningún caso se llama a producción. */
+
+  // Monta un estado de Perfil y lo restaura al salir. `rpc` reemplaza nativeRpc.
+  async function conActivacion(parches, rpc, fn){
+    const dia={id:'dz',nombre:'Día',exercises:[{id:'ez',nombre:'Dominadas',series:'2',reps:'8'}]};
+    const base={personalizada:{days:[dia]},automatica:{days:[]},enfocada:{days:[]},activeSlot:'personalizada',sesionActiva:null};
+    const prev={}; const claves=['profile','authSession','persistence','rutinaRaw','rutinaSlots','rutina','activeSlot','session','unresolvedSession','registros','entrenos','pesoCorporal','tab','booted','dbError'];
+    claves.forEach(k=>prev[k]=A.state[k]);
+    const llamadas=[];
+    // Store.nativeRpc se sustituye: en ninguna prueba se llama a producción.
+    // Y además se sustituyen las LECTURAS que usa loadProfileData, para que la
+    // recarga posterior a la activación pueda completarse sin red — es parte de
+    // lo que hay que verificar (requisito 7), no un atajo.
+    const metodos=['nativeRpc','readRutina','listRegistros','listEntrenos','listPesoCorporal'];
+    const storePrev={}; metodos.forEach(k=>storePrev[k]=A.Store[k]);
+    A.Store.nativeRpc=async(owner,name,args)=>{llamadas.push({owner,name,args:clone(args)});return rpc(owner,name,args,llamadas);};
+    let activadaEnServidor=false;
+    A.Store.readRutina=async()=>({data:clone(base),revision:activadaEnServidor?6:5,
+      clienteV48:activadaEnServidor,schemaReady:true});
+    A.Store.listRegistros=async()=>[];
+    A.Store.listEntrenos=async()=>[];
+    A.Store.listPesoCorporal=async()=>[];
+    A.state.booted=true;A.state.dbError=false;
+    A.state.authSession={user:{id:'p'}};
+    A.state.profile={id:'p',name:'Prueba',metaSemanal:3};
+    A.state.rutinaRaw=clone(base);
+    A.state.rutinaSlots={personalizada:{days:[dia]},automatica:{days:[]},enfocada:{days:[]}};
+    A.state.rutina=A.state.rutinaSlots.personalizada;A.state.activeSlot='personalizada';
+    A.state.session=null;A.state.unresolvedSession=null;
+    A.state.registros=[];A.state.entrenos=[];A.state.pesoCorporal=[];A.state.tab='perfil';
+    A.state.persistence={ok:true,data:clone(base),revision:5,clienteV48:false,schemaReady:true};
+    Object.keys(parches||{}).forEach(k=>{
+      if(k==='persistence') Object.assign(A.state.persistence,parches[k]); else A.state[k]=parches[k];
+    });
+    try { return await fn(llamadas, { activar(){ activadaEnServidor=true; } }); }
+    finally { metodos.forEach(k=>A.Store[k]=storePrev[k]); claves.forEach(k=>A.state[k]=prev[k]); }
+  }
+  const sinRpc=async()=>{throw new Error('La prueba no debería llamar a ninguna RPC');};
+  // confirmDialog monta el modal en el documento del IFRAME (openModal usa el
+  // document.body de la app), no en el del harness. Hay que buscar el botón ahí.
+  function responder(accion){
+    const doc=frame.contentWindow.document;
+    const reloj=setInterval(()=>{
+      const b=doc.querySelector('.modal [data-act="'+accion+'"]');
+      if(b){clearInterval(reloj);b.click();}
+    },10);
+    setTimeout(()=>clearInterval(reloj),3000);
+  }
+
+  await test('V50.5 — la opción sólo aparece con cliente_v48 = false y esquema listo',async()=>{
+    await conActivacion({},sinRpc,async()=>{
+      const e=A.activacionV48Estado();
+      assert(e.visible===true && e.listo===true,'Debería ofrecerse: '+JSON.stringify(e));
+      assert(A.perfilActivacionHtml().indexOf('btn-perfil-activar')!==-1,'Falta el botón');
+    });
+    // Ya activada: no se ofrece.
+    await conActivacion({persistence:{clienteV48:true}},sinRpc,async()=>{
+      const e=A.activacionV48Estado();
+      assert(e.visible===false && e.motivo==='ya-activada','No debería ofrecerse: '+JSON.stringify(e));
+      assert(A.perfilActivacionHtml()==='','Dibujó el bloque en una cuenta ya activada');
+    });
+    // Esquema sin desplegar: tampoco.
+    await conActivacion({persistence:{schemaReady:false}},sinRpc,async()=>{
+      const e=A.activacionV48Estado();
+      assert(e.visible===false && e.motivo==='esquema','No debería ofrecerse sin esquema: '+JSON.stringify(e));
+    });
+  });
+
+  await test('V50.5 — cada precondición fallida bloquea y explica qué hacer',async()=>{
+    const casos=[
+      ['sesion', {session:{dayId:'dz',slot:'personalizada',sets:{ez:[false,false]},setLogs:{ez:[null,null]}}}],
+      ['sesion', {rutinaRaw:{personalizada:{days:[]},automatica:{days:[]},enfocada:{days:[]},sesionActiva:{dayId:'x'}}}],
+      ['pendiente', {persistence:{pending:true}}],
+      ['conflicto', {persistence:{conflict:true}}],
+      ['revision', {persistence:{revision:null}}],
+    ];
+    for(const [clave,parche] of casos){
+      await conActivacion(parche,sinRpc,async()=>{
+        const e=A.activacionV48Estado();
+        assert(e.visible===true,'Debería seguir visible con '+clave);
+        assert(e.listo===false,'No debería estar listo con '+clave+': '+JSON.stringify(e.bloqueos));
+        const b=e.bloqueos.find(x=>x.clave===clave);
+        assert(b,'Falta el bloqueo '+clave+', hay: '+e.bloqueos.map(x=>x.clave).join(','));
+        assert(b.titulo && b.queHacer && b.queHacer.length>20,'El bloqueo '+clave+' no explica qué hacer');
+        const html=A.perfilActivacionHtml();
+        assert(html.indexOf('disabled')!==-1,'El botón debería estar deshabilitado con '+clave);
+        assert(html.indexOf(b.titulo)!==-1,'El bloqueo '+clave+' no se muestra en pantalla');
+      });
+    }
+  });
+
+  await test('V50.5 — con una precondición fallida NO se llama a la RPC',async()=>{
+    await conActivacion({persistence:{conflict:true}},sinRpc,async(llamadas)=>{
+      const r=await A.activarV48();
+      assert(!r.ok && r.code==='NO_APLICABLE','Debería negarse antes de llamar: '+JSON.stringify(r));
+      assert(llamadas.length===0,'Llamó a la RPC con precondiciones sin cumplir');
+    });
+  });
+
+  let servidor=null;
+  await test('V50.5 — activación correcta: revisión vigente, recarga y confirmación del servidor',async()=>{
+    const rutinaAntes=[];
+    await conActivacion({}, async(owner,name,args,_ll)=>{
+      if(name==='v48_activar'){
+        assert(owner==='p','Dueño incorrecto en la RPC');
+        assert(args.p_revision===5,'No mandó la revisión vigente: '+JSON.stringify(args));
+        servidor.activar();     // a partir de acá readRutina devuelve clienteV48:true
+        return {data:{revision:6,clienteV48:true,data:clone(A.state.persistence.data),terminal:null},status:200};
+      }
+      if(name==='v48_estado') return {data:{revision:6,clienteV48:true,data:{},terminal:null},status:200};
+      throw new Error('RPC inesperada: '+name);
+    }, async(llamadas,srv)=>{
+      servidor=srv;
+      rutinaAntes.push(clone(A.state.rutinaSlots.personalizada));
+      responder('ok');
+      const r=await A.activarV48();
+      assert(r.ok && r.code==='ACTIVADA','No activó: '+JSON.stringify(r));
+      assert(r.accesoV48===true,'No verificó el acceso V48 contra el servidor');
+      assert(r.revision===6,'No devolvió la revisión nueva: '+r.revision);
+      const usadas=llamadas.map(x=>x.name);
+      assert(usadas[0]==='v48_activar','La primera llamada debería ser v48_activar');
+      assert(usadas.includes('v48_estado'),'Falta la verificación de sólo lectura con v48_estado');
+      assert(usadas.filter(x=>x==='v48_activar').length===1,'Llamó más de una vez a v48_activar');
+      // (7) estado de la app al día tras la recarga
+      assert(A.state.persistence.clienteV48===true,'El estado de la app quedó sin actualizar');
+      assert(A.state.tab==='perfil','No volvió a Perfil');
+      // (1) la opción ya no se ofrece
+      assert(A.activacionV48Estado().motivo==='ya-activada','Sigue ofreciendo activar');
+      assert(A.perfilActivacionHtml()==='','Sigue dibujando el bloque de activación');
+      // (8) rutinas e historial intactos
+      assert(P.equal(A.state.rutinaSlots.personalizada,rutinaAntes[0]),'Cambió la rutina al activar');
+      assert(A.state.rutinaSlots.personalizada.days.length===1,'Perdió el día de la rutina');
+    });
+  });
+
+  await test('V50.5 — cancelar la confirmación no activa nada',async()=>{
+    await conActivacion({}, sinRpc, async(llamadas)=>{
+      responder('cancel');
+      const r=await A.activarV48();
+      assert(!r.ok && r.code==='CANCELADO','Debería cancelar: '+JSON.stringify(r));
+      assert(llamadas.length===0,'Llamó a la RPC tras cancelar');
+    });
+  });
+
+  await test('V50.5 — conflicto de revisión: mensaje claro y sin activar',async()=>{
+    await conActivacion({}, async(owner,name)=>{
+      if(name==='v48_activar') return {error:{code:'40001',message:'REVISION_CONFLICT'},status:409};
+      throw new Error('RPC inesperada: '+name);
+    }, async(llamadas)=>{
+      responder('ok');
+      const r=await A.activarV48();
+      assert(!r.ok && r.code==='40001','Debería informar el CAS: '+JSON.stringify(r));
+      assert(llamadas.filter(x=>x.name==='v48_activar').length===1,'Reintentó solo la activación');
+      const msg=A.activacionV48Error({error:{code:'40001',message:'REVISION_CONFLICT'}});
+      assert(/cambió mientras confirmabas/.test(msg),'Mensaje poco claro: '+msg);
+    });
+  });
+
+  await test('V50.5 — errores del servidor se traducen a castellano comprensible',async()=>{
+    const esperados=[
+      [{error:{code:'55000',message:'LEGACY_SESSION_MUST_BE_FINISHED'}}, /entrenamiento sin terminar/],
+      [{error:{code:'42501',message:'AUTH_REQUIRED'}}, /sesión expiró/],
+      [{error:{message:'INVALID_ROUTINE_STATE'}}, /no se puede activar/],
+      [{error:{code:'NETWORK_ERROR',message:'Failed to fetch'}}, /Sin conexión/],
+      [{error:{},status:404}, /no está habilitada en el servidor/],
+    ];
+    esperados.forEach(([res,re])=>{
+      const m=A.activacionV48Error(res);
+      assert(re.test(m),'Mensaje inesperado para '+JSON.stringify(res)+': '+m);
+      assert(!/undefined|null|\[object/.test(m),'Mensaje con basura: '+m);
+    });
+  });
+
+  await test('V50.5 — sin duplicados: una segunda llamada en curso no hace nada',async()=>{
+    let resolver; const espera=new Promise(r=>resolver=r);
+    await conActivacion({}, async(owner,name)=>{
+      if(name==='v48_activar'){ await espera; return {data:{revision:6,clienteV48:true,data:{},terminal:null},status:200}; }
+      return {data:{revision:6,clienteV48:true,data:{},terminal:null},status:200};
+    }, async(llamadas)=>{
+      responder('ok');
+      const primera=A.activarV48();
+      await new Promise(r=>setTimeout(r,80));
+      const segunda=await A.activarV48();
+      assert(!segunda.ok && segunda.code==='EN_CURSO','La segunda debería rechazarse: '+JSON.stringify(segunda));
+      resolver();
+      await primera;
+      assert(llamadas.filter(x=>x.name==='v48_activar').length===1,'Activó dos veces');
+    });
+  });
+
+  await test('V50.5 — el servidor no confirma: no se declara activada',async()=>{
+    await conActivacion({}, async(owner,name)=>{
+      if(name==='v48_activar') return {data:{revision:6,clienteV48:false,data:{},terminal:null},status:200};
+      throw new Error('RPC inesperada: '+name);
+    }, async()=>{
+      responder('ok');
+      const r=await A.activarV48();
+      assert(!r.ok && r.code==='NO_CONFIRMADA','No debería darse por activada: '+JSON.stringify(r));
+    });
+  });
+
+  await test('V50.5 — no se crea cliente de Supabase paralelo ni se exponen tokens',async()=>{
+    // El único camino es Store.nativeRpc, que ya resuelve la sesión y verifica el
+    // dueño. Si el código hubiera armado su propio cliente o leído el token, esta
+    // prueba no vería la llamada.
+    await conActivacion({}, async(owner,name,args)=>{
+      if(name==='v48_activar'){
+        assert(Object.keys(args).length===1 && 'p_revision' in args,'Mandó argumentos de más: '+JSON.stringify(args));
+        return {data:{revision:6,clienteV48:true,data:{},terminal:null},status:200};
+      }
+      return {data:{revision:6,clienteV48:true,data:{},terminal:null},status:200};
+    }, async(llamadas)=>{
+      responder('ok');
+      await A.activarV48();
+      assert(llamadas.length>=1,'No pasó por Store.nativeRpc');
+      const texto=A.activarV48.toString()+A.activacionV48Estado.toString()+A.perfilActivacionHtml.toString();
+      assert(!/createClient/.test(texto),'Crea un cliente de Supabase propio');
+      assert(!/access_token|getSession/.test(texto),'Manipula tokens de autenticación');
+      assert(!/SUPABASE_KEY|apikey/.test(texto),'Usa la clave directamente');
+    });
+  });
+
+  await test('V50.5 — v48_activar pasa la allowlist y NO llega a la red sin sesión',async()=>{
+    /* Se prueba por COMPORTAMIENTO, no leyendo el fuente: V49 envuelve
+       Store.nativeRpc con updates.track() para saber cuándo la app está ocupada,
+       así que `toString()` devuelve el envoltorio y no la allowlist. Efecto
+       secundario bueno: v48_activar queda protegida contra una actualización a
+       mitad de la operación, igual que el resto de las RPC.
+
+       En este entorno el cliente de Supabase es un stub sin sesión, y nativeRpc
+       valida la allowlist ANTES de resolver la sesión. Entonces:
+         - un nombre no habilitado  -> RPC_NOT_ENABLED (ni siquiera mira la sesión)
+         - v48_activar              -> ACCOUNT_CHANGED (pasó la allowlist y se
+                                       detuvo en la sesión, sin ningún fetch)
+       Ninguno de los dos toca la red. */
+    let err1=null;
+    try { await A.Store.nativeRpc('p','v48_inventada',{}); } catch(e){ err1=e.message; }
+    assert(err1==='RPC_NOT_ENABLED','Un nombre no habilitado debería cortarse: '+err1);
+    let err2=null;
+    try { await A.Store.nativeRpc('p','v48_activar',{p_revision:1}); } catch(e){ err2=e.message; }
+    assert(err2==='ACCOUNT_CHANGED','v48_activar debería pasar la allowlist y parar en la sesión: '+err2);
+    let err3=null;
+    try { await A.Store.nativeRpc('p','v48_estado',{}); } catch(e){ err3=e.message; }
+    assert(err3==='ACCOUNT_CHANGED','v48_estado debería seguir habilitada: '+err3);
+  });
+
   window.__v48Results={total:results.length,pass:results.filter(x=>x.ok).length,fail:results.filter(x=>!x.ok).length,failures:results.filter(x=>!x.ok)};
 })();
 </script>
