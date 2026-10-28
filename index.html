@@ -765,7 +765,7 @@
 <script src="./vendor/supabase-js-2.118.0/supabase.js?h=bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp sha384-tmpgmcXGo7hB00jjx4npEYkP3lFx3y6Y/P5NH8FMxDPP4EAYAoDgFSHUyCVIftZC" crossorigin="anonymous"></script>
 <script src="./vendor/jspdf-2.5.1/jspdf.umd.min.js?h=98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk sha384-yHOtnsGdlMTUp9Ms8VHzgbg6kxjCkt9HlQw72Z3A21SnFoZBmDAFwpCP/SNcfWvz" crossorigin="anonymous"></script>
 <script src="./v48-persistence.js?v=49.1&h=ef2f59d8e98a29a83a99738fcf6799b0ce38cef50ff30d29f81251785b0600c9" integrity="sha384-hAsnoxK+xmZJ8TOSdJM9YQDBAjeE0+KbTQvG+Omvn9ZEaWiVeZnBjG18kZ/+dWcJ sha384-vHYPLmrmdG1N21nhvOeLfVy8mRQv5+E5NANKe6I9/PmOqki6y9pLQWAac7knZQTH" crossorigin="anonymous"></script>
-<script src="./v48-session.js?v=49.1&h=b159f8e75af9f2b134c26e00f69fd7982115079388184f25601d39f6cb7a561b" integrity="sha384-z8cPbqdPZWAZlxvsF+QSqLMr60kqcZP7aNyCprmTUTtGEyT0bqQCWab513wDchru sha384-OhweP7K4vLPahoV8Vs5J8IlcKPAmY8/BLcc34sJLuwgAHNd6tTqIVRD0nhdhZZf8" crossorigin="anonymous"></script>
+<script src="./v48-session.js?v=49.1&h=c0cb63a9013a2226e5ffc8438904d56b1bee5e25a4e6e0d6068225a8784f4449" integrity="sha384-kYUzQ1Y5eGSzhSa0lsy1G2OmmpwTObIIATaWsZD/v2t6GrpsG+wg/Eb+8KJfxDAA sha384-J9/l1N85JdbQej8i0OUdp7JRADIF4GEXaCviR/Awt5qIoD6G4LNprPJEKAcpPK1y" crossorigin="anonymous"></script>
 <script src="./v48-lifecycle.js?v=49.1&h=06eaaa5a989b3dbff6caea74f45452fa410ce78b02870ee834dad1b93df44732" integrity="sha384-G13PU3YMZjI9RB0XLqOuKm540s3pM9Ct+e5JazC7mNPfVYquH04Y0JOBZrj+mdxK sha384-tm9/oeOalAYGt3XmgwzN+L9j/s+UzO6FQ0WsFO3fCrQxrLmlzes4gzsqQQbhfHlY" crossorigin="anonymous"></script>
 <script src="./v48-reconcile.js?v=49.1&h=f1c7f62880851713f9ad8ca47ed4a3fe1ecc1f82153b42aa7365c4f2b6a55c82" integrity="sha384-VtceFs/X2r2e1oGzv2YkFTvJUA4UI/Nc9doDyXqz0YcTbODsKLQOUIwLe/a1kNy8 sha384-OOar9SdHQiRERtoL+W+l0X8OND/KlwyPMVmURlP5qTSF8ICmqX9VIeQIzwZB10HC" crossorigin="anonymous"></script>
 <script src="./v48-history.js?v=49.1&h=fc5551dd5533f6224c52310a56150c38f55e4f4054ea19f7a637e36aa98161ba" integrity="sha384-m3UM1l57S+opIizIAfNGdH+CE1ku1B8Dzqm8FV3tnwF+E4p/AMnHEiK6qFeDBDHP sha384-A75ukOxSS9C/5vensCkAuCBtw7aFoYQQbDs6/emRBqFm1dCB7w/F1HXZe5zmMSHm" crossorigin="anonymous"></script>
@@ -3907,8 +3907,15 @@
         if(route.mode==="v48")return rememberHistory(pid,await historyCompat.edit(pid,id,{peso:data.peso,date:data.date,
           series:data.series||"",reps:data.reps||"",nota:data.nota||""}),epoch).ok;
         const row = { peso: data.peso, date: data.date, series: data.series||"", reps: data.reps||"", nota: data.nota||"" };
-        const { error } = await client().from("registros").update(row).eq("id", id).eq("profile_id", pid);
-        return rememberHistory(pid,{ok:!error,error},epoch).ok;
+        // V50.2 (E7): PostgREST responde 204 SIN error cuando el UPDATE no
+        // machea ninguna fila, y antes esto sólo miraba `error`: un registro ya
+        // borrado devolvía ok:true y el usuario recibía "Registro actualizado"
+        // por un dato que no se guardó. Es el peor modo de falla posible para un
+        // registro de carga. El `select("id")` devuelve las filas afectadas, así
+        // que ahora se distingue "no se pudo" de "no existe".
+        const { data: updated, error } = await client().from("registros").update(row).eq("id", id).eq("profile_id", pid).select("id");
+        const missing = !error && (!updated || updated.length===0);
+        return rememberHistory(pid,{ok:!error && !missing,code:missing?"REGISTRO_NO_ENCONTRADO":undefined,error},epoch).ok;
       } catch(error){rememberHistory(pid,{ok:false,code:"NETWORK_ERROR",error},epoch);return false;}
     }
 
@@ -5083,11 +5090,95 @@
     return (slotObj.days||[]).find(d=>d.id===state.session.dayId) || null;
   }
 
+  // V50.2: la cantidad de series de un ejercicio se calcula en un solo lugar.
+  // Antes el clamp 1..12 estaba escrito a mano en startSession y nada más lo
+  // usaba; ahora también lo necesita la sincronización de la sesión (E6).
+  function sessionSetCount(ex){
+    return Math.max(1, Math.min(12, parseInt(ex && ex.series,10)||1));
+  }
+
+  // V50.2 (E5): true si la sesión V47 en curso está entrenando ESTE día de la
+  // rutina. La sesión V48 lleva su propio snapshot del día y es inmune a que
+  // el día cambie; el Día Especial no vive en ninguna rutina (slot "especial").
+  function sesionLegadaEnDia(dayId){
+    if(!state.session || nativeSession()) return false;
+    if(state.session.slot==="especial") return false;
+    return state.session.dayId===dayId;
+  }
+
+  // V50.2 (E6): `sets` y `setLogs` se armaban UNA vez al iniciar, indexados por
+  // ex.id, y editar el día durante el entrenamiento no los tocaba. Un ejercicio
+  // agregado quedaba sin círculos de serie y sin botón de registro —inutilizable
+  // hasta finalizar—, y uno borrado dejaba sus series en `sets`, donde
+  // sessionProgress() las seguía contando y se iban mal a entrenos.
+  //
+  // Esta función reconcilia la sesión V47 contra el día VIVO. No reescribe nada
+  // de lo ya hecho: al cambiar la cantidad de series conserva las primeras y
+  // sólo agrega o recorta el excedente. Devuelve true si cambió algo, para que
+  // quien la llame pueda decidir si vale la pena persistir.
+  //
+  // Recortar puede dejar afuera de la sesión un peso ya guardado: la fila sigue
+  // en `registros` y en el historial —que es donde vive de verdad—, lo que se
+  // pierde es poder editarla desde la tarjeta del ejercicio.
+  function syncSessionSetsWithDay(day){
+    if(!state.session || nativeSession() || !day) return false;
+    const sets = state.session.sets || (state.session.sets = {});
+    const logs = state.session.setLogs || (state.session.setLogs = {});
+    const vivos = new Set();
+    let cambio = false;
+    (day.exercises||[]).forEach(ex=>{
+      vivos.add(ex.id);
+      const n = sessionSetCount(ex);
+      if(!Array.isArray(sets[ex.id])){ sets[ex.id] = new Array(n).fill(false); cambio = true; }
+      if(!Array.isArray(logs[ex.id])){ logs[ex.id] = new Array(n).fill(null); cambio = true; }
+      while(sets[ex.id].length < n){ sets[ex.id].push(false); cambio = true; }
+      while(logs[ex.id].length < n){ logs[ex.id].push(null); cambio = true; }
+      if(sets[ex.id].length > n){ sets[ex.id].length = n; cambio = true; }
+      if(logs[ex.id].length > n){ logs[ex.id].length = n; cambio = true; }
+    });
+    Object.keys(sets).forEach(id=>{ if(!vivos.has(id)){ delete sets[id]; cambio = true; } });
+    Object.keys(logs).forEach(id=>{ if(!vivos.has(id)){ delete logs[id]; cambio = true; } });
+    return cambio;
+  }
+
+  // V50.2 (E7): quita de la sesión V47 la referencia a un registro que ya no
+  // existe en `registros`. No destilda la serie: la serie SE HIZO; lo que se
+  // borró es el peso cargado, así que queda lista para registrarlo de nuevo.
+  function olvidarRegistroDeLaSesion(registroId){
+    if(!registroId || !state.session || nativeSession()) return false;
+    const logs = state.session.setLogs || {};
+    let cambio = false;
+    Object.keys(logs).forEach(exId=>{
+      (logs[exId]||[]).forEach((log,i)=>{
+        if(log && log.registroId===registroId){ logs[exId][i] = null; cambio = true; }
+      });
+    });
+    return cambio;
+  }
+
+  // V50.2 (E6): el progreso se deriva del día VIVO, no de `sets`. Con el día
+  // editado durante la sesión, `sets` podía tener series de un ejercicio
+  // borrado (que inflaban el total) o faltarle las de uno agregado (que no se
+  // contaban), y esos dos números son los que se escriben en
+  // entrenos.sets_completados / sets_totales: el error quedaba en las métricas
+  // de la semana y del calendario sin forma de detectarlo después.
+  // Sin día resoluble se conserva el cálculo anterior sobre `sets`.
   function sessionProgress(){
     if(nativeSession()) return VodaFitSession.progress(nativeSession());
-    const setsObj = (state.session && state.session.sets) || {};
+    if(!state.session) return { done:0, total:0 };
+    const setsObj = state.session.sets || {};
+    const day = sessionDay();
+    if(!day){
+      let total=0, done=0;
+      Object.keys(setsObj).forEach(exId=>{ (setsObj[exId]||[]).forEach(v=>{ total++; if(v) done++; }); });
+      return { done, total };
+    }
     let total=0, done=0;
-    Object.keys(setsObj).forEach(exId=>{ (setsObj[exId]||[]).forEach(v=>{ total++; if(v) done++; }); });
+    (day.exercises||[]).forEach(ex=>{
+      const n = sessionSetCount(ex), arr = setsObj[ex.id] || [];
+      total += n;
+      for(let i=0;i<n;i++) if(arr[i]) done++;
+    });
     return { done, total };
   }
 
@@ -5297,6 +5388,11 @@
       } else {
         day.exercises.push({ id:uid(), nombre, series, reps, notas, imagenUrl });
       }
+      // V50.2 (E6): agregar un ejercicio —o cambiarle la cantidad de series—
+      // mientras la sesión V47 vive tiene que reflejarse en sets/setLogs. Va
+      // ANTES de persistRutina para que el ajuste viaje en la misma escritura,
+      // sin un round trip extra.
+      syncSessionSetsWithDay(sessionDay());
       await persistRutina();
       closeModal();
       renderScreen();
@@ -7342,6 +7438,18 @@
       b.onclick = async (e)=>{
         e.stopPropagation();
         const day = state.rutina.days.find(d=>d.id===b.dataset.delDay);
+        // V50.2 (E5): antes este handler no consultaba la sesión. Al desaparecer
+        // el día, sessionDay() devolvía null y el próximo render de la sesión
+        // hacía state.session=null y volvía a Rutina EN SILENCIO: se perdían las
+        // series marcadas, el entrenamiento no llegaba nunca a `entrenos` y los
+        // registros por serie ya guardados quedaban huérfanos en el historial.
+        // Se bloquea en vez de pedir confirmación: no hay nada que ganar
+        // borrando el día que se está entrenando, y finalizar o cancelar el
+        // entrenamiento son dos toques desde Mi rutina.
+        if(sesionLegadaEnDia(day.id)){
+          showToast("Estás entrenando este día. Finalizá o cancelá el entrenamiento antes de eliminarlo.");
+          return;
+        }
         const ok = await confirmDialog("Eliminar día", `¿Eliminar "${day.nombre}" y todos sus ejercicios?`);
         if(!ok) return;
         state.rutina.days = state.rutina.days.filter(d=>d.id!==day.id);
@@ -7365,9 +7473,19 @@
         const [dayId, exId] = b.dataset.delEx.split("|");
         const day = state.rutina.days.find(d=>d.id===dayId);
         const ex = day.exercises.find(x=>x.id===exId);
-        const ok = await confirmDialog("Eliminar ejercicio", `¿Eliminar "${ex.nombre}" de este día?`);
+        // V50.2 (E5/E6): si se está entrenando este día, borrar el ejercicio se
+        // lleva sus series marcadas. Se dice explícitamente antes de borrar, en
+        // vez de hacerlo en silencio, y después se sincroniza la sesión para que
+        // no queden series fantasma contando en el total (syncSessionSetsWithDay).
+        const enSesion = sesionLegadaEnDia(dayId);
+        const hechas = enSesion ? (state.session.sets[exId]||[]).filter(Boolean).length : 0;
+        const ok = await confirmDialog("Eliminar ejercicio",
+          enSesion
+            ? `Estás entrenando este día. Se va a eliminar "${ex.nombre}"${hechas? ` y sus ${hechas} serie${hechas>1?"s":""} marcada${hechas>1?"s":""} de este entrenamiento`:""}. Los pesos que ya registraste quedan en el historial.`
+            : `¿Eliminar "${ex.nombre}" de este día?`);
         if(!ok) return;
         day.exercises = day.exercises.filter(x=>x.id!==exId);
+        syncSessionSetsWithDay(sessionDay());
         await persistRutina();
         renderScreen();
       };
@@ -7442,20 +7560,27 @@
         if(generation!==authLoadGeneration || !state.profile || state.profile.id!==owner) return result;
         if(result.ok){await loadProfileData();if(generation===authLoadGeneration && state.profile?.id===owner){state.tab="sesion";render();}}
         else showToast(result.code==="ONLINE_REQUIRED" ? "Necesitás conexión para iniciar un entrenamiento V48."
-          : result.code==="V48_NOT_READY" ? "El inicio V48 requiere la reserva online. Todavía no está habilitado; no se creó ninguna sesión."
+          // V50.2 (E8): decía "todavía no está habilitado", imposible con
+          // capabilities = {metadata:true, rpc:true}. V48_NOT_READY sólo puede
+          // salir de un build sin esas capacidades, no de una etapa pendiente.
+          : result.code==="V48_NOT_READY" ? "Esta versión de la app no puede reservar el inicio online. No se creó ninguna sesión."
           : "No se confirmó el inicio ("+result.code+"). La solicitud se conserva para reintentar sin duplicar.");
         return result;
       });
     }
     if(state.unresolvedSession || (state.persistence && state.persistence.clienteV48)){
-      showToast("El entrenamiento V48 todavía no está habilitado en esta versión. Tu sesión se conserva."); return;
+      // V50.2 (E8): esta rama no significa que falte habilitar nada —se llega
+      // con un borrador que este build no puede interpretar, o con una sesión
+      // heredada en una cuenta ya activada—. El texto viejo le decía a una
+      // cuenta activada que la función que estaba usando no existía.
+      showToast("Tenés un entrenamiento anterior sin cerrar. Finalizalo o cancelalo desde Mi rutina antes de empezar otro. Se conserva tal como está."); return;
     }
     if(state.session){state.tab="sesion";render();return;}
     const special = !!(opts && opts.special);
     const sets = {};
     const setLogs = {};
     (day.exercises||[]).forEach(ex=>{
-      const n = Math.max(1, Math.min(12, parseInt(ex.series,10)||1));
+      const n = sessionSetCount(ex);
       sets[ex.id] = new Array(n).fill(false);
       setLogs[ex.id] = new Array(n).fill(null);
     });
@@ -7469,6 +7594,11 @@
   function renderSession(){
     const day = sessionDay();
     if(!day){ state.session=null; state.tab="rutina"; render(); return; }
+    // V50.2 (E6): red de seguridad para los cambios del día que no pasan por
+    // los handlers de edición (por ejemplo una rutina que llegó de otro
+    // dispositivo). Acá no se persiste: el próximo guardado de la sesión lleva
+    // el ajuste, y las métricas ya no dependen de esto (ver sessionProgress).
+    syncSessionSetsWithDay(day);
     app.innerHTML = `
       <div class="topbar">
         <span class="iconbtn" id="btn-session-back">${icon("back")}</span>
@@ -7529,6 +7659,15 @@
     const logs = state.session.setLogs[ex.id] || [];
     const allDone = done.length>0 && done.every(Boolean);
     const nextIdx = done.findIndex(v=>!v);
+    // V50.2 (E3): con TODAS las series marcadas nextIdx era -1 y el botón
+    // "Registrar peso y reps" desaparecía. Si además no se había cargado ningún
+    // peso tampoco había filas para reabrir, así que el ejercicio quedaba sin
+    // forma de registrarse y la única salida era destildar la última serie —que
+    // al tocar una anterior descascara todas las siguientes—. Es el flujo
+    // natural de quien marca las series en el momento y carga los pesos al
+    // final del ejercicio. Ahora el botón sigue existiendo y apunta a la ÚLTIMA
+    // serie, con el texto que corresponde según si ya tiene datos.
+    const logIdx = nextIdx!==-1 ? nextIdx : done.length-1;
     // v28.1: registro POR SERIE (progresión de carga dentro del mismo
     // ejercicio, ej. sentadilla 60/70/80/90kg) — cada línea con datos ya
     // cargados es tocable para reabrirla y editarla; el botón único de abajo
@@ -7562,7 +7701,7 @@
         <div class="row" style="gap:8px">
           <span class="iconbtn iconbtn-lg" data-howto-ex-session="${ex.id}" title="Cómo hacerlo" style="flex:none">${icon("info")}</span>
           <span class="iconbtn iconbtn-lg" data-rest-btn title="Descansar" style="flex:none">${icon("timer")}</span>
-          ${nextIdx!==-1 ? `<button class="btn btn-outline btn-sm" style="flex:1" data-log-weight="${ex.id}" data-log-idx="${nextIdx}">${icon("dumbbell")} Registrar peso y reps</button>` : ""}
+          ${logIdx>=0 ? `<button class="btn btn-outline btn-sm" style="flex:1" data-log-weight="${ex.id}" data-log-idx="${logIdx}">${icon("dumbbell")} ${logs[logIdx] ? "Editar peso y reps" : "Registrar peso y reps"}</button>` : ""}
         </div>
       </div>
     `;
@@ -7741,12 +7880,33 @@
       if(saveBtn.disabled || !current())return; // doble tap/cambio de cuenta
       saveBtn.disabled = true;
       const pesoNum = parseFloat(peso);
+      // V50.2 (E4): la rama de alta reasigna `existing` con el log recién
+      // creado —correcto y necesario: hace idempotente un reintento—, pero el
+      // toast del final elegía el mensaje mirando esa misma variable, así que
+      // "Registro guardado" no se mostraba NUNCA y quien registraba por primera
+      // vez leía que había actualizado algo que no existía.
+      const esAlta = !existing;
       if(existing){
         // Edición: actualiza la fila que ya existía para ESTA serie, nunca
         // crea una nueva. `set_number` no se toca (no cambia de serie).
         let ok;try{ok=await Store.updateRegistro(owner,existing.registroId,{peso:pesoNum,date,series:"1",reps,nota});}catch(error){ok=false;}
         if(!current())return;
-        if(!ok){saveBtn.disabled=false;showHistoryFailure();return;}
+        if(!ok){
+          // V50.2 (E7): si la fila ya no existe —se borró desde el historial—
+          // PostgREST responde 204 sin error y antes esto informaba
+          // "Registro actualizado" sin haber escrito nada. Ahora updateRegistro
+          // lo detecta y acá se descarta la referencia colgada, para que el
+          // próximo guardado dé de alta una fila nueva en vez de reintentar
+          // sobre algo inexistente.
+          const fallo=Store.historyStatus();
+          if(fallo && fallo.code==="REGISTRO_NO_ENCONTRADO"){
+            state.session.setLogs[ex.id][idx]=null; existing=null;
+            saveBtn.disabled=false; renderScreenSession();
+            showToast("Ese registro ya no existe: se borró del historial. Tocá Guardar otra vez para cargarlo de nuevo.");
+            return;
+          }
+          saveBtn.disabled=false;showHistoryFailure();return;
+        }
         state.session.setLogs[ex.id][idx] = { registroId: existing.registroId, peso: pesoNum, reps, nota, date };
       } else {
         // Alta: una fila = una serie (series:"1" es correcto acá, no es el
@@ -7757,7 +7917,11 @@
         if(!res?.ok || !res.id){saveBtn.disabled=false;showHistoryFailure(res);return;}
         state.session.setLogs[ex.id][idx] = { registroId: res.id, peso: pesoNum, reps, nota, date };
         existing=state.session.setLogs[ex.id][idx];
-        toggleSessionSet(ex.id, idx); // idx es siempre la serie activa (next) acá, nunca una ya hecha — no hay riesgo de descascadear
+        // V50.2 (E3): desde que el botón puede apuntar a una serie YA marcada
+        // (todas completas), `idx` dejó de ser necesariamente la serie activa.
+        // Sobre una ya hecha, toggleSessionSet la destildaría y descascararía
+        // todas las siguientes, así que sólo se marca si estaba pendiente.
+        if(!(state.session.sets[ex.id]||[])[idx]) toggleSessionSet(ex.id, idx);
       }
       const refreshed=await refreshHistoryAfterWrite(owner,generation,"registros");
       if(!current())return;
@@ -7767,7 +7931,7 @@
       if(!saved.ok || !refreshed){saveBtn.disabled=false;return;}
       closeModal();
       renderScreenSession();
-      showToast(existing ? "Registro actualizado" : "Registro guardado");
+      showToast(esAlta ? "Registro guardado" : "Registro actualizado");
     };
   }
 
@@ -7872,6 +8036,10 @@
     if(state.unresolvedSession && state.unresolvedSession.schemaVersion===48){
       showToast("El borrador no puede interpretarse. Se conserva sin modificar.");return;
     }
+    // V50.2 (E6): se sincroniza ANTES de medir. Finalizar desde el banner de Mi
+    // rutina no pasa por renderSession, así que sin esto un día editado dejaba
+    // series fantasma —o sin contar— en sets_completados / sets_totales.
+    syncSessionSetsWithDay(day);
     const p = sessionProgress();
     // V29: un Día Especial se registra como cualquier entrenamiento (mismo
     // Store.addEntreno, misma tabla), marcado con isSpecial → is_special.
@@ -8707,6 +8875,7 @@
     const r=result || Store.historyStatus() || {},code=r.code || r.error?.code || r.error?.message || "SAVE_FAILED";
     showToast(code==="DELETE_WHOLE_SESSION_REQUIRED" || code==="SESSION_RECORD_IMMUTABLE" ? "Este registro pertenece a una sesión V48. Eliminá la sesión completa desde el calendario."
       : code==="USE_V48_ELIMINAR" ? "Esta sesión requiere el borrado completo de V48."
+      : code==="REGISTRO_NO_ENCONTRADO" ? "Ese registro ya no existe en el historial. No se modificó nada."
       : "No se confirmó la operación ("+code+"). Conservamos los datos para reintentar.");
   }
   async function resolveHistoryFailure(owner,generation,result){
@@ -8814,6 +8983,12 @@
         let removed;try{removed=await Store.deleteRegistro(owner,id);}catch(error){removed=false;}
         if(state.profile?.id!==owner || generation!==authLoadGeneration)return;
         if(!removed){showHistoryFailure();return;}
+        // V50.2 (E7): borrar una serie desde el historial dejaba su registroId
+        // colgado en state.session.setLogs. Al reabrir esa serie, el modal
+        // entraba en modo edición de una fila inexistente. Se persiste sólo si
+        // de verdad cambió algo, para no agregar una escritura por borrado.
+        if(olvidarRegistroDeLaSesion(id)) await persistRutina();
+        if(state.profile?.id!==owner || generation!==authLoadGeneration)return;
         if(await refreshHistoryAfterWrite(owner,generation,"registros"))renderScreen();
       };
     });
@@ -11234,7 +11409,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "bb5762af684226b6adaef18db6ece918c67b589eefcf4c48e97d97c40e1fbf80";
+  const APP_BUILD = "a5633448117a3eed245d1b620dd598d4eb8b3dfd712860d222155a2149e0bbf0";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -11447,6 +11622,11 @@
     openExerciseDetail,
     // v28
     exerciseWeeklyMax, sessionProgress, sessionDay, reorderDayExercisesByGroup,
+    // V50.2: integridad del entrenamiento. syncSessionSetsWithDay y
+    // olvidarRegistroDeLaSesion operan sobre state.session (sesion V47) y no
+    // tocan la base; sessionSetCount y sesionLegadaEnDia son puras.
+    sessionSetCount, sesionLegadaEnDia, syncSessionSetsWithDay, olvidarRegistroDeLaSesion,
+    sessionExerciseCardHtml, toggleSessionSet,
     // v37 — vueltas del cronómetro de entrenamiento
     workoutClock, addWorkoutLap, clearWorkoutLaps, workoutLapRows, workoutLapsBlockHtml,
     // V40: Mi peso. Todo lo expuesto acá es puro (no toca la base) salvo

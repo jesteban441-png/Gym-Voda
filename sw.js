@@ -13,7 +13,7 @@ const SHELL = {
   "./v48-lifecycle.js?v=49.1&h=06eaaa5a989b3dbff6caea74f45452fa410ce78b02870ee834dad1b93df44732": "06eaaa5a989b3dbff6caea74f45452fa410ce78b02870ee834dad1b93df44732",
   "./v48-persistence.js?v=49.1&h=ef2f59d8e98a29a83a99738fcf6799b0ce38cef50ff30d29f81251785b0600c9": "ef2f59d8e98a29a83a99738fcf6799b0ce38cef50ff30d29f81251785b0600c9",
   "./v48-reconcile.js?v=49.1&h=f1c7f62880851713f9ad8ca47ed4a3fe1ecc1f82153b42aa7365c4f2b6a55c82": "f1c7f62880851713f9ad8ca47ed4a3fe1ecc1f82153b42aa7365c4f2b6a55c82",
-  "./v48-session.js?v=49.1&h=b159f8e75af9f2b134c26e00f69fd7982115079388184f25601d39f6cb7a561b": "b159f8e75af9f2b134c26e00f69fd7982115079388184f25601d39f6cb7a561b",
+  "./v48-session.js?v=49.1&h=c0cb63a9013a2226e5ffc8438904d56b1bee5e25a4e6e0d6068225a8784f4449": "c0cb63a9013a2226e5ffc8438904d56b1bee5e25a4e6e0d6068225a8784f4449",
   "./vendor/fonts/font-1.ttf": "cc9fb2539cf27df48255982e896d28f544483537cdb41f9fabd741af8992d719",
   "./vendor/fonts/font-2.ttf": "7dde307fa887fc65ff5830cfada77a7decc5dae8d3c816c9d39ba3f1af1c4ed7",
   "./vendor/fonts/font-3.ttf": "0d85af813fc3ed87db0c6265515689b2eef5cbaf7aab17922528dfc95a2cd73f",
@@ -24,10 +24,10 @@ const SHELL = {
   "./vendor/fonts/fonts.css?h=6e2518a7cf7d0f4b82c918fc94226e5d8a463a25e1793bd44284466e4d3b8e2e": "6e2518a7cf7d0f4b82c918fc94226e5d8a463a25e1793bd44284466e4d3b8e2e",
   "./vendor/jspdf-2.5.1/jspdf.umd.min.js?h=98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875": "98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875",
   "./vendor/supabase-js-2.118.0/supabase.js?h=bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af": "bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af",
-  "./index.html": "c81e9fb712de96a355f5acb4ec8f97d22cd64bdf533468a94861468dfee0e76d"
+  "./index.html": "db13f2f4f5159cd510d366e4710fa1e898579ce3cf7364d6c969c7d008f196f8"
 };
-const SHELL_ID = "5bee8aa5386a7aaa177844accd96725cb45466c4c9e1e3041fe3b6c1b87077a1";
-const BUILD = "bb5762af684226b6adaef18db6ece918c67b589eefcf4c48e97d97c40e1fbf80";
+const SHELL_ID = "12f0a2ab7d370a3cd640038dc26d66932f9bdb257429915364570f917c73db47";
+const BUILD = "a5633448117a3eed245d1b620dd598d4eb8b3dfd712860d222155a2149e0bbf0";
 // END SHELL
 const ROOT = new URL('./', self.location.href);
 const PREFIX = 'vodafit-shell-' + encodeURIComponent(ROOT.pathname) + '-';

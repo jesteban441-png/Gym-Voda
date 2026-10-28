@@ -84,7 +84,7 @@
     return 'Terminá el ejercicio para decidir si actualizás su referencia.';
   }
   function html(s,referenceMap,canonical){
-    return `<div class="card native-note"><b>Borrador del entrenamiento</b>${s.slot==='especial'?'<p class="helptext"><span class="special-badge">Día Especial</span> No suma al objetivo semanal.</p>':''}<p class="helptext">Solo las series marcadas se consideran completadas. El cierre definitivo estará disponible en V48.1C.</p><p class="helptext" data-native-save-status role="status">Los cambios se conservan en este dispositivo.</p></div>`+
+    return `<div class="card native-note"><b>Borrador del entrenamiento</b>${s.slot==='especial'?'<p class="helptext"><span class="special-badge">Día Especial</span> Suma a tu objetivo semanal.</p>':''}<p class="helptext">Solo las series marcadas se consideran completadas.</p><p class="helptext" data-native-save-status role="status">Los cambios se conservan en este dispositivo.</p></div>`+
       s.day.exercises.map(ex=>{
         const ref=reference(referenceMap,ex.nombre,canonical);
         return `<section class="card stack native-exercise" data-native-card="${esc(ex.id)}" aria-label="${esc(ex.nombre)}">
