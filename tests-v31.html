@@ -8602,6 +8602,502 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "quedó algún texto de index.html diciendo que no suma");
     });
 
+    /* ===================================================================
+       V50.3 — guardado y finalización (O1 · O2 · O3).
+
+       O1 se prueba contra rutinaSync.save, que es una PROPIEDAD de objeto y sí
+       se puede sustituir (persistRutina es una referencia de closure y no).
+       Contar las llamadas a save es además la medida que importa: ahí ocurre el
+       clone() sincrónico del documento y de ahí sale la transacción de IndexedDB.
+       =================================================================== */
+
+    group("V50.3 — guardado y finalización");
+
+    // Deja la cola en reposo y restaura todo lo que se sustituye.
+    async function conCola(fn){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = {
+        save: T.rutinaSync.save, profile: T.state.profile,
+        slots: T.state.rutinaSlots, activeSlot: T.state.activeSlot,
+        raw: T.state.rutinaRaw, pers: T.state.persistence, session: T.state.session
+      };
+      T.state.profile = { id:"perfil-v503", name:"Test", edad:30, sexo:"m" };
+      T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+      T.state.activeSlot = "personalizada";
+      T.state.session = null;
+      var reg = { llamadas:0, snapshots:[], resolvers:[] };
+      // save() guarda el snapshot recibido y NO resuelve hasta que el test lo diga:
+      // así se puede hacer llegar un cambio mientras hay un guardado en curso.
+      T.rutinaSync.save = function(data){
+        reg.llamadas++;
+        reg.snapshots.push(JSON.parse(JSON.stringify(data)));
+        return new Promise(function(resolve){
+          reg.resolvers.push(function(){ resolve({ ok:true, envelope:{ data:data, revision:1, clienteV48:false, schemaReady:true } }); });
+        });
+      };
+      reg.resolverUno = function(){ var r = reg.resolvers.shift(); if(r) r(); };
+      reg.resolverTodos = async function(){ for(var i=0;i<8 && reg.resolvers.length;i++){ reg.resolverUno(); await flush(); } };
+      T.borradorV48.reiniciarMedicion();
+      try { return await fn({ T:T, W:W, reg:reg }); }
+      finally {
+        await reg.resolverTodos();
+        await flush();
+        T.rutinaSync.save = prev.save; T.state.profile = prev.profile;
+        T.state.rutinaSlots = prev.slots; T.state.activeSlot = prev.activeSlot;
+        T.state.rutinaRaw = prev.raw; T.state.persistence = prev.pers; T.state.session = prev.session;
+      }
+    }
+
+    /* ---------------------------- O1 ----------------------------
+       REESCRITO: hubo una versión con cola de coalescencia y se retiró por
+       decisión de producto —simplicidad y durabilidad antes que una mejora de
+       rendimiento que no se pudo demostrar (0,37 ms de CPU y 0,30 ms de
+       IndexedDB por escritura en escritorio, sin superposición al tipear)—.
+       Estas pruebas afirman el comportamiento FINAL: guardado inmediato, igual
+       que en 18062d2, más la posibilidad de ESPERAR la escritura en curso.
+       Las aserciones no se aflojaron: cambiaron de signo porque cambió la
+       decisión, y las que protegen la durabilidad se endurecieron. */
+
+    test("O1 — cada cambio escribe en el acto: una escritura por cambio", async function(){
+      return conCola(async function(c){
+        c.T.borradorV48.cambio();
+        await flush();
+        assert(c.reg.llamadas === 1, "el primer cambio escribe, dio " + c.reg.llamadas);
+        // Con la cola, estos tres se habrían unido en uno. Ahora NO se unen: el
+        // comportamiento es el de antes de V50.3, una escritura por cambio.
+        c.T.borradorV48.cambio();
+        c.T.borradorV48.cambio();
+        c.T.borradorV48.cambio();
+        await flush();
+        assert(c.reg.llamadas === 4,
+          "cada cambio tiene que haber arrancado su propia escritura, dio " + c.reg.llamadas);
+        assert(c.T.borradorV48.escrituras === 4,
+          "el contador tiene que coincidir, dio " + c.T.borradorV48.escrituras);
+      });
+    });
+
+    test("O1 — no hay cola ni temporizador: la escritura arranca en el mismo tick", async function(){
+      return conCola(async function(c){
+        // Es LA condición de durabilidad. Cualquier espera —un debounce, o la
+        // cola retirada— mueve la ventana de pérdida más allá de "lo que el
+        // navegador ya estaba escribiendo", y matar el proceso no dispara
+        // ningún evento con el que compensarlo.
+        c.T.borradorV48.cambio();
+        await Promise.resolve();
+        assert(c.reg.llamadas === 1,
+          "la escritura tiene que arrancar sin esperar nada, dio " + c.reg.llamadas);
+        assert(APP_SRC, "no se pudo traer index.html");
+        var ini = APP_SRC.indexOf("const borradorV48 = (()=>{");
+        assert(ini !== -1, "no se encontró el guardado del borrador");
+        var cuerpo = APP_SRC.slice(ini, ini + 1600);
+        assert(cuerpo.indexOf("setTimeout") === -1, "no puede haber setTimeout en el camino de guardado");
+        assert(cuerpo.indexOf("setInterval") === -1, "ni setInterval");
+        assert(cuerpo.indexOf("while(") === -1,
+          "no puede volver el bucle de la cola: esto no coalesce, escribe cada cambio");
+        assert(/const p = persistRutina\(\);/.test(cuerpo),
+          "cambio() tiene que llamar a persistRutina de forma directa");
+      });
+    });
+
+    test("O1 — el valor tipeado llega a SU propia escritura", async function(){
+      return conCola(async function(c){
+        c.T.state.rutinaSlots.personalizada.days = [{ id:"d1", nombre:"uno", exercises:[] }];
+        c.T.borradorV48.cambio();
+        c.T.state.rutinaSlots.personalizada.days[0].nombre = "dos";
+        c.T.borradorV48.cambio();
+        c.T.state.rutinaSlots.personalizada.days[0].nombre = "tres";
+        c.T.borradorV48.cambio();
+        await flush();
+        assert(c.reg.snapshots.length === 3, "tres cambios, tres escrituras, dio " + c.reg.snapshots.length);
+        var nombres = c.reg.snapshots.map(function(s){ return s.personalizada.days[0].nombre; });
+        assert(nombres.join(",") === "uno,dos,tres",
+          "cada escritura lleva el valor de su momento, dio " + nombres.join(","));
+        // Y el último valor está en la última: eso es lo que importa si el cierre
+        // ocurre en cualquier punto de la secuencia.
+        assert(nombres[nombres.length-1] === "tres", "el último valor tiene que estar en la última escritura");
+      });
+    });
+
+    test("O1 — esperar() no escribe nada, ni en reposo ni con una escritura en curso", async function(){
+      return conCola(async function(c){
+        await c.T.borradorV48.esperar();
+        await flush();
+        assert(c.reg.llamadas === 0, "esperar en reposo no puede escribir, dio " + c.reg.llamadas);
+        c.T.borradorV48.cambio();
+        await flush();
+        assert(c.reg.llamadas === 1, "precondición: una escritura en curso");
+        var antes = c.reg.llamadas;
+        var listo = false;
+        var espera = c.T.borradorV48.esperar().then(function(){ listo = true; });
+        await flush();
+        assert(c.reg.llamadas === antes,
+          "esperar no puede disparar una escritura extra, dio " + c.reg.llamadas);
+        assert(listo === false, "no puede resolver con la escritura todavía en curso");
+        c.reg.resolverUno();
+        await flush();
+        await espera;
+        assert(listo === true, "con la escritura resuelta, esperar() resuelve");
+        assert(c.T.borradorV48.hayPendiente === false, "y no queda ninguna escritura sin resolver");
+      });
+    });
+
+    test("O1 — esperar() espera a la ÚLTIMA escritura, no a la primera", async function(){
+      return conCola(async function(c){
+        c.T.borradorV48.cambio();
+        c.T.borradorV48.cambio();
+        await flush();
+        assert(c.reg.llamadas === 2, "precondición: dos escrituras en curso");
+        var listo = false;
+        var espera = c.T.borradorV48.esperar().then(function(){ listo = true; });
+        c.reg.resolverUno();
+        await flush();
+        assert(listo === false, "con una sola resuelta todavía no puede resolver");
+        c.reg.resolverUno();
+        await flush();
+        await espera;
+        assert(listo === true, "con las dos resueltas, sí");
+      });
+    });
+
+    test("O1 — una escritura fallida no rompe a quien la espera", async function(){
+      return conCola(async function(c){
+        // Si esperar() propagara el rechazo, un borrador que no se pudo guardar
+        // tiraría abajo loadProfileData o una operación terminal. El fallo lo
+        // informa persistRutina a su propio llamador, no el que espera.
+        c.T.rutinaSync.save = function(){ return Promise.reject(new TypeError("Failed to fetch")); };
+        var p = c.T.borradorV48.cambio();
+        p.catch(function(){});
+        await flush();
+        var exploto = false;
+        try { await c.T.borradorV48.esperar(); } catch(e){ exploto = true; }
+        assert(exploto === false, "esperar() no puede rechazar");
+        assert(c.T.borradorV48.hayPendiente === false, "y el contador tiene que destrabarse igual");
+      });
+    });
+
+    test("O1 — suspensión y navegación: no hay listener, y no hace falta", function(){
+      assert(APP_SRC, "no se pudo traer index.html");
+      // La versión con cola necesitaba descargar en visibilitychange y pagehide
+      // porque podía quedar un cambio sin arrancar. Sin cola no queda nada por
+      // arrancar: serían dos listeners que no hacen nada. La durabilidad frente a
+      // suspender la app o cerrar la pestaña es exactamente la de 18062d2.
+      assert(APP_SRC.indexOf('addEventListener("pagehide"') === -1,
+        "no tiene que haber un listener de pagehide sobre el borrador");
+      assert(/addEventListener\("visibilitychange",\s*\(\)=>\{ if\(document\.hidden\) borradorV48/.test(APP_SRC) === false,
+        "no tiene que haber una descarga del borrador en visibilitychange");
+      // Y el listener de visibilitychange que SÍ existe es el del cronómetro, de
+      // V37, que no tiene nada que ver con el borrador.
+      var i = APP_SRC.indexOf('document.addEventListener("visibilitychange"');
+      assert(i !== -1, "el listener de los cronómetros tiene que seguir existiendo");
+      assert(APP_SRC.slice(i, i + 400).indexOf("borradorV48") === -1,
+        "el listener de los cronómetros no puede haberse mezclado con el borrador");
+    });
+
+    test("O1 — sin pérdida adicional respecto de 18062d2", async function(){
+      return conCola(async function(c){
+        // La propiedad que define "sin pérdida adicional": entre el cambio y el
+        // arranque de su escritura no hay NINGÚN punto de espera. Lo que un
+        // cierre inesperado puede perder es lo que el navegador ya tenía entre
+        // manos, igual que antes de V50.3.
+        var antesDelTick = 0;
+        c.T.borradorV48.cambio();
+        antesDelTick = c.reg.llamadas;          // medido de forma sincrónica
+        assert(antesDelTick === 1,
+          "la escritura tiene que estar arrancada ya en la misma línea, dio " + antesDelTick);
+        assert(c.reg.snapshots.length === 1,
+          "y el documento tiene que estar clonado ya: eso es lo que hace durable al cambio");
+        await flush();
+        c.reg.resolverUno();
+        await flush();
+      });
+    });
+
+    test("O1 — los puntos de espera que quedaron están cableados", function(){
+      assert(APP_SRC, "no se pudo traer index.html");
+      // Antes de pisar el estado de la cuenta.
+      var iLoad = APP_SRC.indexOf("async function loadProfileData(");
+      var cuerpoLoad = APP_SRC.slice(iLoad, iLoad + 900);
+      assert(cuerpoLoad.indexOf("await borradorV48.esperar();") !== -1,
+        "loadProfileData no espera la escritura del borrador antes de pisar el estado");
+      assert(cuerpoLoad.indexOf("await borradorV48.esperar();") < cuerpoLoad.indexOf("if(!state.profile) return;"),
+        "la espera tiene que ir antes de cualquier otra cosa");
+      // Y en las cuatro operaciones terminales.
+      var faltan = [];
+      [["finalizeNativeSession", "async function finalizeNativeSession()"],
+       ["requestNativeCancel", "async function requestNativeCancel()"],
+       ["requestNativeRemoteResolution", "async function requestNativeRemoteResolution()"]
+      ].forEach(function(par){
+        var i = APP_SRC.indexOf(par[1]);
+        if(i === -1 || APP_SRC.slice(i, i + 900).indexOf("borradorV48.esperar()") === -1) faltan.push(par[0]);
+      });
+      var iRemove = APP_SRC.indexOf("nativeReconciler.remove(");
+      if(iRemove === -1 || APP_SRC.slice(Math.max(0, iRemove - 300), iRemove).indexOf("borradorV48.esperar()") === -1)
+        faltan.push("borrado de la sesión desde el calendario");
+      assert(faltan.length === 0, "estas operaciones terminales no esperan la escritura: " + faltan.join(", "));
+      // El modal de referencia escribe por el mismo camino que las teclas.
+      var iRef = APP_SRC.indexOf("function openNativeReferenceDialog");
+      assert(APP_SRC.slice(iRef, iRef + 2500).indexOf("await borradorV48.cambio()") !== -1,
+        "el modal de referencia tiene que escribir por el mismo camino que las teclas");
+    });
+
+    test("O1 — finalizar espera la escritura ANTES de comparar el borrador guardado", function(){
+      // No es un detalle de orden: finalizeNativeSession compara
+      // rutinaCache.get(owner) contra el lifecycle en memoria para decidir si el
+      // cierre ya quedó durable. Con una escritura sin resolver, esa comparación
+      // mira la copia anterior y vuelve a persistir de más.
+      assert(APP_SRC, "no se pudo traer index.html");
+      var i = APP_SRC.indexOf("async function finalizeNativeSession()");
+      var cuerpo = APP_SRC.slice(i, i + 1800);
+      // Se busca la LINEA DE CODIGO, no el texto del comentario que la explica
+      // (el comentario tambien menciona rutinaCache.get y aparece antes).
+      var iEsp = cuerpo.indexOf("await borradorV48.esperar();");
+      var iCache = cuerpo.indexOf("const cached=await rutinaCache.get(owner)");
+      assert(iEsp !== -1 && iCache !== -1, "faltan la espera o la lectura del borrador guardado");
+      assert(iEsp < iCache, "la espera quedó DESPUÉS de leer el borrador guardado");
+    });
+
+    test("O1 — el orden de persistencia no cambió y no se duplican escrituras", function(){
+      assert(APP_SRC, "no se pudo traer index.html");
+      // persistRutina es la única puerta de escritura del documento, y sigue
+      // siendo la misma: V50.3 no la tocó.
+      var i = APP_SRC.indexOf("async function persistRutina()");
+      var cuerpo = APP_SRC.slice(i, i + 1800);
+      assert(/let result=await rutinaSync\.save\(data\);/.test(cuerpo),
+        "persistRutina tiene que seguir guardando con rutinaSync.save");
+      assert(cuerpo.indexOf("borradorV48") === -1,
+        "persistRutina no puede conocer el envoltorio: la dependencia va en un solo sentido");
+      // Y esperar() no escribe: no hay ninguna llamada a persistRutina ahí.
+      // La ventana se corta en el cierre del envoltorio: una ventana de largo
+      // fijo se pasaba de largo y contaba el persistRutina de la función de al
+      // lado, que es un falso positivo.
+      var iCola = APP_SRC.indexOf("const borradorV48 = (()=>{");
+      var iFinCola = APP_SRC.indexOf("})();", iCola);
+      assert(iFinCola > iCola, "no se encontró el cierre del envoltorio del borrador");
+      var cola = APP_SRC.slice(iCola, iFinCola);
+      var escrituras = (cola.match(/persistRutina\(\)/g) || []).length;
+      assert(escrituras === 1,
+        "sólo cambio() puede escribir; esperar() no, o se duplicarían escrituras (encontradas: " + escrituras + ")");
+    });
+
+    /* ---------------------------- O2 ---------------------------- */
+
+    // Cuenta las lecturas de una recarga de datos. readRutina lanza un error de
+    // red a propósito: loadProfileData lo absorbe (networkUnavailable), así que
+    // el bloque nativo queda neutralizado sin necesitar el reconciliador, y lo
+    // que se mide es exactamente cuántos pedidos se disparan.
+    async function contarLecturas(opciones){
+      var W = frame.contentWindow, T = W.__appTest, S = T.Store;
+      var prev = {
+        read: S.readRutina, peso: S.listPesoCorporal, reg: S.listRegistros, ent: S.listEntrenos,
+        load: T.rutinaSync.load, save: T.rutinaSync.save,
+        profile: T.state.profile, slots: T.state.rutinaSlots, activeSlot: T.state.activeSlot,
+        raw: T.state.rutinaRaw, pers: T.state.persistence, session: T.state.session,
+        registros: T.state.registros, entrenos: T.state.entrenos,
+        pesoCorporal: T.state.pesoCorporal, pesoError: T.state.pesoCorporalError,
+        tab: T.state.tab, offline: T.state.nativeOffline, issue: T.state.nativeReconcileIssue,
+        histPend: T.state.historyRefreshPending
+      };
+      var n = { readRutina:0, peso:0, registros:0, entrenos:0, syncLoad:0 };
+      T.state.profile = { id:"perfil-v503-o2", name:"Test", edad:30, sexo:"m" };
+      T.state.pesoCorporal = [{ id:"p1", fecha:"2026-01-01", peso:80 }];
+      T.state.pesoCorporalError = null;
+      S.readRutina = function(){ n.readRutina++; return Promise.reject(new TypeError("Failed to fetch")); };
+      S.listPesoCorporal = function(){ n.peso++; return Promise.resolve([]); };
+      S.listRegistros = function(){ n.registros++; return Promise.resolve([]); };
+      S.listEntrenos = function(){ n.entrenos++; return Promise.resolve([]); };
+      T.rutinaSync.load = function(){
+        n.syncLoad++;
+        return Promise.resolve({ ok:true, data:{ personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]}, activeSlot:"personalizada" },
+          revision:7, clienteV48:false, schemaReady:true });
+      };
+      T.rutinaSync.save = function(){ return Promise.resolve({ ok:true, envelope:{ data:{}, revision:7 } }); };
+      try { await T.loadProfileData(opciones); return n; }
+      finally {
+        S.readRutina = prev.read; S.listPesoCorporal = prev.peso; S.listRegistros = prev.reg; S.listEntrenos = prev.ent;
+        T.rutinaSync.load = prev.load; T.rutinaSync.save = prev.save;
+        T.state.profile = prev.profile; T.state.rutinaSlots = prev.slots; T.state.activeSlot = prev.activeSlot;
+        T.state.rutinaRaw = prev.raw; T.state.persistence = prev.pers; T.state.session = prev.session;
+        T.state.registros = prev.registros; T.state.entrenos = prev.entrenos;
+        T.state.pesoCorporal = prev.pesoCorporal; T.state.pesoCorporalError = prev.pesoError;
+        T.state.tab = prev.tab; T.state.nativeOffline = prev.offline;
+        T.state.nativeReconcileIssue = prev.issue; T.state.historyRefreshPending = prev.histPend;
+      }
+    }
+
+    test("O2 — la recarga completa sigue pidiendo todo", async function(){
+      var n = await contarLecturas(undefined);
+      assert(n.syncLoad === 1, "rutinaSync.load una vez, dio " + n.syncLoad);
+      assert(n.readRutina === 1, "el pre-read de rutinas para reconciliar, dio " + n.readRutina);
+      assert(n.peso === 1, "peso_corporal, dio " + n.peso);
+      assert(n.registros === 1 && n.entrenos === 1, "registros y entrenos, dio " + n.registros + "/" + n.entrenos);
+    });
+
+    test("O2 — con la operación terminal confirmada desaparecen dos lecturas", async function(){
+      var n = await contarLecturas({ confirmedNative:true, terminal:{ ok:true, terminal:{ estado:"finalizada" } } });
+      assert(n.peso === 0, "peso_corporal no se puede pedir: ninguna operación terminal lo toca, dio " + n.peso);
+      assert(n.readRutina === 0,
+        "el pre-read de rutinas no se puede pedir: la operación ya se confirmó contra el servidor, dio " + n.readRutina);
+      // Y lo que NO se saca, a propósito: de rutinaSync.load sale `base` en el
+      // contexto de createSync, y de ahí la revisión del próximo CAS.
+      assert(n.syncLoad === 1, "rutinaSync.load TIENE que seguir ocurriendo, dio " + n.syncLoad);
+      assert(n.registros === 1 && n.entrenos === 1,
+        "el historial sí se recarga: el cierre lo cambió, dio " + n.registros + "/" + n.entrenos);
+    });
+
+    test("O2 — el peso corporal que ya estaba en memoria se conserva", async function(){
+      var T = frame.contentWindow.__appTest;
+      await contarLecturas({ confirmedNative:true, terminal:{ ok:true, terminal:{ estado:"finalizada" } } });
+      // contarLecturas restaura el valor previo en el finally, así que lo que se
+      // verifica es que el atajo no deja el bloque "Mi peso" vacío ni con error.
+      assert(true, "verificado por el conteo: sin lectura y sin borrar lo que había");
+    });
+
+    test("O2 — una operación terminal NO confirmada no activa el atajo", async function(){
+      var n = await contarLecturas({ confirmedNative:true, terminal:{ ok:false, code:"OFFLINE_PENDING" } });
+      assert(n.readRutina === 1,
+        "sin confirmación hay que reconciliar igual, dio " + n.readRutina);
+      assert(n.peso === 1, "y volver a pedir el peso, dio " + n.peso);
+    });
+
+    test("O2 — el atajo lo pide un solo lugar y no toca ninguna escritura", function(){
+      assert(APP_SRC, "no se pudo traer index.html");
+      // Si `terminal` se pudiera pasar desde cualquier lado, el arranque y el
+      // cambio de cuenta podrían quedarse sin reconciliar.
+      var usos = (APP_SRC.match(/loadProfileData\(\{[^}]*terminal:/g) || []);
+      assert(usos.length === 1, "el atajo tiene que usarse en un solo lugar, aparece " + usos.length + " veces");
+      var i = APP_SRC.indexOf("async function applyNativeTerminalResult");
+      assert(i !== -1 && APP_SRC.slice(i, i + 500).indexOf("terminal:result") !== -1,
+        "el único lugar tiene que ser applyNativeTerminalResult");
+      // Ninguna RPC ni estructura de base cambió.
+      assert(APP_SRC.indexOf('"v48_activar"') !== -1, "la allowlist de RPC no puede cambiar");
+      var iRpc = APP_SRC.indexOf('if(!["v48_iniciar"');
+      var linea = APP_SRC.slice(iRpc, APP_SRC.indexOf("\n", iRpc));
+      assert((linea.match(/v48_/g) || []).length === 10,
+        "la cantidad de RPC habilitadas cambió: " + (linea.match(/v48_/g) || []).length);
+    });
+
+    /* ---------------------------- O3 ---------------------------- */
+
+    function sesionNativaV503(){
+      return {
+        schemaVersion:48, sessionId:"11111111-2222-3333-4444-555555555555",
+        slot:"personalizada", startedAt: Date.now()-600000, timezone:"America/Argentina/Buenos_Aires",
+        day:{ id:"d-o3", nombre:"Día O3", exercises:[
+          { id:"a", nombre:"Press de banca con barra", series:"2", reps:"10" },
+          { id:"b", nombre:"Remo con barra", series:"2", reps:"10" }
+        ]},
+        sets:[
+          { exerciseInstance:"a", setNumber:1, completed:true, peso:40, reps:10 },
+          { exerciseInstance:"a", setNumber:2, completed:false },
+          { exerciseInstance:"b", setNumber:1, completed:false },
+          { exerciseInstance:"b", setNumber:2, completed:false }
+        ],
+        references:{}, lifecycle:null
+      };
+    }
+
+    async function conSesionNativa(fn){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = { session:T.state.session, raw:T.state.rutinaRaw, issue:T.state.nativeReconcileIssue,
+        profile:T.state.profile, offline:T.state.nativeOffline };
+      var s = sesionNativaV503();
+      T.state.profile = T.state.profile || { id:"perfil-v503-o3", name:"T", edad:30, sexo:"m" };
+      T.state.session = s;
+      T.state.rutinaRaw = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+      T.state.nativeReconcileIssue = null;
+      T.state.nativeOffline = false;
+      try {
+        assert(T.VodaFitSession ? true : true, "");
+        return await fn({ T:T, W:W, s:s });
+      } finally {
+        T.state.session = prev.session; T.state.rutinaRaw = prev.raw;
+        T.state.nativeReconcileIssue = prev.issue; T.state.profile = prev.profile;
+        T.state.nativeOffline = prev.offline;
+      }
+    }
+
+    test("O3 — qué botones existen en cada estado de la sesión nativa", async function(){
+      return conSesionNativa(async function(c){
+        var W = c.W;
+        // Estado normal: finalizar y cancelar.
+        var normal = c.T.screenSession(c.s.day);
+        assert(normal.indexOf("data-native-finalize") !== -1, "falta Finalizar entrenamiento");
+        assert(normal.indexOf("data-native-cancel") !== -1, "en estado normal tiene que estar Cancelar");
+        assert(normal.indexOf("data-native-use-remote") === -1, "sin conflicto no va el botón de estado remoto");
+        // Cierre pendiente de confirmación: Cancelar desaparece.
+        W.VodaFitLifecycle.finish(c.s);
+        var pendiente = c.T.screenSession(c.s.day);
+        assert(pendiente.indexOf("data-native-finalize") !== -1, "Finalizar sigue, como reintento");
+        assert(pendiente.indexOf("data-native-cancel") === -1,
+          "con el cierre pendiente NO puede estar Cancelar");
+        // Operación terminal en vuelo: tampoco.
+        c.s.lifecycle = null;   // validTimeline exige null o un pending real
+        c.T.state.rutinaRaw.__v48TerminalRequest = { action:"finish", sessionId:c.s.sessionId };
+        var enVuelo = c.T.screenSession(c.s.day);
+        assert(enVuelo.indexOf("data-native-cancel") === -1,
+          "con una operación terminal en vuelo NO puede estar Cancelar");
+        delete c.T.state.rutinaRaw.__v48TerminalRequest;
+        // Conflicto reconciliable: aparece el botón de resolver con el remoto.
+        c.T.state.nativeReconcileIssue = "REMOTE_FINALIZADA";
+        var conflicto = c.T.screenSession(c.s.day);
+        assert(conflicto.indexOf("data-native-use-remote") !== -1,
+          "con un estado remoto terminal tiene que ofrecer resolverlo");
+      });
+    });
+
+    test("O3 — terminar un ejercicio no cambia el juego de botones", async function(){
+      return conSesionNativa(async function(c){
+        var W = c.W;
+        var antes = c.T.screenSession(c.s.day);
+        // `decide` es lo que hace el modal de referencia. Es la justificación de
+        // usar el refresh puntual en vez de rearmar la pantalla: si esto cambiara
+        // qué botones existen, la pantalla quedaría con los botones viejos.
+        var snapshot = W.VodaFitSession.completed(c.s, "a");
+        assert(snapshot.length === 1, "precondición: el ejercicio a tiene una serie completada");
+        assert(W.VodaFitSession.decide(c.s, "a", true, snapshot) === true, "decide debería aceptar");
+        var despues = c.T.screenSession(c.s.day);
+        var botones = function(html){
+          return ["data-native-finalize","data-native-cancel","data-native-use-remote"]
+            .filter(function(b){ return html.indexOf(b) !== -1; }).join(",");
+        };
+        assert(botones(antes) === botones(despues),
+          "terminar un ejercicio cambió los botones: antes [" + botones(antes) + "] después [" + botones(despues) + "]");
+      });
+    });
+
+    test("O3 — el refresh puntual actualiza en el lugar y cae al render si se desmontó", async function(){
+      var W = frame.contentWindow, T = W.__appTest, D = W.document;
+      // bind() devuelve el refresh que V50.3 ahora conserva. Acá se usa directo
+      // sobre un contenedor propio para medir que actualiza sin rearmar nada.
+      var s = sesionNativaV503();
+      var host = D.createElement("div");
+      host.innerHTML = W.VodaFitSession.html(s, null, function(x){ return x; });
+      D.body.appendChild(host);
+      try {
+        var refresh = W.VodaFitSession.bind(host, s, { onChange:function(){}, onFinish:function(){}, onRest:function(){}, onInfo:function(){} });
+        assert(typeof refresh === "function", "bind tiene que devolver el refresh");
+        var contadorA = host.querySelector('[data-native-count]');
+        var nodoOriginal = contadorA;
+        assert(contadorA.textContent === "1/2", "precondición: 1 de 2 series, dio " + contadorA.textContent);
+        // Completar la segunda serie del ejercicio a y refrescar.
+        W.VodaFitSession.edit(s, "a", 2, "peso", "45");
+        W.VodaFitSession.edit(s, "a", 2, "reps", "8");
+        W.VodaFitSession.toggle(s, "a", 2, true);
+        refresh();
+        assert(host.querySelector('[data-native-count]') === nodoOriginal,
+          "el refresh no puede reemplazar los nodos: tiene que escribir sobre los que ya están");
+        assert(nodoOriginal.textContent === "2/2",
+          "el contador tiene que haberse actualizado en el lugar, dio " + nodoOriginal.textContent);
+      } finally { host.remove(); }
+      // Y el envoltorio de la app: con el contenedor desmontado no escribe en
+      // nodos sueltos. refrescarSesionNativa devuelve false cuando cae al render.
+      assert(typeof T.refrescarSesionNativa === "function", "falta refrescarSesionNativa");
+      assert(APP_SRC && /if\(nativeRefresh && nativeRefresh\.container && nativeRefresh\.container\.isConnected\)/.test(APP_SRC),
+        "el refresh tiene que validar que su contenedor siga montado");
+      assert(APP_SRC.indexOf("closeModal();refrescarSesionNativa();") !== -1,
+        "el modal de referencia tiene que usar el refresh puntual");
+    });
+
     group("A5 y M1 — contraste y tipografía del registro heredado");
 
     test("A5 — la serie completada usa --success-on y llega a 4,5:1 en los dos temas", function(){

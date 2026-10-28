@@ -4655,7 +4655,11 @@
   function networkUnavailable(error){
     return navigator.onLine===false || error instanceof TypeError || /failed to fetch|networkerror|network request failed/i.test(error && error.message || "");
   }
-  async function loadProfileData({confirmedNative=false}={}){
+  async function loadProfileData({confirmedNative=false,terminal=null}={}){
+    // V50.3 (O1): se espera la escritura del borrador en curso. Una recarga pisa
+    // state.rutinaRaw y el contexto de rutinaSync; una escritura que aterrice
+    // después quedaría contra una base ya reemplazada.
+    await borradorV48.esperar();
     if(!state.profile) return;
     const ownerId=state.profile.id, generation=authLoadGeneration;
     // V40: el peso corporal se pide con su propio catch, NO dentro del
@@ -4665,12 +4669,41 @@
     // TODA la app a la pantalla de error de conexión. La funcionalidad nueva
     // no puede tirar abajo la que ya funciona: si no está disponible, queda
     // en [] y el bloque "Mi peso" muestra el aviso.
-    const pesoPromise = Store.listPesoCorporal(ownerId)
-      .then((rows)=> ({ rows: rows||[], error: null }))
-      .catch((e)=> ({ rows: [], error: (e && e.message) ? e.message : "No se pudo leer el peso corporal." }));
+    /* V50.3 (O2) — dos lecturas de menos en el recorrido más lento.
+
+       Finalizar un entrenamiento V48 recargaba TODO: una lectura de `rutinas`
+       para reconciliar, otra de `rutinas` dentro de rutinaSync.load, registros,
+       entrenos y peso_corporal. Cinco pedidos, con la RPC de cierre ya devuelta
+       y confirmada.
+
+       `terminal` es el resultado YA confirmado de una operación terminal, y lo
+       pasa un solo lugar: applyNativeTerminalResult. Cuando viene:
+
+       - Se omite peso_corporal. Ninguna operación terminal lo toca, y lo que ya
+         está en state es lo mismo que devolvería la lectura.
+       - Se omite el pre-read de `rutinas` y la reconciliación. La operación
+         acaba de confirmarse contra el servidor: recover() volvería a leer el
+         borrador local para descubrir que no hay nada pendiente.
+
+       Lo que NO se omite es rutinaSync.load(): es la lectura que fija `base` en
+       el contexto de createSync, y de ahí sale la revisión del siguiente CAS.
+       Reemplazarla por el sobre de la RPC obligaría a tocar v48-persistence.js,
+       que es el núcleo de la concurrencia. Con load() intacto, state.rutinaRaw
+       sigue saliendo de la fila real: si por cualquier motivo quedara un
+       __v48TerminalRequest sin resolver, aparece igual y las guardas de la
+       interfaz lo siguen detectando. La detección no se pierde; lo que se evita
+       es repetir la reconciliación dentro de esta misma llamada.
+
+       Ninguna escritura cambia, así que la idempotencia queda intacta. */
+    const reusarTerminal = !!(terminal && terminal.ok);
+    const pesoPromise = reusarTerminal
+      ? Promise.resolve({ rows: state.pesoCorporal || [], error: state.pesoCorporalError || null })
+      : Store.listPesoCorporal(ownerId)
+        .then((rows)=> ({ rows: rows||[], error: null }))
+        .catch((e)=> ({ rows: [], error: (e && e.message) ? e.message : "No se pudo leer el peso corporal." }));
 
     let nativeIssue=null;
-    if(VodaFitPersistence.capabilities.metadata && VodaFitPersistence.capabilities.rpc){
+    if(!reusarTerminal && VodaFitPersistence.capabilities.metadata && VodaFitPersistence.capabilities.rpc){
       try {
         const base=await Store.readRutina(ownerId);
         if(generation!==authLoadGeneration || !state.profile || state.profile.id!==ownerId) return;
@@ -4680,6 +4713,7 @@
         if(reconciled.unchanged) await nativeLifecycle.recover(ownerId,base,navigator.onLine!==false);
       } catch(error){if(!networkUnavailable(error)) throw error;}
     }
+    if(reusarTerminal) confirmedNative=true;
     const outcomes=await Promise.allSettled([rutinaSync.load(ownerId),Store.listRegistros(ownerId),Store.listEntrenos(ownerId),pesoPromise]);
     if(outcomes[0].status!=="fulfilled") throw outcomes[0].reason;
     const loaded=outcomes[0].value;
@@ -4861,6 +4895,61 @@
     }
     return result;
   }
+
+  /* ===== V50.3 (O1) — guardado inmediato del borrador V48, con espera =====
+
+     Esto NO es una cola. `cambio()` llama a persistRutina() en el acto, igual
+     que antes de V50.3: cada tecla del peso o de las reps arranca su escritura
+     sin esperar nada.
+
+     Hubo una versión con coalescencia —mientras había un guardado en curso, los
+     cambios siguientes se unían en uno solo al terminar— y se retiró por
+     decisión de producto: medida en escritorio, una escritura completa cuesta
+     0,37 ms de CPU y 0,30 ms de IndexedDB sobre un documento de 21 KB, así que
+     dos teclas no se superponen y la unión casi nunca se activaba. No valía
+     agregar una indirección en el camino más sensible de la app por una mejora
+     que no se pudo demostrar. Si alguna vez se mide en un teléfono real y el
+     costo resulta otro, la decisión se revisa con esos números.
+
+     Lo que SÍ queda es poder ESPERAR la escritura en curso. No la dispara ni la
+     adelanta: sólo permite que una operación que va a leer el borrador guardado
+     —o a pisar el estado— no lo haga a mitad de una escritura. Dos puntos:
+
+       - loadProfileData, que reemplaza state.rutinaRaw y el contexto de
+         rutinaSync: una escritura del borrador que aterrice después quedaría
+         contra una base ya reemplazada.
+       - las cuatro operaciones terminales, porque finalizeNativeSession compara
+         rutinaCache.get(owner) con el lifecycle en memoria para decidir si el
+         cierre ya quedó durable; con una escritura sin resolver, esa comparación
+         mira la copia anterior y vuelve a persistir de más.
+
+     NO hay descarga en visibilitychange ni en pagehide: sin cola no queda nada
+     por arrancar, así que serían dos listeners que no hacen nada. La durabilidad
+     frente a un cierre inesperado es exactamente la de 18062d2 — el guardado
+     arranca en el mismo tick del cambio y no hay ningún temporizador en el medio. */
+  const borradorV48 = (()=>{
+    let ultimaEscritura = Promise.resolve(null);
+    let sinResolver = 0;
+    let escrituras = 0;      // sólo para las pruebas
+    return {
+      // Un cambio del borrador: se guarda YA. Devuelve la promesa de ESA escritura.
+      cambio(){
+        escrituras++; sinResolver++;
+        const p = persistRutina();
+        // Se recuerda la última para poder esperarla. El rechazo se absorbe acá:
+        // esperar una escritura nunca puede hacer fallar a quien espera, y el
+        // fallo lo informa igualmente persistRutina a su propio llamador.
+        ultimaEscritura = p.then(r=>{ sinResolver--; return r; }, ()=>{ sinResolver--; return null; });
+        return p;
+      },
+      // Espera la escritura en curso. No encola, no arranca, no reordena nada:
+      // rutinaSync.save ya serializa, así que la última en resolver es la última.
+      esperar(){ return ultimaEscritura; },
+      get hayPendiente(){ return sinResolver > 0; },
+      get escrituras(){ return escrituras; },
+      reiniciarMedicion(){ escrituras = 0; }
+    };
+  })();
 
   async function selectRutinaSlot(slot){
     if(state.activeSlot === slot) return;
@@ -6944,6 +7033,7 @@
         if(!ok){ openCalDayModal(date); return; } // reabre el modal (confirmDialog lo cerró)
         if(nativeEntry){
           if(generation!==authLoadGeneration || state.profile?.id!==owner) return;
+          await borradorV48.esperar();   // V50.3 (O1): operación terminal, no leer un borrador a medio escribir
           const result=await nativeReconciler.remove(owner,rutinaSync.getContext()?.base,nativeEntry.sessionId,navigator.onLine!==false);
           if(generation!==authLoadGeneration || state.profile?.id!==owner) return;
           if(result.ok){closeModal();await applyNativeTerminalResult(result,owner,generation);}
@@ -7707,8 +7797,23 @@
     `;
   }
 
+  // V50.3 (O3): el `refresh` que devuelve VodaFitSession.bind, junto con el
+  // contenedor sobre el que quedó cerrado. Si ese contenedor se desmontó (otra
+  // pantalla, otro render), el refresh escribiría en nodos sueltos: por eso se
+  // valida isConnected antes de usarlo y si no se cae al render completo.
+  let nativeRefresh = null;
+  function refrescarSesionNativa(){
+    if(nativeRefresh && nativeRefresh.container && nativeRefresh.container.isConnected){
+      nativeRefresh.refresh();
+      return true;
+    }
+    renderScreenSession();
+    return false;
+  }
+
   function mountSession(day){
     const el = document.getElementById("screen");
+    nativeRefresh = null;
     if(nativeSession()){
       const session=nativeSession(),owner=state.profile && state.profile.id,generation=authLoadGeneration;
       const current=()=>nativeSession()===session && state.profile && state.profile.id===owner && generation===authLoadGeneration;
@@ -7731,20 +7836,26 @@
         });
         return;
       }
-      VodaFitSession.bind(el,session,{
+      // V50.3 (O3): bind ya devolvía un `refresh` que actualiza en el lugar los
+      // contadores, el mensaje de referencia y el estado de los botones de cada
+      // ejercicio, y se descartaba. Se guarda junto con su contenedor: si el
+      // contenedor sigue montado, terminar un ejercicio actualiza eso en vez de
+      // rearmar la pantalla entera.
+      nativeRefresh = { refresh: VodaFitSession.bind(el,session,{
         onChange:async()=>{
           if(!current()) return;
           const status=el.querySelector('[data-native-save-status]');
           if(status) status.textContent="Guardando borrador…";
-          const saved=await persistRutina();
-          if(!current()) return;
+          // V50.3 (O1): por la cola coalescida, no un persistRutina por tecla.
+          const saved=await borradorV48.cambio();
+          if(!current() || !saved) return;
           if(status && status.isConnected) status.textContent=saved.ok ? "Borrador guardado en este dispositivo. Pendiente de sincronización."
             : "No se pudo guardar el último cambio. Conservá esta pantalla abierta y revisá el aviso.";
         },
         onFinish:exId=>openNativeReferenceDialog(session,exId,current),
         onRest:()=>{if(current()) openRestModal();},
         onInfo:exId=>{if(current()){const ex=day.exercises.find(x=>x.id===exId);if(ex) openExerciseDetail(ex,{returnTab:"sesion"});}}
-      });
+      }), container: el };
       return;
     }
     el.querySelectorAll(".setdot").forEach(dot=>{
@@ -7802,10 +7913,19 @@
       if(!VodaFitSession.decide(session,exId,button.dataset.nativeAnswer==="yes",snapshot)){
         closeModal();showToast("Las series cambiaron. Volvé a terminar el ejercicio para elegir la referencia.");return;
       }
-      const saved=await persistRutina();
+      // V50.3 (O1): pasa por el mismo camino que las teclas, que es persistRutina
+      // en el acto. Queda escrito así —y no con persistRutina directo— para que
+      // el contador de escrituras del borrador siga siendo completo.
+      const saved=await borradorV48.cambio();
       if(!current()) return;
-      closeModal();renderScreenSession();
-      if(saved.ok){
+      // V50.3 (O3): `decide` cambia el contador del ejercicio, su mensaje de
+      // referencia y si su botón "Terminar ejercicio" queda deshabilitado —
+      // exactamente lo que actualiza `refresh`. No cambia pending() ni
+      // __v48TerminalRequest, así que el juego de botones de la pantalla es el
+      // mismo: rearmarla entera era trabajo de más y rehacía los nodos justo
+      // antes de scrollear al ejercicio siguiente.
+      closeModal();refrescarSesionNativa();
+      if(saved && saved.ok){
         const index=session.day.exercises.findIndex(ex=>ex.id===exId),next=session.day.exercises[index+1];
         if(next){const card=Array.from(document.querySelectorAll('[data-native-card]')).find(el=>el.dataset.nativeCard===next.id);
           if(card) card.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}
@@ -7980,6 +8100,7 @@
     if(yes && nativeSession()===s && state.profile?.id===owner && generation===authLoadGeneration) return finalizeSession(s.day);
   }
   async function requestNativeCancel(){
+    await borradorV48.esperar();   // V50.3 (O1): operación terminal, no leer un borrador a medio escribir
     const s=nativeSession(),owner=state.profile?.id,generation=authLoadGeneration;
     if(!s || VodaFitLifecycle.pending(s) || state.rutinaRaw?.__v48TerminalRequest) return;
     const yes=await confirmDialog("Cancelar entrenamiento","Se descartará este borrador sin registrar series realizadas ni actualizar referencias. Si no hay conexión, la cancelación quedará pendiente.","Cancelar entrenamiento");
@@ -7994,7 +8115,7 @@
   async function applyNativeTerminalResult(result,owner,generation){
     nativeTerminalRefresh=result;
     try {
-      await loadProfileData({confirmedNative:true});
+      await loadProfileData({confirmedNative:true,terminal:result});
       if(generation!==authLoadGeneration || state.profile?.id!==owner) return;
       nativeTerminalRefresh=null;state.tab=nativeSession()?"sesion":"rutina";render();
       showToast(state.historyRefreshPending?"Operación confirmada. Falta actualizar el historial; volvé a cargar con conexión."
@@ -8002,6 +8123,7 @@
     } catch(error){showToast("Operación remota confirmada. Falta actualizar esta pantalla; reintentá o recargá.");}
   }
   async function requestNativeRemoteResolution(){
+    await borradorV48.esperar();   // V50.3 (O1): operación terminal, no leer un borrador a medio escribir
     const s=nativeSession(),owner=state.profile?.id,generation=authLoadGeneration;
     if(!s) return;
     const yes=await confirmDialog("Resolver sesión", "Se conservará el estado confirmado en el servidor y se descartará este borrador local. No se crearán registros ni se aplicarán sus referencias pendientes. ¿Confirmar?", "Usar estado remoto");
@@ -8012,6 +8134,11 @@
     else showToast("No se confirmó la reconciliación ("+result.code+"). El borrador se conserva.");
   }
   async function finalizeNativeSession(){
+      // V50.3 (O1): espera OBLIGATORIA. Unas líneas más abajo se compara
+      // rutinaCache.get(owner) contra el lifecycle en memoria para decidir si el
+      // cierre ya está durable: con una escritura sin resolver, esa comparación
+      // mira la copia anterior y vuelve a persistir de más.
+      await borradorV48.esperar();
       if(state.rutinaRaw?.__v48TerminalRequest) return {ok:false,code:"OPERATION_IN_PROGRESS"};
       const s=nativeSession(),owner=state.profile.id,generation=authLoadGeneration;
       try {VodaFitLifecycle.finish(s);} catch(e){showToast("No se pudo fijar la hora de cierre. Revisá la hora del dispositivo.");return {ok:false,code:e.message};}
@@ -11409,7 +11536,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "a5633448117a3eed245d1b620dd598d4eb8b3dfd712860d222155a2149e0bbf0";
+  const APP_BUILD = "5f8c8a850f627e4c5888d59fd7e1cda9e34301ceba3812c1ffa65eeec472b33a";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -11626,6 +11753,17 @@
     // olvidarRegistroDeLaSesion operan sobre state.session (sesion V47) y no
     // tocan la base; sessionSetCount y sesionLegadaEnDia son puras.
     sessionSetCount, sesionLegadaEnDia, syncSessionSetsWithDay, olvidarRegistroDeLaSesion,
+    // V50.3: borradorV48 es la cola coalescida de guardado del borrador nativo
+    // (cambio / descargar / escrituras) y refrescarSesionNativa es la
+    // actualizacion puntual de la pantalla de entrenamiento.
+    borradorV48, refrescarSesionNativa,
+    // screenSession se expone para afirmar QUE BOTONES existe en cada estado
+    // terminal de la sesion nativa (O3). Es presentacion pura: no escribe nada.
+    screenSession,
+    // loadProfileData se expone para PODER LLAMARLA desde una prueba (contar
+    // lecturas en el recorrido terminal, O2). No sirve para sustituirla: las
+    // llamadas internas usan la referencia del closure, no esta copia.
+    loadProfileData,
     sessionExerciseCardHtml, toggleSessionSet,
     // v37 — vueltas del cronómetro de entrenamiento
     workoutClock, addWorkoutLap, clearWorkoutLaps, workoutLapRows, workoutLapsBlockHtml,
