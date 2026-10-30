@@ -4223,7 +4223,9 @@
     // no tiene que mover la semana de Rutina ni el período de Registro.
     perfilWeekOffset:0,
     perfilWeekDetailOpen:false,
-    perfilPesoPeriod:"30d",
+    // V51.1: perfilPesoPeriod se retiró junto con perfilPesoHtml (ver ese
+    // comentario) — era el período propio del bloque "Tu peso" de Perfil,
+    // que ya no existe.
     perfilScrollY:null,        // V42: scroll de Perfil, para restaurarlo al volver
     perfilScrollPending:false,
     // V43: Mapa muscular. Pantalla propia (no es una pestaña de la barra),
@@ -8692,6 +8694,15 @@
   // por semana escondería justamente lo que se quiere ver.
   // Reusa el mismo SVG inline y las clases .exchart que ya existen — no se
   // agrega ninguna librería.
+  //
+  // V51.1: se sacó la fila "Mínimo / Máximo" que iba debajo de las fechas.
+  // No era un bug de asociación fecha-peso (la línea y las fechas del eje
+  // siempre estuvieron bien unidas) sino un problema de lectura: esa fila
+  // mostraba Mínimo siempre a la izquierda y Máximo siempre a la derecha, sin
+  // relación con qué fecha quedaba realmente a la izquierda o a la derecha
+  // del gráfico, así que con la fila de fechas arriba generaba una asociación
+  // errónea. `min`/`max` se conservan: siguen haciendo falta para calcular
+  // la posición Y de cada punto.
   function pesoLineChart(rowsAsc, periodLabel){
     const w = 300, h = 140, padX = 10, padY = 18;
     const vals = rowsAsc.map(r=> r.pesoKg);
@@ -8713,10 +8724,6 @@
           ${pts.map(p=>`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="var(--accent)"/>`).join("")}
         </svg>
         <div class="row between"><span class="helptext">${esc(fmtDate(first.fecha))}</span><span class="helptext">${esc(fmtDate(last.fecha))}</span></div>
-        <div class="row between" style="margin-top:8px">
-          <div><div class="num" style="font-weight:700; font-size:16px">${fmtPesoKg(min)} kg</div><div class="helptext">Mínimo</div></div>
-          <div style="text-align:right"><div class="num" style="font-weight:700; font-size:16px">${fmtPesoKg(max)} kg</div><div class="helptext">Máximo</div></div>
-        </div>
         <div class="helptext" style="text-align:center; margin-top:6px">${rowsAsc.length} pesaje${rowsAsc.length===1?"":"s"} · ${esc(periodLabel||"")}</div>
       </div>
     `;
@@ -11232,9 +11239,16 @@
 
   /* ===== V50.6C — Resumen compacto =====
 
-     Cuatro cifras: peso actual, edad, y ejercicios distintos en 7 y en 30 días.
+     V51.1: eran cuatro cifras (peso actual, edad, 7 días, 30 días). "Peso
+     actual" SALIÓ: el seguimiento de peso corporal queda exclusivamente en
+     Registro → "Mi peso", que ya tiene su propio resumen (actual, inicial,
+     diferencia) y su gráfico. Repetirlo acá era la misma cifra dos veces, y
+     fue justo la fila ambigua de Registro (Mínimo/Máximo sin ligar a la
+     fecha) la que generó la confusión que motivó este cambio — ver
+     pesoLineChart. Quedan tres: edad, y ejercicios distintos en 7 y en 30
+     días.
 
-     Lo que SALIÓ de acá, y por qué:
+     Lo que SALIÓ antes, y por qué:
        · El contador "Esta semana" y la racha. Estaban en Perfil y en Rutina a la
          vez, calculando lo mismo. La racha vive en Rutina y no se duplica
          (requisito de V50.6C). rachaCardHtml conserva su parámetro de scope y
@@ -11248,7 +11262,6 @@
      guión: no se inventa ni se deriva de otra cosa. Calcularla de verdad exige
      una columna nueva, que es un cambio de esquema y queda fuera de alcance. */
   function perfilResumenHtml(){
-    const resumen = pesoResumen(state.pesoCorporal||[]);
     const edad = Number.isFinite(state.profile && state.profile.edad) ? state.profile.edad : null;
     const regs = state.registros||[];
     const d7 = ejerciciosDistintosEnVentana(regs, 7);
@@ -11258,10 +11271,6 @@
       <div class="section-title"><h2>Resumen</h2></div>
       <div class="card">
         <div class="perfil-sum">
-          <div class="perfil-sum-i">
-            <div class="num perfil-sum-v">${resumen ? `${fmtPesoKg(resumen.actual.pesoKg)}<small> kg</small>` : guion}</div>
-            <div class="perfil-sum-l">${resumen ? "Peso actual" : "Sin peso registrado"}</div>
-          </div>
           <div class="perfil-sum-i">
             <div class="num perfil-sum-v">${edad!=null ? `${edad}<small> años</small>` : guion}</div>
             <div class="perfil-sum-l">${edad!=null ? "Edad" : "Edad sin cargar"}</div>
@@ -11280,64 +11289,17 @@
     `;
   }
 
-  // Bloque de peso SOLO LECTURA. Reusa las funciones de V40 y, a propósito,
-  // NO incluye el botón de alta, el modal, editar, eliminar ni el historial
-  // fila por fila: eso vive en Registro. Tiene su propio período
-  // (state.perfilPesoPeriod) para que mirar "1 año" acá no le cambie la vista
-  // a Registro.
-  function perfilPesoHtml(){
-    const rows = state.pesoCorporal||[];
-    const resumen = pesoResumen(rows);
-    const irARegistro = `<button class="btn btn-outline btn-block btn-sm" id="btn-perfil-ir-peso">Registrar o editar tu peso</button>`;
-
-    if(state.pesoCorporalError){
-      return `
-        <div class="section-title"><h2>Tu peso</h2></div>
-        <div class="banner">${icon("info")}<div>
-          <b>El peso corporal no está disponible todavía.</b>
-          <div class="helptext" style="margin-top:2px">Falta ejecutar la migración supabase-migration-v40.sql en Supabase.</div>
-        </div></div>
-      `;
-    }
-
-    if(!resumen){
-      return `
-        <div class="section-title"><h2>Tu peso</h2></div>
-        <div class="card stack">
-          <p class="helptext" style="text-align:center; padding:10px 0">Todavía no registraste tu peso. El primero va a ser tu punto de partida.</p>
-          ${irARegistro}
-        </div>
-      `;
-    }
-
-    const periodKey = PESO_PERIODS.some(p=>p.key===state.perfilPesoPeriod) ? state.perfilPesoPeriod : "30d";
-    const per = PESO_PERIODS.find(p=>p.key===periodKey);
-    const enPeriodo = pesoCorporalEnPeriodo(rows, periodKey, todayStr());
-    const diffColor = resumen.diff > 0 ? "var(--danger)" : (resumen.diff < 0 ? "var(--success)" : "var(--text-muted)");
-
-    return `
-      <div class="section-title"><h2>Tu peso</h2><span class="muted">solo lectura</span></div>
-      <div class="card stack">
-        <div class="statline">
-          <div>
-            <div class="num pesostat-val">${fmtPesoKg(resumen.actual.pesoKg)}<small> kg</small></div>
-            <div class="helptext">Actual · ${esc(fmtDate(resumen.actual.fecha))}</div>
-          </div>
-          <div style="text-align:right">
-            <div class="num" style="font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:20px; color:${diffColor}">${fmtPesoDiff(resumen.diff)}</div>
-            <div class="helptext">${resumen.unico ? "Primer pesaje" : "Desde " + esc(fmtDate(resumen.inicial.fecha))}</div>
-          </div>
-        </div>
-        <div class="segmented">
-          ${PESO_PERIODS.map(p=>`<button data-perfil-peso-period="${p.key}" class="${p.key===periodKey?"active":""}">${esc(p.label)}</button>`).join("")}
-        </div>
-        ${enPeriodo.length===0
-          ? `<p class="helptext" style="text-align:center; padding:18px 0">Sin pesajes en este período.</p>`
-          : pesoLineChart(enPeriodo, per.label)}
-        ${irARegistro}
-      </div>
-    `;
-  }
+  /* V51.1 — perfilPesoHtml se RETIRÓ. Era el bloque de peso SOLO LECTURA de
+     Perfil ("Tu peso": actual, diferencia, período propio y el mismo
+     pesoLineChart de Registro). Decisión de producto: el seguimiento de peso
+     queda exclusivamente en Registro → "Mi peso", que ya tiene todo esto y
+     además alta/edición/historial. Mantenerlo en los dos lados duplicaba la
+     cifra y, con la fila Mínimo/Máximo de pesoLineChart (ver ese comentario),
+     era parte de lo que generó la lectura cruzada fecha-peso que se reportó.
+     Se fue con él state.perfilPesoPeriod (sólo servía para el período de
+     este bloque) y los handlers data-perfil-peso-period / btn-perfil-ir-peso
+     de mountPerfil. pesoResumen, pesoCorporalEnPeriodo y pesoLineChart NO se
+     tocaron: Registro los sigue usando igual que antes. */
 
   /* V50.6C — perfilEntrenamientoHtml se RETIRÓ. Qué tenía adentro y dónde quedó:
 
@@ -11634,17 +11596,17 @@
   // La tarjeta de la semana es la MISMA de Rutina (rachaCardHtml), con scope
   // "perfil" para que la navegación semanal tenga su propio estado.
   /* V50.6C: salieron la tarjeta "Esta semana" —que era rachaCardHtml otra vez,
-     la misma que está arriba de Rutina— y "Tu entrenamiento". Lo que queda es:
-     quién soy → cuatro cifras → peso → mapa muscular → estiramientos →
-     configuración. El mapa, su selección de regiones, el detalle de músculos y
-     el acceso a estiramientos quedan intactos. */
+     la misma que está arriba de Rutina— y "Tu entrenamiento".
+     V51.1: salió también "Tu peso" (ver perfilPesoHtml). Lo que queda es:
+     quién soy → tres cifras → mapa muscular → estiramientos → configuración.
+     El mapa, su selección de regiones, el detalle de músculos y el acceso a
+     estiramientos quedan intactos. */
   function screenPerfil(){
     return `
       ${perfilConflictoHtml()}
       ${perfilActivacionHtml()}
       ${perfilCuentaHtml()}
       ${perfilResumenHtml()}
-      ${perfilPesoHtml()}
       ${perfilMapaHtml()}
       ${perfilEstiramientosHtml()}
       ${perfilConfigHtml()}
@@ -11661,14 +11623,8 @@
     // perfilWeekDetailOpen siguen en el código y con sus pruebas; lo que
     // desaparece es el único consumidor del scope "perfil".
 
-    // Período del gráfico de peso. Clave propia: no toca el de Registro.
-    el.querySelectorAll("[data-perfil-peso-period]").forEach(btn=>{
-      btn.onclick = ()=>{ state.perfilPesoPeriod = btn.dataset.perfilPesoPeriod; renderScreen(); };
-    });
-
-    // El peso se GESTIONA en Registro; acá solo se manda para allá.
-    const irPeso = el.querySelector("#btn-perfil-ir-peso");
-    if(irPeso) irPeso.onclick = ()=> setTab("registro");
+    // V51.1: salieron los handlers de "Tu peso" (data-perfil-peso-period y
+    // btn-perfil-ir-peso) junto con perfilPesoHtml — esa sección ya no existe.
 
     // V47.1: el mapa vive dentro de Perfil. Se enganchan sus MISMOS handlers
     // (mountMuscleMap), pero repintando Perfil en vez de saltar a la pantalla
@@ -11814,7 +11770,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "63fec99c52a77722f958f798d7f0cabaeb6b60d85812a26addbe3ed5ecffaca8";
+  const APP_BUILD = "a7109ff8beefe23ea124e0c7053bbb7bc094b870229d9bb36fb07cab23c5858c";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -12084,7 +12040,7 @@
     estiramientosChipsHtml, screenEstiramientos, renderEstiramientos, mountEstiramientos,
     abrirEstiramientos, estiramientosModalHtml,
     // V42: dashboard de Perfil. Todo lee state, ninguna consulta nueva.
-    screenPerfil, mountPerfil, perfilCuentaHtml, perfilResumenHtml, perfilPesoHtml, perfilMapaHtml, mapaClaveDeRegionDibujada, mapaStatsActuales,
+    screenPerfil, mountPerfil, perfilCuentaHtml, perfilResumenHtml, perfilMapaHtml, mapaClaveDeRegionDibujada, mapaStatsActuales,
     // V50.1: salida del conflicto local (E1).
     resumenDeCopia, copiasEnConflicto, copiaFechaTexto, copiaResumenHtml,
     screenConflictos, renderConflictos, mountConflictos, perfilConflictoHtml, rutinaSync,

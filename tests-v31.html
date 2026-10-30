@@ -3555,12 +3555,19 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(svg.indexOf("Infinity") === -1, "el SVG trae Infinity");
     });
 
-    test("un círculo por pesaje, y mínimo/máximo correctos", function(){
+    test("un círculo por pesaje, con las fechas de los extremos", function(){
+      // ACTUALIZADO EN V51.1: hasta entonces este test exigía "79 kg" y
+      // "82 kg" de la fila Mínimo/Máximo, que se retiró (ver pesoLineChart):
+      // no estaba ligada a la posición real de esos valores en el eje y
+      // generaba una lectura fecha-peso cruzada. La línea y las fechas del
+      // eje, que SIEMPRE estuvieron bien asociadas, se siguen verificando.
       var rows = [pc("2026-01-01",82), pc("2026-02-01",79), pc("2026-03-01",80.5)];
       var svg = A.pesoLineChart(rows, "3 meses");
       assert((svg.match(/<circle/g)||[]).length === 3, "debería haber 3 círculos");
-      assert(svg.indexOf("79 kg") !== -1, "falta el mínimo 79");
-      assert(svg.indexOf("82 kg") !== -1, "falta el máximo 82");
+      assert(svg.indexOf("Mínimo") === -1 && svg.indexOf("Máximo") === -1,
+        "la fila Mínimo/Máximo se retiró en V51.1");
+      assert(svg.indexOf("1 ene") !== -1, "falta la fecha del primer pesaje");
+      assert(svg.indexOf("1 mar") !== -1, "falta la fecha del último pesaje");
       assert(svg.indexOf("3 pesajes") !== -1, "debería decir 3 pesajes");
     });
 
@@ -3928,15 +3935,15 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     group("V42 — Perfil: estructura y cuenta");
 
-    test("V50.6C — el dashboard tiene CINCO secciones, en orden", function(){
-      // ACTUALIZADO EN V50.6C: eran siete. Salieron "Esta semana" —que era la
-      // misma rachaCardHtml que ya está arriba de Rutina— y "Tu entrenamiento",
-      // cuyas estadísticas por origen no cambiaban ninguna decisión del usuario
-      // y costaban media pantalla de teléfono. El dato que sí servía, cuántos
-      // ejercicios distintos, pasó al Resumen con ventana de 7 y 30 días.
+    test("V51.1 — el dashboard tiene CUATRO secciones, en orden", function(){
+      // ACTUALIZADO EN V51.1: eran cinco. Salió "Tu peso" (perfilPesoHtml,
+      // retirada): el seguimiento de peso corporal queda exclusivamente en
+      // Registro → "Mi peso". Repetirlo en Perfil duplicaba la cifra y era
+      // parte de lo que generó la lectura cruzada fecha-peso reportada sobre
+      // pesoLineChart (ver ese comentario y el de perfilResumenHtml).
       //
       // La aserción NO se afloja: sigue exigiendo el conjunto exacto y el orden
-      // exacto, ahora con dos secciones menos. "Sectores" no aparece porque la
+      // exacto, ahora con una sección menos. "Sectores" no aparece porque la
       // lista del mapa se cuenta sobre el HTML de screenMuscleMap, que este test
       // no desarma: acá se mira sólo el esqueleto que arma screenPerfil.
       conPerfil({}, function(){
@@ -3945,8 +3952,17 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         d.innerHTML = html;
         var titulos = [].map.call(d.querySelectorAll(".section-title h2"), function(h){ return h.textContent; })
           .filter(function(x){ return x !== "Sectores"; });
-        assert(titulos.join(" | ") === "Tu cuenta | Resumen | Tu peso | Mapa muscular | Configuración",
+        assert(titulos.join(" | ") === "Tu cuenta | Resumen | Mapa muscular | Configuración",
           "dio: " + titulos.join(" | "));
+      });
+    });
+
+    test("V51.1 — perfilPesoHtml se retiró, no quedó como función muerta", function(){
+      assert(typeof A.perfilPesoHtml === "undefined",
+        "perfilPesoHtml tenía que retirarse junto con la sección \"Tu peso\"");
+      // Lo que sigue usando Registro NO se tocó.
+      ["pesoResumen","pesoCorporalEnPeriodo","pesoLineChart","pesoCorporalBlockHtml"].forEach(function(n){
+        assert(typeof A[n] === "function", "se eliminó " + n + " sin corresponder — Registro lo sigue usando");
       });
     });
 
@@ -3984,23 +4000,19 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     group("V42 — Resumen");
 
-    test("el peso actual del Resumen es el último pesaje", function(){
+    test("V51.1 — el Resumen de Perfil ya NO muestra el peso corporal", function(){
+      // REESCRITO EN V51.1. Hasta V50.6C este test exigía "79.5" y la etiqueta
+      // "Peso actual" en perfilResumenHtml. La cifra se retiró del Resumen: el
+      // peso corporal queda exclusivamente en Registro → "Mi peso" (ver
+      // perfilResumenHtml y perfilPesoHtml). Acá se afirma la ausencia.
       conPerfil({ pesoCorporal:[
         { id:"a", fecha:"2026-01-01", pesoKg:84,   nota:"", createdAt:1, updatedAt:null },
         { id:"b", fecha:"2026-03-01", pesoKg:79.5, nota:"", createdAt:2, updatedAt:null }
       ]}, function(){
         var html = A.perfilResumenHtml();
-        assert(html.indexOf("79.5") !== -1, "debería mostrar 79.5");
-        assert(html.indexOf("Peso actual") !== -1, "falta la etiqueta Peso actual");
-      });
-    });
-
-    test("sin peso registrado muestra un estado neutro, sin inventar valor", function(){
-      conPerfil({}, function(){
-        var html = A.perfilResumenHtml();
-        assert(html.indexOf("Sin peso registrado") !== -1, "debería decir que no hay peso");
-        assert(html.indexOf("&#8212;") !== -1, "debería mostrar un guión neutro");
-        assert(!/\d+(\.\d+)?<small> kg/.test(html), "no debería haber un peso en kg inventado");
+        assert(html.indexOf("79.5") === -1, "el peso no puede seguir en el Resumen");
+        assert(html.indexOf("Peso actual") === -1, "ni su etiqueta");
+        assert(html.indexOf("Sin peso registrado") === -1, "ni su estado vacío: ya no hay cifra de peso que mostrar");
       });
     });
 
@@ -4210,79 +4222,17 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
     });
 
-    group("V42 — Tu peso: solo lectura");
-
-    test("el bloque de peso de Perfil NO trae controles de edición", function(){
-      conPerfil({ pesoCorporal:[
-        { id:"a", fecha:diasAtras(40), pesoKg:84, nota:"", createdAt:1, updatedAt:null },
-        { id:"b", fecha:diasAtras(2),  pesoKg:79, nota:"", createdAt:2, updatedAt:null }
-      ]}, function(){
-        var html = A.perfilPesoHtml();
-        assert(html.indexOf("btn-peso-nuevo") === -1, "no debería tener el botón de alta");
-        assert(html.indexOf("data-peso-edit") === -1, "no debería tener editar");
-        assert(html.indexOf("data-peso-del") === -1, "no debería tener eliminar");
-        assert(html.indexOf("Historial de peso") === -1, "no debería traer el historial completo");
-        assert(html.indexOf("btn-perfil-ir-peso") !== -1, "debería tener el acceso a Registro");
-      });
-    });
-
-    test("reutiliza los cinco períodos de V40", function(){
-      conPerfil({ pesoCorporal:[
-        { id:"a", fecha:diasAtras(40), pesoKg:84, nota:"", createdAt:1, updatedAt:null },
-        { id:"b", fecha:diasAtras(2),  pesoKg:79, nota:"", createdAt:2, updatedAt:null }
-      ]}, function(){
-        A.state.perfilPesoPeriod = "todo";
-        var html = A.perfilPesoHtml();
-        A.PESO_PERIODS.forEach(function(p){
-          assert(html.indexOf('data-perfil-peso-period="'+p.key+'"') !== -1, "falta el período " + p.key);
-        });
-        assert(html.indexOf('<svg class="exchart"') !== -1, "falta el gráfico");
-      });
-    });
-
-    test("el período de Perfil es independiente del de Registro", function(){
-      conPerfil({ pesoCorporal:[
-        { id:"a", fecha:diasAtras(40), pesoKg:84, nota:"", createdAt:1, updatedAt:null },
-        { id:"b", fecha:diasAtras(2),  pesoKg:79, nota:"", createdAt:2, updatedAt:null }
-      ]}, function(){
-        A.state.pesoChartPeriod = "7d";
-        A.state.perfilPesoPeriod = "1a";
-        var perfil = A.perfilPesoHtml();
-        var registro = A.pesoCorporalBlockHtml();
-        assert(/data-perfil-peso-period="1a" class="active"/.test(perfil), "Perfil debería estar en 1 año");
-        assert(/data-peso-period="7d" class="active"/.test(registro), "Registro debería seguir en 7 días");
-      });
-    });
-
-    test("el peso de Perfil usa pesoResumen, no una cuenta propia", function(){
-      var rows = [
-        { id:"a", fecha:diasAtras(40), pesoKg:84,   nota:"", createdAt:1, updatedAt:null },
-        { id:"b", fecha:diasAtras(2),  pesoKg:79.5, nota:"", createdAt:2, updatedAt:null }
-      ];
-      conPerfil({ pesoCorporal:rows }, function(){
-        var esperado = A.pesoResumen(rows);
-        var html = A.perfilPesoHtml();
-        assert(html.indexOf(A.fmtPesoKg(esperado.actual.pesoKg)) !== -1, "el actual no coincide con pesoResumen");
-        assert(html.indexOf(A.fmtPesoDiff(esperado.diff)) !== -1, "la diferencia no coincide con pesoResumen");
-      });
-    });
-
-    test("sin peso muestra estado neutro y manda a Registro", function(){
-      conPerfil({}, function(){
-        var html = A.perfilPesoHtml();
-        assert(html.indexOf("Todavía no registraste tu peso") !== -1, "debería avisar que no hay peso");
-        assert(html.indexOf("btn-perfil-ir-peso") !== -1, "debería ofrecer ir a Registro");
-        assert(html.indexOf('<svg class="exchart"') === -1, "no debería dibujar un gráfico vacío");
-      });
-    });
-
-    test("si la tabla no está disponible avisa y no rompe", function(){
-      conPerfil({ pesoCorporalError:"relation does not exist" }, function(){
-        var html = A.perfilPesoHtml();
-        assert(html.indexOf("no está disponible todavía") !== -1, "debería avisar");
-        assert(html.indexOf("supabase-migration-v40.sql") !== -1, "debería nombrar la migración");
-      });
-    });
+    // V51.1: el grupo "V42 — Tu peso: solo lectura" (6 tests) se RETIRÓ
+    // completo junto con perfilPesoHtml. Probaba el bloque "Tu peso" de
+    // Perfil: controles ausentes, los cinco períodos, período propio
+    // independiente del de Registro, uso de pesoResumen, estado vacío y
+    // aviso de tabla no disponible. Esa sección ya no existe en Perfil — el
+    // peso corporal se gestiona exclusivamente en Registro, que conserva TODO
+    // ese comportamiento intacto en pesoCorporalBlockHtml (ver su propio
+    // grupo de tests, "V40 — bloque en la pantalla Registro") y en
+    // pesoResumen / pesoCorporalEnPeriodo / pesoLineChart, sin tocar. La
+    // retirada de la función en sí se verifica arriba, en "V51.1 —
+    // perfilPesoHtml se retiró, no quedó como función muerta".
 
     group("V42 — Tu entrenamiento");
 
@@ -9911,7 +9861,9 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     /* ---------- 3: el resumen compacto ---------- */
 
-    test("V50.6C — el Resumen tiene las cuatro cifras pedidas", function(){
+    test("V51.1 — el Resumen tiene las TRES cifras que quedaron", function(){
+      // ACTUALIZADO EN V51.1: eran cuatro. "Peso actual" salió (ver
+      // perfilResumenHtml) — el peso corporal queda sólo en Registro.
       conPerfil({
         profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:1, edad:34 },
         pesoCorporal:[{ id:"a", fecha:diasAtras(2), pesoKg:81.5, nota:"", createdAt:1, updatedAt:null }],
@@ -9922,8 +9874,8 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         ]
       }, function(){
         var html = A.perfilResumenHtml();
-        assert(html.indexOf("81.5") !== -1, "falta el peso actual");
-        assert(html.indexOf("Peso actual") !== -1, "falta su etiqueta");
+        assert(html.indexOf("81.5") === -1, "el peso de Registro no puede filtrarse al Resumen de Perfil");
+        assert(html.indexOf("Peso actual") === -1, "la etiqueta de peso se retiró del Resumen");
         assert(html.indexOf("34") !== -1, "falta la edad");
         assert(html.indexOf("Edad") !== -1, "falta su etiqueta");
         assert(html.indexOf("Ejercicios · 7 días") !== -1, "falta la ventana de 7 días");
@@ -10042,16 +9994,23 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
     });
 
-    /* ---------- 6: cuenta, configuración, peso y activación ---------- */
+    /* ---------- 6: cuenta, configuración y activación ---------- */
 
-    test("V50.6C — cuenta, peso, configuración y activación V48 siguen en Perfil", function(){
+    test("V51.1 — cuenta, configuración y activación V48 siguen en Perfil (ya sin peso)", function(){
+      // ACTUALIZADO EN V51.1: hasta V50.6C este test exigía también "Tu peso"
+      // y el acceso btn-perfil-ir-peso. Esa sección se retiró (ver
+      // perfilPesoHtml); el peso corporal se sigue registrando igual, pero
+      // sólo desde Registro.
       conPerfil({
         pesoCorporal:[{ id:"a", fecha:diasAtras(1), pesoKg:80, nota:"", createdAt:1, updatedAt:null }]
       }, function(){
         var html = A.screenPerfil();
         assert(html.indexOf("Tu cuenta") !== -1, "falta la tarjeta de cuenta");
-        assert(html.indexOf("Tu peso") !== -1, "falta el bloque de peso");
-        assert(html.indexOf('id="btn-perfil-ir-peso"') !== -1, "falta el acceso a registrar/editar el peso");
+        // No alcanza con indexOf("Tu peso") suelto: el helptext de
+        // Configuración dice "Tu peso corporal se registra en Registro..." y
+        // ese substring matchearía aunque la sección ya no exista.
+        assert(html.indexOf("<h2>Tu peso</h2>") === -1, "el bloque de peso de Perfil se retiró en V51.1");
+        assert(html.indexOf('id="btn-perfil-ir-peso"') === -1, "ese acceso se fue con el bloque de peso");
         assert(html.indexOf("Configuración") !== -1, "falta la configuración");
         ['id="perfil-name"','id="meta-semanal"','id="perfil-edad"','id="theme-seg"','id="btn-logout"']
           .forEach(function(sel){ assert(html.indexOf(sel) !== -1, "falta " + sel); });
@@ -10096,7 +10055,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:1 } }, function(){
         var html = A.screenPerfil();
         assert(typeof html === "string" && html.length > 0, "Perfil tiene que renderizar igual");
-        assert(html.indexOf("Sin peso registrado") !== -1, "tiene que decir que no hay peso");
+        // V51.1: "Sin peso registrado" ya no existe — el Resumen no muestra peso.
         assert(html.indexOf("Edad sin cargar") !== -1, "y que no hay edad");
         assert(html.indexOf("undefined") === -1, "no puede escaparse un undefined");
         assert(html.indexOf("NaN") === -1, "ni un NaN");
@@ -10113,12 +10072,15 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     /* ---------- 9: iPhone 375 px ---------- */
 
-    test("V50.6C — iPhone 375 px: las cuatro cifras entran en 2x2 sin desbordar", function(){
+    test("V51.1 — iPhone 375 px: las tres cifras que quedan no desbordan", function(){
+      // ACTUALIZADO EN V51.1: eran cuatro cifras en 2x2 ("Peso actual" incluido).
+      // Con "Peso actual" retirado quedan tres; el grid sigue siendo de 2
+      // columnas (no se tocó la CSS por esto), así que da dos filas: 2 + 1.
       var W = frame.contentWindow, D = W.document;
       var host = D.createElement("div");
       host.style.cssText = "position:fixed; left:-9999px; top:0; width:351px;";
       host.innerHTML = '<div class="perfil-sum">' +
-        [['81.5<small> kg</small>','Peso actual'],['34<small> años</small>','Edad'],
+        [['34<small> años</small>','Edad'],
          ['7','Ejercicios · 7 días'],['12','Ejercicios · 30 días']]
         .map(function(p){ return '<div class="perfil-sum-i"><div class="num perfil-sum-v">' + p[0] +
           '</div><div class="perfil-sum-l">' + p[1] + '</div></div>'; }).join("") + '</div>';
@@ -10126,23 +10088,23 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       try {
         var grid = host.querySelector(".perfil-sum");
         var cajas = Array.from(host.querySelectorAll(".perfil-sum-i"));
-        assert(cajas.length === 4, "cuatro cifras, dio " + cajas.length);
+        assert(cajas.length === 3, "tres cifras, dio " + cajas.length);
         assert(grid.scrollWidth <= grid.clientWidth + 1,
           "el grid desborda: " + grid.scrollWidth + " > " + grid.clientWidth);
         var recortadas = cajas.filter(function(b){ return b.scrollWidth > b.clientWidth + 1; })
           .map(function(b){ return b.textContent.trim(); });
         assert(recortadas.length === 0, "cifras recortadas: " + recortadas.join(" | "));
-        // 2x2 de verdad: dos filas, no cuatro ni una.
+        // 2 columnas fijas con 3 cifras: dos filas (2 + 1), no una ni tres.
         var tops = cajas.map(function(b){ return Math.round(b.getBoundingClientRect().top); });
         var filas = Object.keys(tops.reduce(function(a,t){ a[t]=1; return a; }, {})).length;
-        assert(filas === 2, "tendrían que quedar dos filas de dos, quedaron " + filas);
-        // Y más bajo que las cuatro filas que costaría apilarlas.
+        assert(filas === 2, "tendrían que quedar dos filas, quedaron " + filas);
         assert(grid.getBoundingClientRect().height <= 150,
           "el grid quedó demasiado alto: " + grid.getBoundingClientRect().height.toFixed(0) + "px");
       } finally { host.remove(); }
     });
 
-    test("V50.6C — Perfil quedó más corto que antes de V50.6C", function(){
+    test("V51.1 — Perfil quedó más corto todavía (sin Tu peso)", function(){
+      // ACTUALIZADO EN V51.1: hasta V50.6C exigía "Tu peso" entre las secciones.
       conPerfil({
         entrenos:[{ id:1, date:diasAtras(1), routineOrigin:"automatica" }],
         registros:[{ id:1, exercise:"Press de banca con barra", peso:60, date:diasAtras(1), series:"3", reps:"10" }],
@@ -10155,7 +10117,8 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
           .map(function(m){ return m.replace(/.*<h2>/, "").replace(/<\/h2>/, ""); });
         assert(titulos.indexOf("Esta semana") === -1, "quedó la sección de la semana");
         assert(titulos.indexOf("Tu entrenamiento") === -1, "quedó la sección Tu entrenamiento");
-        ["Tu cuenta","Resumen","Tu peso","Mapa muscular","Configuración"].forEach(function(t){
+        assert(titulos.indexOf("Tu peso") === -1, "quedó la sección Tu peso, que se retiró en V51.1");
+        ["Tu cuenta","Resumen","Mapa muscular","Configuración"].forEach(function(t){
           assert(titulos.indexOf(t) !== -1, "falta la sección " + t + ", quedaron: " + titulos.join(" | "));
         });
       });
