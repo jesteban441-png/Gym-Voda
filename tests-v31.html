@@ -9098,6 +9098,354 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "el modal de referencia tiene que usar el refresh puntual");
     });
 
+    /* ===================================================================
+       V50.6A — Rutina: cuatro pestañas, cada una con sus acciones.
+
+       La prueba que de verdad importa acá es que "especial" NO se filtre al
+       modelo de persistencia: ni a RUTINA_SLOTS, ni a state.activeSlot, ni al
+       blob guardado. Si se filtrara, state.rutina quedaría undefined y la
+       pantalla rompería; y un activeSlot:"especial" guardado se degradaría solo
+       a "personalizada" en la próxima carga, perdiendo la pestaña en silencio.
+       =================================================================== */
+
+    group("V50.6A — Rutina: cuatro pestañas");
+
+    // Monta las tres rutinas con contenido distinguible y restaura todo.
+    async function conRutinaV506(fn){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = {
+        slots: T.state.rutinaSlots, activeSlot: T.state.activeSlot, rutina: T.state.rutina,
+        vista: T.state.rutinaVista, session: T.state.session, unresolved: T.state.unresolvedSession,
+        profile: T.state.profile, entrenos: T.state.entrenos, registros: T.state.registros,
+        save: T.rutinaSync.save, tab: T.state.tab
+      };
+      var dia = function(id, nombre, exId){
+        return { id:id, nombre:nombre, exercises:[{ id:exId, nombre:"Press de banca con barra", series:"3", reps:"10", notas:"", imagenUrl:"" }] };
+      };
+      T.state.profile = { id:"perfil-506a", name:"Test", edad:30, sexo:"m" };
+      T.state.rutinaSlots = {
+        personalizada:{ days:[dia("p1","Día propio 1","xp1"), dia("p2","Día propio 2","xp2")] },
+        automatica:{ days:[dia("a1","Día auto 1","xa1")] },
+        enfocada:{ days:[dia("e1","Día enfocado 1","xe1"), dia("e2","Día enfocado 2","xe2"), dia("e3","Día enfocado 3","xe3")] }
+      };
+      T.state.activeSlot = "personalizada";
+      T.state.rutina = T.state.rutinaSlots.personalizada;
+      T.state.rutinaVista = null;
+      T.state.session = null; T.state.unresolvedSession = null;
+      T.state.entrenos = []; T.state.registros = [];
+      var guardados = [];
+      T.rutinaSync.save = function(data){
+        guardados.push(JSON.parse(JSON.stringify(data)));
+        return Promise.resolve({ ok:true, envelope:{ data:data, revision:1, clienteV48:false, schemaReady:true } });
+      };
+      try { return await fn({ T:T, W:W, guardados:guardados }); }
+      finally {
+        T.rutinaSync.save = prev.save;
+        T.state.rutinaSlots = prev.slots; T.state.activeSlot = prev.activeSlot;
+        T.state.rutina = prev.rutina; T.state.rutinaVista = prev.vista;
+        T.state.session = prev.session; T.state.unresolvedSession = prev.unresolved;
+        T.state.profile = prev.profile; T.state.entrenos = prev.entrenos;
+        T.state.registros = prev.registros; T.state.tab = prev.tab;
+      }
+    }
+
+    test("V50.6A — la tira tiene cuatro entradas y Día especial no es un slot", function(){
+      assert(A.RUTINA_SLOTS.length === 3,
+        "RUTINA_SLOTS tiene que seguir con TRES valores, dio " + A.RUTINA_SLOTS.length);
+      assert(A.RUTINA_SLOTS.indexOf("especial") === -1,
+        "\"especial\" no puede entrar a RUTINA_SLOTS: selectRutinaSlot daría state.rutina undefined");
+      assert(A.RUTINA_VISTAS.length === 4, "la tira tiene cuatro entradas, dio " + A.RUTINA_VISTAS.length);
+      assert(A.RUTINA_VISTAS.join(",") === "personalizada,automatica,enfocada,especial",
+        "orden de las pestañas: " + A.RUTINA_VISTAS.join(","));
+      // Las tres primeras son exactamente los slots, en el mismo orden.
+      assert(A.RUTINA_VISTAS.slice(0,3).join(",") === A.RUTINA_SLOTS.join(","),
+        "las tres primeras pestañas tienen que ser los slots");
+      A.RUTINA_VISTAS.forEach(function(v){
+        assert(typeof A.RUTINA_VISTA_LABELS[v] === "string" && A.RUTINA_VISTA_LABELS[v],
+          "falta el rótulo corto de " + v);
+        assert(typeof A.RUTINA_VISTA_TITULOS[v] === "string" && A.RUTINA_VISTA_TITULOS[v],
+          "falta el título largo de " + v);
+      });
+    });
+
+    test("V50.6A — la pestaña se deriva de activeSlot salvo Día especial", function(){
+      return conRutinaV506(function(c){
+        // Una sola fuente de verdad: rutinaVista sólo vale "especial" o null.
+        c.T.state.activeSlot = "automatica"; c.T.state.rutinaVista = null;
+        assert(c.T.rutinaVistaActual() === "automatica", "con rutinaVista null manda activeSlot");
+        c.T.state.activeSlot = "enfocada";
+        assert(c.T.rutinaVistaActual() === "enfocada", "y sigue mandando si cambia");
+        c.T.state.rutinaVista = "especial";
+        assert(c.T.rutinaVistaActual() === "especial", "la pestaña de Día especial gana mientras esté elegida");
+        // Y no puede inventar una cuarta vista por otro valor.
+        c.T.state.rutinaVista = "automatica";
+        c.T.state.activeSlot = "personalizada";
+        assert(c.T.rutinaVistaActual() === "personalizada",
+          "cualquier valor que no sea \"especial\" tiene que caer a activeSlot");
+      });
+    });
+
+    test("V50.6A — Mi rutina no muestra controles de generación de otras rutinas", function(){
+      return conRutinaV506(function(c){
+        c.T.state.activeSlot = "personalizada"; c.T.state.rutinaVista = null;
+        var html = c.T.screenRutina();
+        assert(html.indexOf('id="btn-auto-routine"') === -1,
+          "Mi rutina no puede traer el botón de generar la automática");
+        assert(html.indexOf('id="btn-focused-routine"') === -1,
+          "Mi rutina no puede traer el botón de la enfocada");
+        assert(html.indexOf('id="btn-special-day"') === -1,
+          "Mi rutina no puede traer el botón de Día especial: ahora vive en su pestaña");
+        // Lo habitual sí está: los días con sus ejercicios y el alta de día.
+        assert(html.indexOf("Día propio 1") !== -1 && html.indexOf("Día propio 2") !== -1,
+          "tienen que estar los días de la rutina personalizada");
+        assert(html.indexOf('id="btn-add-day"') !== -1, "y el botón de agregar día");
+        // Y los controles de entrenamiento habituales de cada día.
+        assert(html.indexOf("data-start-session") !== -1, "falta el control para empezar a entrenar el día");
+      });
+    });
+
+    test("V50.6A — las dos acciones secundarias quedan en Mi rutina, compactas", function(){
+      return conRutinaV506(function(c){
+        c.T.state.activeSlot = "personalizada"; c.T.state.rutinaVista = null;
+        var mia = c.T.screenRutina();
+        assert(mia.indexOf('id="btn-explorar-musculos"') !== -1, "falta Explorar ejercicios en Mi rutina");
+        assert(mia.indexOf('id="btn-export-pdf"') !== -1, "falta Exportar PDF en Mi rutina");
+        // Compactas: btn-sm y btn-ghost, no btn-block.
+        assert(/id="btn-explorar-musculos"/.test(mia) && /btn-ghost btn-sm[^>]*id="btn-explorar-musculos"/.test(mia),
+          "Explorar tiene que ser una acción secundaria compacta (btn-ghost btn-sm)");
+        assert(/btn-ghost btn-sm[^>]*id="btn-export-pdf"/.test(mia),
+          "Exportar PDF también");
+        assert(mia.indexOf('btn-block" id="btn-explorar-musculos"') === -1,
+          "no puede ser un botón de ancho completo");
+        // Y no aparecen en las otras pestañas.
+        ["automatica","enfocada"].forEach(function(s){
+          c.T.state.activeSlot = s;
+          var h = c.T.screenRutina();
+          assert(h.indexOf('id="btn-explorar-musculos"') === -1, "Explorar no va en " + s);
+          assert(h.indexOf('id="btn-export-pdf"') === -1, "Exportar PDF no va en " + s);
+        });
+        c.T.state.rutinaVista = "especial";
+        var esp = c.T.screenRutina();
+        assert(esp.indexOf('id="btn-explorar-musculos"') === -1, "ni en Día especial");
+      });
+    });
+
+    test("V50.6A — cada pestaña trae SU acción y sus propios días", function(){
+      return conRutinaV506(function(c){
+        c.T.state.rutinaVista = null;
+        c.T.state.activeSlot = "automatica";
+        var auto = c.T.screenRutina();
+        assert(auto.indexOf('id="btn-auto-routine"') !== -1, "falta Generar otra rutina en Automática");
+        assert(auto.indexOf("Generar otra rutina") !== -1,
+          "con días ya generados el texto tiene que ser \"Generar otra rutina\"");
+        assert(auto.indexOf('id="btn-focused-routine"') === -1, "la enfocada no va acá");
+        assert(auto.indexOf("Día auto 1") !== -1, "tienen que estar los días de la automática");
+        assert(auto.indexOf("Día propio 1") === -1, "y NO los de la personalizada");
+        assert(auto.indexOf(A.RUTINA_VISTA_TITULOS.automatica) !== -1, "falta el título largo de la sección");
+
+        c.T.state.activeSlot = "enfocada";
+        var enf = c.T.screenRutina();
+        assert(enf.indexOf('id="btn-focused-routine"') !== -1, "falta Editar rutina enfocada en Enfocada");
+        assert(enf.indexOf("Editar rutina enfocada") !== -1,
+          "con días ya generados el texto tiene que ser \"Editar rutina enfocada\"");
+        assert(enf.indexOf('id="btn-auto-routine"') === -1, "la automática no va acá");
+        assert(enf.indexOf("Día enfocado 1") !== -1, "tienen que estar los días de la enfocada");
+        assert(enf.indexOf("Día auto 1") === -1, "y NO los de la automática");
+      });
+    });
+
+    test("V50.6A — sin días, cada pestaña ofrece generar lo suyo", function(){
+      return conRutinaV506(function(c){
+        c.T.state.rutinaVista = null;
+        c.T.state.rutinaSlots.automatica = { days:[] };
+        c.T.state.activeSlot = "automatica";
+        var auto = c.T.screenRutina();
+        assert(auto.indexOf("Generar rutina automática") !== -1,
+          "sin días el texto tiene que ser \"Generar rutina automática\"");
+        assert(auto.indexOf("Todavía no generaste una rutina automática") !== -1, "falta el estado vacío");
+        c.T.state.rutinaSlots.enfocada = { days:[] };
+        c.T.state.activeSlot = "enfocada";
+        var enf = c.T.screenRutina();
+        assert(enf.indexOf("Generar rutina enfocada") !== -1, "sin días, generar la enfocada");
+        assert(enf.indexOf("Todavía no generaste una rutina enfocada") !== -1, "falta el estado vacío de la enfocada");
+        // Y el estado vacío de Mi rutina ya NO manda a un botón que no está ahí.
+        c.T.state.rutinaSlots.personalizada = { days:[] };
+        c.T.state.activeSlot = "personalizada";
+        var mia = c.T.screenRutina();
+        assert(mia.indexOf("rutina automática arriba") === -1,
+          "el texto vacío no puede señalar un botón que ya no está en esta pestaña");
+        assert(/pesta[ñn]as Autom/.test(mia), "tiene que decir dónde se generan ahora");
+      });
+    });
+
+    test("V50.6A — la pestaña de Día especial inicia el entrenamiento extra", function(){
+      return conRutinaV506(function(c){
+        c.T.state.rutinaVista = "especial";
+        var html = c.T.screenRutina();
+        assert(html.indexOf('id="btn-special-day"') !== -1, "falta el acceso para armar el día especial");
+        assert(html.indexOf(A.RUTINA_VISTA_TITULOS.especial) !== -1, "falta el título de la sección");
+        // No lista días: el Día especial no vive en ninguna rutina.
+        assert(html.indexOf("Día propio 1") === -1 && html.indexOf("Día auto 1") === -1 && html.indexOf("Día enfocado 1") === -1,
+          "la pestaña de Día especial no puede listar días de las rutinas guardadas");
+        assert(html.indexOf('id="btn-add-day"') === -1, "ni ofrecer agregar un día a una rutina");
+        // Regla vigente de V50: suma a la meta semanal y a la racha. Si este
+        // texto dijera lo contrario, la app se contradiría como antes de V50.4.
+        assert(/suma a tu meta semanal y a tu racha/.test(html),
+          "tiene que decir que suma a la meta semanal y a la racha");
+        assert(html.indexOf("No suma") === -1, "no puede decir que no suma");
+      });
+    });
+
+    test("V50.6A — elegir Día especial NO escribe nada ni toca activeSlot", function(){
+      return conRutinaV506(async function(c){
+        var antesSlot = c.T.state.activeSlot;
+        var antesGuardados = c.guardados.length;
+        c.T.state.rutinaVista = "especial";
+        assert(c.T.state.activeSlot === antesSlot,
+          "activeSlot no puede moverse al elegir la pestaña de Día especial");
+        assert(c.guardados.length === antesGuardados,
+          "elegir la pestaña no puede escribir en la base, escribió " + (c.guardados.length-antesGuardados) + " vez/veces");
+        // Y volver a una pestaña de slot sí persiste activeSlot, como siempre,
+        // sin dejar nunca "especial" en el blob.
+        await c.T.selectRutinaSlot("automatica");
+        await flush();
+        assert(c.T.state.rutinaVista === null, "volver a un slot tiene que salir de la pestaña de Día especial");
+        assert(c.T.state.activeSlot === "automatica", "y fijar el slot elegido");
+        var ultimo = c.guardados[c.guardados.length-1];
+        assert(ultimo && ultimo.activeSlot === "automatica",
+          "el blob tiene que guardar el slot real, guardó " + (ultimo && ultimo.activeSlot));
+        var conEspecial = c.guardados.filter(function(d){ return d.activeSlot === "especial"; });
+        assert(conEspecial.length === 0,
+          "NUNCA puede guardarse activeSlot:\"especial\": loadProfileData lo degradaría a personalizada");
+      });
+    });
+
+    test("V50.6A — navegar las cuatro pestañas conserva las tres rutinas y sus datos", function(){
+      return conRutinaV506(async function(c){
+        var antes = JSON.stringify(c.T.state.rutinaSlots);
+        for(var i=0;i<A.RUTINA_VISTAS.length;i++){
+          var v = A.RUTINA_VISTAS[i];
+          if(v === "especial"){ c.T.state.rutinaVista = "especial"; }
+          else { await c.T.selectRutinaSlot(v); await flush(); }
+          c.T.screenRutina();   // render de esa pestaña
+        }
+        await c.T.selectRutinaSlot("personalizada");
+        await flush();
+        assert(JSON.stringify(c.T.state.rutinaSlots) === antes,
+          "navegar las pestañas no puede alterar ninguna de las tres rutinas guardadas");
+        assert(c.T.state.rutina === c.T.state.rutinaSlots.personalizada,
+          "state.rutina tiene que seguir siendo el MISMO objeto que el slot activo");
+      });
+    });
+
+    test("V50.6A — una sesión en curso sigue visible en las cuatro pestañas", function(){
+      return conRutinaV506(function(c){
+        c.T.state.session = {
+          dayId:"p1", slot:"personalizada", dayNombre:"Día propio 1", startedAt:Date.now()-60000,
+          sets:{ xp1:[true,false,false] }, setLogs:{ xp1:[null,null,null] }
+        };
+        // El banner de recuperación es lo que permite volver al entrenamiento:
+        // si desapareciera en alguna pestaña, la sesión quedaría inalcanzable
+        // desde Rutina.
+        ["personalizada","automatica","enfocada"].forEach(function(s){
+          c.T.state.activeSlot = s; c.T.state.rutinaVista = null;
+          assert(c.T.screenRutina().indexOf('id="btn-resume-session"') !== -1,
+            "falta el acceso a la sesión en curso en la pestaña " + s);
+        });
+        c.T.state.rutinaVista = "especial";
+        var esp = c.T.screenRutina();
+        assert(esp.indexOf('id="btn-resume-session"') !== -1,
+          "falta el acceso a la sesión en curso en la pestaña de Día especial");
+      });
+    });
+
+    test("V50.6A — la racha sigue arriba en las cuatro pestañas", function(){
+      return conRutinaV506(function(c){
+        A.RUTINA_VISTAS.forEach(function(v){
+          if(v === "especial"){ c.T.state.rutinaVista = "especial"; }
+          else { c.T.state.rutinaVista = null; c.T.state.activeSlot = v; }
+          var html = c.T.screenRutina();
+          assert(html.indexOf("Meta semanal") !== -1 || html.indexOf("meta semanal") !== -1 || html.indexOf("racha") !== -1,
+            "falta la tarjeta de racha/meta en la pestaña " + v);
+        });
+      });
+    });
+
+    test("V50.6A — cerrar sesión limpia la pestaña elegida", function(){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = { vista:T.state.rutinaVista, profile:T.state.profile, tab:T.state.tab,
+        slots:T.state.rutinaSlots, activeSlot:T.state.activeSlot, rutina:T.state.rutina };
+      try {
+        T.state.rutinaVista = "especial";
+        T.clearAccountData();
+        // Si la clave de vista no se limpiara, la cuenta siguiente arrancaría en
+        // la pestaña de Día especial de la anterior (es el patrón de E9).
+        assert(T.state.rutinaVista === null,
+          "clearAccountData tiene que resetear la pestaña, dejó " + JSON.stringify(T.state.rutinaVista));
+        assert(T.state.activeSlot === "personalizada", "y el slot activo por defecto");
+      } finally {
+        T.state.rutinaVista = prev.vista; T.state.profile = prev.profile; T.state.tab = prev.tab;
+        T.state.rutinaSlots = prev.slots; T.state.activeSlot = prev.activeSlot; T.state.rutina = prev.rutina;
+      }
+    });
+
+    test("V50.6A — iPhone 375 px: la tira entra en una línea y no desborda", function(){
+      var W = frame.contentWindow, D = W.document;
+      var host = D.createElement("div");
+      // Mismo ancho útil que la pantalla en un iPhone SE/8/13 mini: 375 menos el
+      // padding lateral de .screen.
+      host.style.cssText = "position:fixed; left:-9999px; top:0; width:351px;";
+      host.innerHTML = '<div class="segmented seg-4">' +
+        A.RUTINA_VISTAS.map(function(v){
+          var n = v === "personalizada" ? 2 : v === "enfocada" ? 3 : v === "automatica" ? 1 : 0;
+          return '<button data-rutina-vista="' + v + '">' + A.RUTINA_VISTA_LABELS[v] +
+            (n ? '<span class="seg-n">' + n + ' día' + (n===1?"":"s") + '</span>' : "") + '</button>';
+        }).join("") + '</div>';
+      D.body.appendChild(host);
+      try {
+        var tira = host.querySelector(".segmented");
+        var botones = Array.from(host.querySelectorAll("button"));
+        assert(botones.length === 4, "cuatro botones, dio " + botones.length);
+        assert(tira.scrollWidth <= tira.clientWidth + 1,
+          "la tira desborda: scrollWidth " + tira.scrollWidth + " > clientWidth " + tira.clientWidth);
+        // Ninguno puede quedar más alto que los otros: eso delataría un rótulo
+        // partido en dos líneas y una tira despareja.
+        var altos = botones.map(function(b){ return Math.round(b.getBoundingClientRect().height); });
+        assert(Math.max.apply(null, altos) - Math.min.apply(null, altos) <= 1,
+          "los botones quedaron de alturas distintas (rótulo partido): " + altos.join(","));
+        // Y el rótulo no puede estar recortado por overflow.
+        var recortados = botones.filter(function(b){ return b.scrollWidth > b.clientWidth + 1; })
+          .map(function(b){ return b.textContent.trim(); });
+        assert(recortados.length === 0, "rótulos recortados: " + recortados.join(" | "));
+        // Área de toque: alto razonable para el pulgar, sin inflar la pantalla.
+        var alto = botones[0].getBoundingClientRect().height;
+        assert(alto >= 28, "la pestaña quedó demasiado baja para tocarla: " + alto.toFixed(1) + "px");
+      } finally { host.remove(); }
+    });
+
+    test("V50.6A — menos controles arriba que antes de V50.6A", function(){
+      return conRutinaV506(function(c){
+        c.T.state.activeSlot = "personalizada"; c.T.state.rutinaVista = null;
+        var html = c.T.screenRutina();
+        // Antes había tres btn-block de generación apilados más la fila de
+        // Explorar/PDF, todos en TODAS las pestañas. Es el desplazamiento que
+        // V50.6A viene a sacar de encima en un teléfono.
+        //
+        // Se mide SOLO la cabecera —lo que hay antes del título de la sección—,
+        // porque dayCard usa btn-block por día (el acceso a estiramientos) y
+        // contar la clase en toda la pantalla crecería con la cantidad de días:
+        // seria un proxy equivocado, no una regresión.
+        var corte = html.indexOf('class="section-title"');
+        assert(corte > 0, "no se encontró el título de la sección para acotar la cabecera");
+        var cabecera = html.slice(0, corte);
+        var bloques = (cabecera.match(/btn-block/g) || []).length;
+        assert(bloques === 0,
+          "la cabecera de Mi rutina no puede tener botones de ancho completo, tiene " + bloques);
+        assert(html.indexOf("Tenés tres rutinas guardadas por separado") === -1,
+          "el párrafo largo de ayuda ocupaba una línea de scroll y salió");
+      });
+    });
+
     group("A5 y M1 — contraste y tipografía del registro heredado");
 
     test("A5 — la serie completada usa --success-on y llega a 4,5:1 en los dos temas", function(){

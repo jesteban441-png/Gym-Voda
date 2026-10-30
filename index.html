@@ -494,6 +494,12 @@
     font-weight:600; font-size:13px; color:var(--text-muted); cursor:pointer;
   }
   .segmented button.active{ background:var(--surface); color:var(--text); box-shadow:var(--shadow); }
+  /* V50.6A: variante de CUATRO entradas. Con 13px y el nombre completo
+     ("Rutina automática") la tira no entra en 375 px y se desborda, así que
+     esta variante baja tipografía y padding y los nombres largos quedan para el
+     título de la sección. El nombre completo no se pierde: se lee abajo. */
+  .segmented.seg-4 button{ font-size:12px; padding:8px 2px; line-height:1.15; }
+  .segmented.seg-4 .seg-n{ display:block; font-size:10px; font-weight:700; opacity:.65; }
 
   a.linklike{ color:var(--secondary); font-weight:600; cursor:pointer; }
   .helptext{ font-size:12px; color:var(--text-muted); line-height:1.4; }
@@ -4224,6 +4230,10 @@
     // entrenamiento). null = el texto por defecto, el de la sesión.
     estiramientosContexto:null,
     tab:"rutina",
+    // V50.6A: pestaña visual de Rutina. SOLO toma el valor "especial" o null —
+    // las otras tres pestañas se derivan de activeSlot, así que no puede
+    // desincronizarse (ver rutinaVistaActual). No se persiste: no es un slot.
+    rutinaVista:null,
     dayOpen:{},          // which day cards are expanded
     dayEditMode:{},      // which day cards show editar/borrar por ejercicio
     exerciseSelForm:"",  // currently selected exercise name in registro form
@@ -4952,7 +4962,12 @@
   })();
 
   async function selectRutinaSlot(slot){
-    if(state.activeSlot === slot) return;
+    // V50.6A: elegir un slot sale de la pestaña de Día especial, que no es un
+    // slot. Se hace acá y no en el handler para que cualquier otro camino que
+    // cambie de slot deje la pestaña coherente.
+    const salirDeEspecial = state.rutinaVista === "especial";
+    state.rutinaVista = null;
+    if(state.activeSlot === slot){ if(salirDeEspecial) renderScreen(); return; }
     state.activeSlot = slot;
     state.rutina = state.rutinaSlots[slot];
     await persistRutina();
@@ -4970,44 +4985,107 @@
     return Array.from(set);
   }
 
-  function screenRutina(){
-    const days = state.rutina.days||[];
-    const isAuto = state.activeSlot === "automatica";
-    const slot = state.activeSlot;
-    const nAutomatica = (state.rutinaSlots.automatica.days||[]).length;
-    const nEnfocada = ((state.rutinaSlots.enfocada||{}).days||[]).length;
-    const slotCount = { personalizada:(state.rutinaSlots.personalizada.days||[]).length, automatica:nAutomatica, enfocada:nEnfocada };
-    // V31: tres slots. El botón de cada uno conserva el mismo comportamiento
-    // de siempre (cambiar de slot no borra los otros).
-    const slotBtns = RUTINA_SLOTS.map(s=>
-      `<button data-rutina-slot="${s}" class="${slot===s?"active":""}">${RUTINA_SLOT_LABELS[s]}${slotCount[s]?` (${slotCount[s]})`:""}</button>`
-    ).join("");
-    const slotTitle = { personalizada:"Tu rutina", automatica:"Rutina automática", enfocada:"Rutina enfocada" }[slot] || "Tu rutina";
+  /* ===== V50.6A — cuatro pestañas, cada una con SUS acciones =====
+
+     Hasta V50.3 la pantalla tenía la tira de tres slots y, debajo, tres botones
+     grandes de generación más Explorar y Exportar PDF, todos visibles siempre:
+     en un iPhone eso era casi una pantalla entera de controles antes del primer
+     día de la rutina. Ahora cada pestaña muestra sólo lo que le corresponde.
+
+     LA RESTRICCIÓN QUE NO SE PUEDE VIOLAR, y por eso está escrita acá:
+     "especial" NO es un cuarto RUTINA_SLOTS. selectRutinaSlot hace
+     state.rutina = state.rutinaSlots[slot], así que con "especial" eso daría
+     undefined y el primer state.rutina.days rompería la pantalla. Además
+     persistRutina escribe activeSlot en el blob y loadProfileData lo valida
+     contra RUTINA_SLOTS, así que un activeSlot:"especial" guardado se
+     degradaría solo a "personalizada" en la próxima carga.
+
+     El diseño: la tira es PRESENTACIÓN con cuatro entradas. Tres fijan
+     activeSlot como siempre; la cuarta sólo cambia la vista y no se persiste.
+     RUTINA_SLOTS queda con tres valores, intacto. Y state.rutinaVista sólo
+     toma "especial" o null: las otras tres se DERIVAN de activeSlot, así que un
+     slot restaurado desde el blob mueve la pestaña solo y no hay dos fuentes
+     de verdad que puedan desincronizarse. */
+  const RUTINA_VISTAS = ["personalizada","automatica","enfocada","especial"];
+  // Rótulos cortos para la tira (cuatro entradas en 375 px). El nombre completo
+  // vive en el título de la sección, justo debajo.
+  const RUTINA_VISTA_LABELS = { personalizada:"Mi rutina", automatica:"Automática", enfocada:"Enfocada", especial:"Especial" };
+  const RUTINA_VISTA_TITULOS = { personalizada:"Mi rutina", automatica:"Rutina automática", enfocada:"Rutina enfocada", especial:"Día especial" };
+
+  function rutinaVistaActual(){
+    return state.rutinaVista === "especial" ? "especial" : state.activeSlot;
+  }
+
+  // El Día especial no vive en ninguna rutina: su día se arma en el momento y
+  // viaja dentro de la sesión. Por eso esta pestaña no lista días — es un
+  // acceso, no un slot.
+  function panelDiaEspecialHtml(){
     return `
+      <div class="section-title">
+        <h2>${RUTINA_VISTA_TITULOS.especial}</h2>
+      </div>
+      <div class="card stack">
+        <div class="helptext">Un entrenamiento extra, fuera de tus rutinas guardadas. Elegís el músculo y la app arma el día en el momento.</div>
+        <div class="helptext">Queda en tu historial y en el calendario, y <b>suma a tu meta semanal y a tu racha</b>.</div>
+        <button class="btn btn-primary btn-sm" id="btn-special-day">${icon("plus")} Armar día especial</button>
+      </div>
+    `;
+  }
+
+  function screenRutina(){
+    const vista = rutinaVistaActual();
+    const slotCount = {
+      personalizada:((state.rutinaSlots.personalizada||{}).days||[]).length,
+      automatica:((state.rutinaSlots.automatica||{}).days||[]).length,
+      enfocada:((state.rutinaSlots.enfocada||{}).days||[]).length
+    };
+    const tabs = RUTINA_VISTAS.map(v=>
+      `<button data-rutina-vista="${v}" class="${vista===v?"active":""}">${RUTINA_VISTA_LABELS[v]}${slotCount[v]?`<span class="seg-n">${slotCount[v]} día${slotCount[v]===1?"":"s"}</span>`:""}</button>`
+    ).join("");
+    const cabeza = `
       ${rachaCardHtml()}
       ${(state.session || nativeSession()) ? sessionResumeBannerHtml() : ""}
-      <div class="segmented" style="margin-bottom:2px">
-        ${slotBtns}
+      <div class="segmented seg-4" style="margin-bottom:8px">
+        ${tabs}
       </div>
-      <p class="helptext" style="margin:2px 0 8px">Tenés tres rutinas guardadas por separado — cambiar de pestaña no borra las otras, así podés compararlas o usar la que quieras.</p>
-      <button class="btn btn-primary btn-block" id="btn-auto-routine">${icon("shuffle")} ${nAutomatica?"Generar otra rutina automática":"Generar rutina automática"}</button>
-      <button class="btn btn-outline btn-block" id="btn-focused-routine" style="margin-top:8px; border-color:var(--accent); color:var(--accent)">${icon("shuffle")} ${nEnfocada?"Editar rutina enfocada":"Generar rutina enfocada"}</button>
-      <button class="btn btn-outline btn-block" id="btn-special-day" style="margin-top:8px; border-color:var(--accent); color:var(--accent)">${icon("plus")} Día Especial</button>
-      <div class="row" style="gap:8px; margin-top:8px">
-        <button class="btn btn-outline" style="flex:1" id="btn-explorar-musculos">${icon("search")} Explorar ejercicios</button>
-        ${days.length>0 ? `<button class="btn btn-ghost" style="flex:1" id="btn-export-pdf">${icon("download")} Exportar PDF</button>` : ""}
-      </div>
+    `;
+    if(vista === "especial") return cabeza + panelDiaEspecialHtml();
+
+    const days = ((state.rutinaSlots[vista]||{}).days)||[];
+    // La acción de generación de cada pestaña, compacta: un btn-sm en su propia
+    // fila en vez de tres btn-block apilados. "Mi rutina" no lleva ninguna.
+    const accion = vista==="automatica"
+      ? `<button class="btn btn-primary btn-sm" id="btn-auto-routine">${icon("shuffle")} ${days.length?"Generar otra rutina":"Generar rutina automática"}</button>`
+      : vista==="enfocada"
+      ? `<button class="btn btn-primary btn-sm" id="btn-focused-routine">${icon("shuffle")} ${days.length?"Editar rutina enfocada":"Generar rutina enfocada"}</button>`
+      : "";
+    // Explorar y Exportar PDF son acciones secundarias y viven en Mi rutina.
+    const secundarias = vista==="personalizada"
+      ? `<div class="row" style="gap:8px; margin-bottom:8px">
+          <button class="btn btn-ghost btn-sm" style="flex:1" id="btn-explorar-musculos">${icon("search")} Explorar</button>
+          ${days.length>0 ? `<button class="btn btn-ghost btn-sm" style="flex:1" id="btn-export-pdf">${icon("download")} Exportar PDF</button>` : ""}
+        </div>`
+      : "";
+    const vacio = {
+      personalizada: { h:"Todavía no armaste tu rutina",
+        p:'Agregá un día (por ejemplo "Día 1 — Pecho y tríceps") y después sumale los ejercicios con series y repeticiones. O generá una en las pestañas Automática o Enfocada.' },
+      automatica: { h:"Todavía no generaste una rutina automática",
+        p:'Apretá "Generar rutina automática" para armar una completa sola, según tus días por semana y tu sexo — después la podés editar como cualquier otra.' },
+      enfocada: { h:"Todavía no generaste una rutina enfocada",
+        p:'Apretá "Generar rutina enfocada" y elegí de uno a cuatro focos; la app arma los días alrededor de eso.' }
+    }[vista] || { h:"Todavía no armaste tu rutina", p:"" };
+    return cabeza + `
+      ${accion ? `<div class="row" style="margin-bottom:8px">${accion}</div>` : ""}
+      ${secundarias}
       <div class="section-title">
-        <h2>${slotTitle}</h2>
+        <h2>${RUTINA_VISTA_TITULOS[vista]}</h2>
         <span class="muted">${days.length} día${days.length===1?"":"s"}</span>
       </div>
       ${days.length===0 ? `
         <div class="card empty">
           ${icon("routine")}
-          <h3>${isAuto ? "Todavía no generaste una rutina automática" : "Todavía no armaste tu rutina"}</h3>
-          <p>${isAuto
-            ? 'Apretá "Rutina automática" arriba para armar una completa sola, según tus días por semana y tu sexo — después la podés editar como cualquier otra.'
-            : 'Agregá un día (por ejemplo "Día 1 — Pecho y tríceps") y después sumale los ejercicios con series y repeticiones, o probá la rutina automática arriba.'}</p>
+          <h3>${vacio.h}</h3>
+          <p>${vacio.p}</p>
           <button class="btn btn-primary" id="btn-add-day">${icon("plus")} Agregar día</button>
         </div>
       ` : `
@@ -7502,8 +7580,20 @@
     const exportPdfBtn = el.querySelector("#btn-export-pdf");
     if(exportPdfBtn) exportPdfBtn.onclick = exportRoutinePDF;
 
-    el.querySelectorAll("[data-rutina-slot]").forEach(b=>{
-      b.onclick = ()=> selectRutinaSlot(b.dataset.rutinaSlot);
+    // V50.6A: la tira tiene cuatro entradas. Las tres de slot van por
+    // selectRutinaSlot, que persiste activeSlot como siempre; la de Día
+    // especial SÓLO cambia la vista y no escribe nada.
+    el.querySelectorAll("[data-rutina-vista]").forEach(b=>{
+      b.onclick = ()=>{
+        const v = b.dataset.rutinaVista;
+        if(v === "especial"){
+          if(state.rutinaVista === "especial") return;
+          state.rutinaVista = "especial";
+          renderScreen();
+          return;
+        }
+        selectRutinaSlot(v);
+      };
     });
 
     el.querySelectorAll("[data-toggle]").forEach(h=>{
@@ -11497,7 +11587,8 @@
     state.profile=null;state.session=null;state.unresolvedSession=null;
     state.rutinaRaw=null;state.persistence=null;
     state.rutina={days:[]};state.rutinaSlots={personalizada:{days:[]},automatica:{days:[]},enfocada:{days:[]}};
-    state.activeSlot="personalizada";state.registros=[];state.entrenos=[];state.pesoCorporal=[];
+    state.activeSlot="personalizada";state.rutinaVista=null;
+    state.registros=[];state.entrenos=[];state.pesoCorporal=[];
     state.estiramientosSugeridos=[];state.exDetail=null;state.tab="rutina";
     closeModal();
   }
@@ -11536,7 +11627,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "5f8c8a850f627e4c5888d59fd7e1cda9e34301ceba3812c1ffa65eeec472b33a";
+  const APP_BUILD = "b8979f73215431edc676f298d217795c2baadc879a251fb39cf66065b36f2734";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -11760,6 +11851,10 @@
     // screenSession se expone para afirmar QUE BOTONES existe en cada estado
     // terminal de la sesion nativa (O3). Es presentacion pura: no escribe nada.
     screenSession,
+    // V50.6A: la tira de Rutina es presentacion. rutinaVistaActual deriva la
+    // pestana de activeSlot salvo la de Dia especial, que no es un slot.
+    RUTINA_VISTAS, RUTINA_VISTA_LABELS, RUTINA_VISTA_TITULOS, rutinaVistaActual,
+    panelDiaEspecialHtml, screenRutina, selectRutinaSlot,
     // loadProfileData se expone para PODER LLAMARLA desde una prueba (contar
     // lecturas en el recorrido terminal, O2). No sirve para sustituirla: las
     // llamadas internas usan la referencia del closure, no esta copia.
