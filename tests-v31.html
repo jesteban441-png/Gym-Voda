@@ -3928,17 +3928,24 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     group("V42 — Perfil: estructura y cuenta");
 
-    test("el dashboard tiene las siete secciones, en orden", function(){
-      // V47.1: son SIETE. El Mapa muscular dejó de ser una pantalla aparte a la
-      // que Perfil linkeaba con un botón y pasó a verse directo acá, entre "Tu
-      // entrenamiento" y "Configuración". La aserción no se afloja: sigue
-      // exigiendo el conjunto exacto y el orden exacto, con una sección más.
+    test("V50.6C — el dashboard tiene CINCO secciones, en orden", function(){
+      // ACTUALIZADO EN V50.6C: eran siete. Salieron "Esta semana" —que era la
+      // misma rachaCardHtml que ya está arriba de Rutina— y "Tu entrenamiento",
+      // cuyas estadísticas por origen no cambiaban ninguna decisión del usuario
+      // y costaban media pantalla de teléfono. El dato que sí servía, cuántos
+      // ejercicios distintos, pasó al Resumen con ventana de 7 y 30 días.
+      //
+      // La aserción NO se afloja: sigue exigiendo el conjunto exacto y el orden
+      // exacto, ahora con dos secciones menos. "Sectores" no aparece porque la
+      // lista del mapa se cuenta sobre el HTML de screenMuscleMap, que este test
+      // no desarma: acá se mira sólo el esqueleto que arma screenPerfil.
       conPerfil({}, function(){
         var html = A.screenPerfil();
         var d = frame.contentWindow.document.createElement("div");
         d.innerHTML = html;
-        var titulos = [].map.call(d.querySelectorAll(".section-title h2"), function(h){ return h.textContent; });
-        assert(titulos.join(" | ") === "Tu cuenta | Resumen | Esta semana | Tu peso | Tu entrenamiento | Mapa muscular | Configuración",
+        var titulos = [].map.call(d.querySelectorAll(".section-title h2"), function(h){ return h.textContent; })
+          .filter(function(x){ return x !== "Sectores"; });
+        assert(titulos.join(" | ") === "Tu cuenta | Resumen | Tu peso | Mapa muscular | Configuración",
           "dio: " + titulos.join(" | "));
       });
     });
@@ -3997,10 +4004,21 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
     });
 
-    test("sin entrenamientos el contador da 0 y respeta la meta", function(){
+    test("V50.6C — el contador semanal ya NO está en el Resumen de Perfil", function(){
+      // REESCRITO EN V50.6C. Hasta V50.6B este test exigía "0 / 5" en el Resumen
+      // de Perfil. La contradicción: ese contador y la racha estaban en Perfil y
+      // en Rutina a la vez, calculando lo mismo con la misma función. Decisión
+      // de producto de V50.6C: la semana y la racha viven SÓLO en Rutina.
+      // El contador no se aflojó ni desapareció — se verifica donde ahora vive,
+      // en el test de rachaCardHtml de más abajo.
       conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:5, createdAt:1 } }, function(){
         var html = A.perfilResumenHtml();
-        assert(html.indexOf("0<small> / 5</small>") !== -1, "debería mostrar 0 / 5, html: " + html.slice(html.indexOf("pesostat-val"), 400));
+        assert(html.indexOf("0<small> / 5</small>") === -1,
+          "el contador X / meta no puede seguir en Perfil");
+        assert(html.indexOf("Esta semana") === -1, "ni su etiqueta");
+        // Y la que SÍ tiene que estar: la meta sigue configurable en Perfil.
+        assert(A.perfilConfigHtml().indexOf('id="meta-semanal"') !== -1,
+          "la meta semanal se sigue configurando en Perfil");
       });
     });
 
@@ -4019,16 +4037,23 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // control de la prueba se volvía falso — el test fallaba un día de cada
       // siete. computeRacha cuenta ENTRADAS, no días distintos, criterio que V50
       // confirma sin cambios.
+      // V50.6C: la aserción se mudó de perfilResumenHtml a rachaCardHtml. La
+      // DECISIÓN de V50 no cambió —el Día Especial sigue sumando a la meta y a
+      // la racha, desde una sola llamada a computeRacha—; lo que cambió es que
+      // esa tarjeta ya no se duplica en Perfil, así que se verifica en la única
+      // pantalla que la muestra.
       conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:4, createdAt:1 }, entrenos:[
         { id:1, date:diasAtras(0) },
         { id:2, date:diasAtras(0) },
         { id:3, date:diasAtras(0), isSpecial:true },   // V50: ahora SÍ suma
         { id:4, date:diasAtras(400) }                  // fuera de la semana
       ]}, function(){
-        var html = A.perfilResumenHtml();
-        assert(html.indexOf("3<small> / 4</small>") !== -1,
+        var html = A.rachaCardHtml();
+        assert(/3\s*\/\s*4/.test(html.replace(/<[^>]*>/g," ")),
           "los tres de esta semana (dos normales + un especial) deberían dar 3 / 4, html: " +
-          html.slice(html.indexOf("pesostat-val"), html.indexOf("pesostat-val") + 200));
+          html.replace(/<[^>]*>/g," ").replace(/\s+/g," ").slice(0, 220));
+        assert(/incluye 1 D[íi]a Especial/.test(html),
+          "la tarjeta tiene que seguir diciendo cuántos de esos son Día Especial");
       });
     });
 
@@ -4105,11 +4130,18 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(A.computeRacha([{date:diasAtras(400)}], 4).thisWeekCount === 0, "hace 400 días cuenta en la semana actual");
     });
 
-    test("la racha se muestra y con 0 no pone el fueguito", function(){
+    test("V50.6C — la racha ya NO se duplica en Perfil", function(){
+      // REESCRITO EN V50.6C. Antes este test verificaba la racha DENTRO del
+      // Resumen de Perfil. Ahora la racha vive sólo en Rutina, así que acá se
+      // afirma su ausencia y el comportamiento del fueguito se sigue
+      // verificando sobre rachaCardHtml, que es quien la dibuja.
       conPerfil({}, function(){
         var html = A.perfilResumenHtml();
-        assert(html.indexOf("🔥") === -1, "sin racha no debería haber fueguito");
-        assert(/>0<\/span>/.test(html), "debería mostrar 0");
+        assert(html.indexOf("🔥") === -1, "no puede haber fueguito en Perfil");
+        assert(!/Semanas? seguidas?/.test(html), "ni la etiqueta de semanas seguidas");
+        assert(A.screenPerfil().indexOf("🔥") === -1, "ni en ninguna otra parte de Perfil");
+        // Con 0 entrenamientos, la tarjeta de Rutina sigue sin poner el fueguito.
+        assert(A.rachaCardHtml().indexOf("🔥") === -1, "sin racha la tarjeta de Rutina tampoco lo pone");
       });
     });
 
@@ -4263,10 +4295,20 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         { id:5, exercise:"Jalón al pecho",                peso:60, date:diasAtras(5) }
       ]}, function(){
         // 5 filas, 3 ejercicios: dos pares resuelven al mismo nombre canónico.
+        // La FUNCIÓN no cambió y se sigue verificando igual.
         assert(A.ejerciciosDistintosCount() === 3, "dio " + A.ejerciciosDistintosCount());
-        var html = A.perfilEntrenamientoHtml();
-        assert(html.indexOf("Ejercicios distintos registrados") !== -1, "falta la etiqueta");
-        assert(html.indexOf(">3</span>") !== -1, "debería mostrar 3");
+        // REESCRITO EN V50.6C: la tarjeta "Tu entrenamiento" salió de Perfil y el
+        // dato que se conserva —cuántos ejercicios distintos— pasó al Resumen con
+        // ventana de 7 y 30 días. Los cinco registros son de los últimos 5 días,
+        // así que las dos ventanas dan los mismos 3.
+        assert(A.ejerciciosDistintosEnVentana(A.state.registros, 7) === 3,
+          "7 días debería dar 3, dio " + A.ejerciciosDistintosEnVentana(A.state.registros, 7));
+        assert(A.ejerciciosDistintosEnVentana(A.state.registros, 30) === 3,
+          "30 días debería dar 3, dio " + A.ejerciciosDistintosEnVentana(A.state.registros, 30));
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf("Ejercicios · 7 días") !== -1, "falta la etiqueta de 7 días");
+        assert(html.indexOf("Ejercicios · 30 días") !== -1, "falta la etiqueta de 30 días");
+        assert(html.indexOf("identidad canónica") !== -1, "tiene que decir cómo se cuentan");
       });
     });
 
@@ -4316,11 +4358,21 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
     });
 
-    test("sin entrenamientos la composición muestra un texto, no una barra vacía", function(){
-      conPerfil({}, function(){
-        var html = A.perfilEntrenamientoHtml();
-        assert(html.indexOf("Todavía no hay entrenamientos registrados") !== -1, "debería avisar");
-        assert(html.indexOf("origin-stack") === -1, "no debería dibujar la barra");
+    test("V50.6C — la composición por origen salió del área principal de Perfil", function(){
+      // REESCRITO EN V50.6C. Antes se verificaba el texto y la barra dentro de
+      // perfilEntrenamientoHtml, que ya no existe. entrenosPorOrigen() NO se
+      // modificó —sigue exportada y con sus pruebas de cálculo— pero ninguna
+      // pantalla la dibuja: era una estadística que ocupaba media pantalla de
+      // teléfono y no cambiaba ninguna decisión del usuario.
+      conPerfil({ entrenos:[{ id:1, date:diasAtras(1), routineOrigin:"automatica" }] }, function(){
+        var html = A.screenPerfil();
+        assert(html.indexOf("origin-stack") === -1, "la barra apilada no puede seguir en Perfil");
+        assert(html.indexOf("Entrenamientos por origen") === -1, "ni su etiqueta");
+        assert(html.indexOf("Tu entrenamiento") === -1, "ni la tarjeta que las contenía");
+        // El cálculo sigue existiendo y sigue siendo correcto.
+        var o = A.entrenosPorOrigen();
+        assert(o.total === 1 && o.rows.length === 1 && o.rows[0].pct === 100,
+          "entrenosPorOrigen tiene que seguir calculando igual, dio " + JSON.stringify(o));
       });
     });
 
@@ -4369,11 +4421,21 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     group("V42 — configuración y compatibilidad");
 
     test("la configuración conserva sus cuatro controles y el logout", function(){
+      // ACTUALIZADO EN V50.6C: btn-ex-diagnostics salió de la lista. El panel
+      // "Diagnóstico de identidad" se retiró del área principal de Perfil por
+      // decisión de producto; openExerciseDiagnosticsModal() no se modificó,
+      // sigue exportada y con sus pruebas. Los CUATRO controles de configuración
+      // —nombre, meta, edad y tema— y el logout no se tocaron, y es lo que este
+      // test siempre cuidó.
       conPerfil({}, function(){
         var html = A.perfilConfigHtml();
-        ['id="perfil-name"','id="meta-semanal"','id="perfil-edad"','id="theme-seg"','id="btn-ex-diagnostics"','id="btn-logout"'].forEach(function(sel){
+        ['id="perfil-name"','id="meta-semanal"','id="perfil-edad"','id="theme-seg"','id="btn-logout"'].forEach(function(sel){
           assert(html.indexOf(sel) !== -1, "falta " + sel);
         });
+        assert(html.indexOf('id="btn-ex-diagnostics"') === -1,
+          "el acceso al diagnóstico de identidad salió del área principal");
+        assert(typeof A.openExerciseDiagnosticsModal === "function",
+          "la función del diagnóstico NO se elimina: sólo se retira su acceso desde Perfil");
       });
     });
 
@@ -9790,6 +9852,313 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       // Con registros inservibles (sin peso numérico) tampoco.
       assert(A.registroStatsHtml([{ id:"x", peso:"", date:"2026-01-01", createdAt:1 }]) === "",
         "sin un peso numérico no hay nada que mostrar");
+    });
+
+    /* ===================================================================
+       V50.6C — Perfil compacto.
+
+       Lo que más importa acá no es lo que se agregó sino lo que se retiró sin
+       romper nada: el mapa muscular, su selección de regiones, el detalle de
+       músculos, los estiramientos, el peso, la configuración y la activación
+       V48 tienen que seguir enteros después de haber sacado dos tarjetas y un
+       panel de alrededor.
+       =================================================================== */
+
+    group("V50.6C — Perfil compacto");
+
+    /* ---------- 1 y 2: lo que se retiró ---------- */
+
+    test("V50.6C — Perfil no muestra las tarjetas duplicadas ni las estadísticas por origen", function(){
+      conPerfil({
+        entrenos:[{ id:1, date:diasAtras(1), routineOrigin:"automatica", setsCompletados:9, setsTotales:12 }],
+        registros:[{ id:1, exercise:"Gemelos", peso:40, date:diasAtras(1), series:"3", reps:"10" }],
+        pesoCorporal:[{ id:"a", fecha:diasAtras(1), pesoKg:80, nota:"", createdAt:1, updatedAt:null }]
+      }, function(){
+        var html = A.screenPerfil();
+        [
+          ["Esta semana", "la tarjeta duplicada de la semana"],
+          ["Tu entrenamiento", "la tarjeta Tu entrenamiento"],
+          ["perfil-week", "el envoltorio de la tarjeta de la semana"],
+          ["Entrenamientos por origen", "la estadística por origen"],
+          ["origin-stack", "la barra apilada de orígenes"],
+          ["cal-legend-item", "la leyenda de orígenes"],
+          ["Diagnóstico de identidad", "el panel de diagnóstico"],
+          ["btn-ex-diagnostics", "el acceso al diagnóstico"],
+          ["Ejercicios distintos registrados", "el contador sin ventana"],
+          ["Rutina activa:", "la rutina activa, que ya se ve en Rutina"]
+        ].forEach(function(par){
+          assert(html.indexOf(par[0]) === -1, "Perfil no debería mostrar " + par[1] + " (\"" + par[0] + "\")");
+        });
+      });
+    });
+
+    test("V50.6C — las funciones retiradas de la vista NO se eliminaron", function(){
+      // Requisito: retirar los paneles sin modificar sus datos subyacentes. Las
+      // funciones siguen existiendo, exportadas y calculando igual; lo único que
+      // se retiró es su lugar en la pantalla.
+      ["ejerciciosDistintosCount","entrenosPorOrigen","openExerciseDiagnosticsModal",
+       "rachaCardHtml","mountWeekNav","weekScopeKeys"].forEach(function(n){
+        assert(typeof A[n] === "function", "se eliminó " + n + ", y no correspondía");
+      });
+      assert(A.WEEK_SCOPE_KEYS && A.WEEK_SCOPE_KEYS.perfil,
+        "el scope \"perfil\" de la navegación semanal sigue declarado aunque ninguna pantalla lo use");
+      assert("perfilWeekOffset" in A.state && "perfilWeekDetailOpen" in A.state,
+        "las claves de estado de la semana de Perfil siguen en state");
+      // perfilEntrenamientoHtml sí se retiró: era sólo el envoltorio.
+      assert(typeof A.perfilEntrenamientoHtml === "undefined",
+        "perfilEntrenamientoHtml tenía que retirarse, no quedar como función muerta");
+    });
+
+    /* ---------- 3: el resumen compacto ---------- */
+
+    test("V50.6C — el Resumen tiene las cuatro cifras pedidas", function(){
+      conPerfil({
+        profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:1, edad:34 },
+        pesoCorporal:[{ id:"a", fecha:diasAtras(2), pesoKg:81.5, nota:"", createdAt:1, updatedAt:null }],
+        registros:[
+          { id:1, exercise:"Press de banca con barra", peso:60, date:diasAtras(1) },
+          { id:2, exercise:"Remo con barra",           peso:50, date:diasAtras(3) },
+          { id:3, exercise:"Sentadilla con barra",     peso:90, date:diasAtras(20) }
+        ]
+      }, function(){
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf("81.5") !== -1, "falta el peso actual");
+        assert(html.indexOf("Peso actual") !== -1, "falta su etiqueta");
+        assert(html.indexOf("34") !== -1, "falta la edad");
+        assert(html.indexOf("Edad") !== -1, "falta su etiqueta");
+        assert(html.indexOf("Ejercicios · 7 días") !== -1, "falta la ventana de 7 días");
+        assert(html.indexOf("Ejercicios · 30 días") !== -1, "falta la ventana de 30 días");
+        // 7 días: dos ejercicios. 30 días: los tres.
+        assert(A.ejerciciosDistintosEnVentana(A.state.registros, 7) === 2,
+          "7 días debería dar 2, dio " + A.ejerciciosDistintosEnVentana(A.state.registros, 7));
+        assert(A.ejerciciosDistintosEnVentana(A.state.registros, 30) === 3,
+          "30 días debería dar 3, dio " + A.ejerciciosDistintosEnVentana(A.state.registros, 30));
+      });
+    });
+
+    test("V50.6C — sin edad cargada no se inventa ninguna", function(){
+      // No hay fecha de nacimiento en el esquema: la única fuente es la columna
+      // `edad`, que la persona escribe en Configuración. Cuando falta, guión.
+      conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:1 } }, function(){
+        var html = A.perfilResumenHtml();
+        assert(html.indexOf("Edad sin cargar") !== -1, "debería decir que la edad no está cargada");
+        assert(html.indexOf("&#8212;") !== -1, "y mostrar un guión neutro");
+        assert(!/\d+<small> años/.test(html), "no puede haber una edad inventada");
+      });
+      // Y con edad null explícito, lo mismo.
+      conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:1, edad:null } }, function(){
+        assert(!/\d+<small> años/.test(A.perfilResumenHtml()), "edad null tampoco puede inventar un número");
+      });
+    });
+
+    test("V50.6C — la ventana de ejercicios es pura y descarta lo que no sirve", function(){
+      var hoy = "2026-03-15";
+      var regs = [
+        { id:1, exercise:"Press de banca con barra", peso:60, date:"2026-03-15" },  // hoy
+        { id:2, exercise:"Press banca plano",        peso:62, date:"2026-03-14" },  // mismo canónico
+        { id:3, exercise:"Remo con barra",           peso:50, date:"2026-03-09" },  // día 7 de la ventana
+        { id:4, exercise:"Sentadilla con barra",     peso:90, date:"2026-03-08" },  // fuera de 7, dentro de 30
+        { id:5, exercise:"Dominadas",                peso:0,  date:"2026-03-20" },  // FUTURO: no cuenta
+        { id:6, exercise:"Plancha",                  peso:0,  date:"no-es-fecha" }, // inválida: no cuenta
+        { id:7, exercise:"Jalón al pecho",           peso:40, date:null }           // sin fecha: no cuenta
+      ];
+      var antes = JSON.stringify(regs);
+      assert(A.ejerciciosDistintosEnVentana(regs, 7, hoy) === 2,
+        "7 días: press (dos nombres = uno) + remo = 2, dio " + A.ejerciciosDistintosEnVentana(regs, 7, hoy));
+      assert(A.ejerciciosDistintosEnVentana(regs, 30, hoy) === 3,
+        "30 días: suma la sentadilla = 3, dio " + A.ejerciciosDistintosEnVentana(regs, 30, hoy));
+      assert(A.ejerciciosDistintosEnVentana(regs, 1, hoy) === 1,
+        "1 día es sólo hoy, dio " + A.ejerciciosDistintosEnVentana(regs, 1, hoy));
+      assert(A.ejerciciosDistintosEnVentana([], 7, hoy) === 0, "lista vacía, 0");
+      assert(A.ejerciciosDistintosEnVentana(null, 7, hoy) === 0, "sin lista, 0");
+      assert(JSON.stringify(regs) === antes, "la función no puede modificar los registros que recibe");
+    });
+
+    test("V50.6C — un ejercicio que salió de la rutina sigue contando", function(){
+      // El conteo sale del HISTORIAL, no de la rutina activa: si contara sobre la
+      // rutina, dejar de hacer un ejercicio borraría el pasado.
+      var prevRut = A.state.rutina;
+      conPerfil({
+        registros:[{ id:1, exercise:"Press de banca con barra", peso:60, date:diasAtras(2) }]
+      }, function(){
+        // conPerfil no toca state.rutina, así que se fija acá y se restaura abajo.
+        A.state.rutina = { days:[] };
+        assert(A.allExerciseNames().length === 0, "precondición: la rutina activa está vacía");
+        assert(A.ejerciciosDistintosEnVentana(A.state.registros, 7) === 1,
+          "el ejercicio del historial tiene que contar igual");
+      });
+      A.state.rutina = prevRut;
+    });
+
+    /* ---------- 4 y 5: el mapa y los estiramientos, enteros ---------- */
+
+    test("V50.6C — el mapa muscular quedó entero y sigue siendo el mismo", function(){
+      conPerfil({
+        registros:[{ id:1, exercise:"Press de banca con barra", peso:60, date:diasAtras(1), series:"3", reps:"10" }]
+      }, function(){
+        var html = A.screenPerfil();
+        // El envoltorio que mountPerfil busca para enganchar mountMuscleMap. Sin
+        // esta clase el mapa quedaría dibujado pero sin handlers.
+        assert(html.indexOf('class="perfil-mapa"') !== -1, "falta el envoltorio .perfil-mapa");
+        assert(html.indexOf("Mapa muscular") !== -1, "falta el título de la sección");
+        // Y es el MISMO: no una copia ni un resumen.
+        assert(html.indexOf(A.screenMuscleMap()) !== -1, "Perfil no está usando screenMuscleMap tal cual");
+        // Sus controles: los tres períodos y la lista de sectores.
+        var mapa = A.screenMuscleMap();
+        assert(/data-mapa-period/.test(mapa), "faltan los controles de 7/30/90");
+        assert(/data-mapa-region|mapa-hit/.test(mapa), "falta la capa de selección de regiones");
+      });
+    });
+
+    test("V50.6C — el detalle de una región seleccionada sigue funcionando desde Perfil", function(){
+      conPerfil({
+        registros:[{ id:1, exercise:"Press de banca con barra", peso:60, date:diasAtras(1), series:"3", reps:"10" }]
+      }, function(){
+        var prev = A.state.mapaRegion;
+        try {
+          A.state.mapaRegion = "chest-mid";
+          var html = A.screenPerfil();
+          assert(html.indexOf('class="mapa-sel"') !== -1,
+            "el contorno de selección de V50.4 tiene que seguir dibujándose dentro de Perfil");
+          var stats = A.mapaStatsActuales();
+          assert(html.indexOf(A.muscleMapRegionDetailHtml(stats, "chest-mid")) !== -1,
+            "el detalle del músculo seleccionado tiene que estar en Perfil");
+        } finally { A.state.mapaRegion = prev; }
+      });
+    });
+
+    test("V50.6C — el acceso a estiramientos conserva su id y su handler", function(){
+      conPerfil({}, function(){
+        var html = A.screenPerfil();
+        assert(html.indexOf('id="btn-perfil-estiramientos"') !== -1, "falta el botón de estiramientos");
+        assert(html.indexOf("24 estiramientos") !== -1, "falta su texto");
+        // La pieza se mudó a su propia función, con el MISMO id, así que el
+        // handler de mountPerfil no se tocó.
+        assert(A.perfilEstiramientosHtml().indexOf('id="btn-perfil-estiramientos"') !== -1,
+          "perfilEstiramientosHtml tiene que traer el mismo id");
+        assert(APP_SRC && APP_SRC.indexOf('el.querySelector("#btn-perfil-estiramientos")') !== -1,
+          "el handler tiene que seguir buscando el mismo id");
+        assert(A.ESTIRAMIENTOS.length === 24, "la biblioteca sigue con sus 24 fichas");
+      });
+    });
+
+    /* ---------- 6: cuenta, configuración, peso y activación ---------- */
+
+    test("V50.6C — cuenta, peso, configuración y activación V48 siguen en Perfil", function(){
+      conPerfil({
+        pesoCorporal:[{ id:"a", fecha:diasAtras(1), pesoKg:80, nota:"", createdAt:1, updatedAt:null }]
+      }, function(){
+        var html = A.screenPerfil();
+        assert(html.indexOf("Tu cuenta") !== -1, "falta la tarjeta de cuenta");
+        assert(html.indexOf("Tu peso") !== -1, "falta el bloque de peso");
+        assert(html.indexOf('id="btn-perfil-ir-peso"') !== -1, "falta el acceso a registrar/editar el peso");
+        assert(html.indexOf("Configuración") !== -1, "falta la configuración");
+        ['id="perfil-name"','id="meta-semanal"','id="perfil-edad"','id="theme-seg"','id="btn-logout"']
+          .forEach(function(sel){ assert(html.indexOf(sel) !== -1, "falta " + sel); });
+      });
+    });
+
+    test("V50.6C — el botón de activación V48 no se oculta cuando corresponde", function(){
+      var prev = { pers:A.state.persistence, prof:A.state.profile };
+      try {
+        A.state.profile = { id:"p", name:"Juan", metaSemanal:3, createdAt:1 };
+        // Cuenta sin activar y sin bloqueos: el bloque tiene que aparecer.
+        A.state.persistence = { revision:4, clienteV48:false, schemaReady:true, pending:false, conflict:false };
+        var est = A.activacionV48Estado();
+        assert(est.visible === true, "con cliente_v48=false el bloque tiene que ser visible");
+        var html = A.perfilActivacionHtml();
+        assert(html.indexOf('id="btn-perfil-activar"') !== -1, "falta el botón de activación");
+        assert(A.screenPerfil().indexOf('id="btn-perfil-activar"') !== -1,
+          "y tiene que seguir llegando a la pantalla de Perfil");
+        // Ya activada: el bloque desaparece, como siempre.
+        A.state.persistence = { revision:4, clienteV48:true, schemaReady:true, pending:false, conflict:false };
+        assert(A.activacionV48Estado().visible === false, "con la cuenta activada el bloque no va");
+        assert(A.perfilActivacionHtml() === "", "y no deja ningún hueco");
+      } finally { A.state.persistence = prev.pers; A.state.profile = prev.prof; }
+    });
+
+    test("V50.6C — la pantalla de conflictos sigue accesible desde Perfil", function(){
+      var prev = A.state.persistence;
+      try {
+        A.state.persistence = { revision:1, clienteV48:false, schemaReady:true, conflict:true };
+        assert(A.perfilConflictoHtml().indexOf('id="btn-perfil-conflictos"') !== -1,
+          "con un conflicto sin resolver el acceso tiene que estar");
+        A.state.persistence = { revision:1, clienteV48:false, schemaReady:true, conflict:false };
+        assert(A.perfilConflictoHtml() === "", "sin conflicto no aparece");
+      } finally { A.state.persistence = prev; }
+    });
+
+    /* ---------- 8: cuentas incompletas o con poco historial ---------- */
+
+    test("V50.6C — una cuenta vacía o incompleta no rompe Perfil", function(){
+      // Sin peso, sin edad, sin entrenamientos, sin registros y con la rutina
+      // vacía: el caso de alguien que se acaba de registrar.
+      conPerfil({ profile:{ id:"p", name:"Juan", metaSemanal:3, createdAt:1 } }, function(){
+        var html = A.screenPerfil();
+        assert(typeof html === "string" && html.length > 0, "Perfil tiene que renderizar igual");
+        assert(html.indexOf("Sin peso registrado") !== -1, "tiene que decir que no hay peso");
+        assert(html.indexOf("Edad sin cargar") !== -1, "y que no hay edad");
+        assert(html.indexOf("undefined") === -1, "no puede escaparse un undefined");
+        assert(html.indexOf("NaN") === -1, "ni un NaN");
+        assert(html.indexOf("Mapa muscular") !== -1, "el mapa tiene que estar igual, aunque esté todo en cero");
+      });
+      // Y con un registro viejísimo, fuera de las dos ventanas.
+      conPerfil({ registros:[{ id:1, exercise:"Gemelos", peso:40, date:diasAtras(400) }] }, function(){
+        assert(A.ejerciciosDistintosEnVentana(A.state.registros, 7) === 0, "7 días no alcanza a un registro de hace 400");
+        assert(A.ejerciciosDistintosEnVentana(A.state.registros, 30) === 0, "30 días tampoco");
+        // Pero el total histórico sí lo ve: son dos cosas distintas.
+        assert(A.ejerciciosDistintosCount() === 1, "el total histórico sigue contándolo");
+      });
+    });
+
+    /* ---------- 9: iPhone 375 px ---------- */
+
+    test("V50.6C — iPhone 375 px: las cuatro cifras entran en 2x2 sin desbordar", function(){
+      var W = frame.contentWindow, D = W.document;
+      var host = D.createElement("div");
+      host.style.cssText = "position:fixed; left:-9999px; top:0; width:351px;";
+      host.innerHTML = '<div class="perfil-sum">' +
+        [['81.5<small> kg</small>','Peso actual'],['34<small> años</small>','Edad'],
+         ['7','Ejercicios · 7 días'],['12','Ejercicios · 30 días']]
+        .map(function(p){ return '<div class="perfil-sum-i"><div class="num perfil-sum-v">' + p[0] +
+          '</div><div class="perfil-sum-l">' + p[1] + '</div></div>'; }).join("") + '</div>';
+      D.body.appendChild(host);
+      try {
+        var grid = host.querySelector(".perfil-sum");
+        var cajas = Array.from(host.querySelectorAll(".perfil-sum-i"));
+        assert(cajas.length === 4, "cuatro cifras, dio " + cajas.length);
+        assert(grid.scrollWidth <= grid.clientWidth + 1,
+          "el grid desborda: " + grid.scrollWidth + " > " + grid.clientWidth);
+        var recortadas = cajas.filter(function(b){ return b.scrollWidth > b.clientWidth + 1; })
+          .map(function(b){ return b.textContent.trim(); });
+        assert(recortadas.length === 0, "cifras recortadas: " + recortadas.join(" | "));
+        // 2x2 de verdad: dos filas, no cuatro ni una.
+        var tops = cajas.map(function(b){ return Math.round(b.getBoundingClientRect().top); });
+        var filas = Object.keys(tops.reduce(function(a,t){ a[t]=1; return a; }, {})).length;
+        assert(filas === 2, "tendrían que quedar dos filas de dos, quedaron " + filas);
+        // Y más bajo que las cuatro filas que costaría apilarlas.
+        assert(grid.getBoundingClientRect().height <= 150,
+          "el grid quedó demasiado alto: " + grid.getBoundingClientRect().height.toFixed(0) + "px");
+      } finally { host.remove(); }
+    });
+
+    test("V50.6C — Perfil quedó más corto que antes de V50.6C", function(){
+      conPerfil({
+        entrenos:[{ id:1, date:diasAtras(1), routineOrigin:"automatica" }],
+        registros:[{ id:1, exercise:"Press de banca con barra", peso:60, date:diasAtras(1), series:"3", reps:"10" }],
+        pesoCorporal:[{ id:"a", fecha:diasAtras(1), pesoKg:80, nota:"", createdAt:1, updatedAt:null }]
+      }, function(){
+        var html = A.screenPerfil();
+        // Las secciones que quedan, en orden. Si apareciera una sección de más,
+        // este conteo lo delata.
+        var titulos = (html.match(/<div class="section-title"[^>]*><h2>([^<]*)<\/h2>/g) || [])
+          .map(function(m){ return m.replace(/.*<h2>/, "").replace(/<\/h2>/, ""); });
+        assert(titulos.indexOf("Esta semana") === -1, "quedó la sección de la semana");
+        assert(titulos.indexOf("Tu entrenamiento") === -1, "quedó la sección Tu entrenamiento");
+        ["Tu cuenta","Resumen","Tu peso","Mapa muscular","Configuración"].forEach(function(t){
+          assert(titulos.indexOf(t) !== -1, "falta la sección " + t + ", quedaron: " + titulos.join(" | "));
+        });
+      });
     });
 
     group("A5 y M1 — contraste y tipografía del registro heredado");

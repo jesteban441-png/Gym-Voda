@@ -460,6 +460,14 @@
   /* El Resumen es el titular de la pantalla: sus tres números van por encima
      del resto. No se baja .racha-count porque esa tarjeta es compartida con
      Rutina y cambiarla cambiaría Rutina. */
+  /* V50.6C: el Resumen pasa de tres cifras en fila a CUATRO en 2x2. En 375 px
+     cuatro columnas dejarían "Ejercicios · 30 días" en dos líneas y la tarjeta
+     despareja; 2x2 se lee de un vistazo y ocupa menos alto que cuatro filas. */
+  .perfil-sum{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .perfil-sum .perfil-sum-i{ background:var(--surface-2); border-radius:10px; padding:8px 10px; min-width:0; }
+  .perfil-sum .perfil-sum-v{ font-size:22px; font-weight:800; line-height:1.1; }
+  .perfil-sum .perfil-sum-v small{ font-size:13px; font-weight:700; color:var(--text-muted); }
+  .perfil-sum .perfil-sum-l{ font-size:11.5px; color:var(--text-muted); margin-top:1px; }
   .perfil-resumen .pesostat-val{ font-size:30px; }
   .perfil-about{ text-align:center; }
   /* La tarjeta de la semana es la MISMA de Rutina. Acá es una sección
@@ -11146,6 +11154,31 @@
   // Ejercicios distintos registrados, contados por identidad CANÓNICA: dos
   // nombres históricos que hoy resuelven al mismo ejercicio cuentan uno, no
   // dos. Es la misma regla que usa el historial agrupado de Registro.
+  /* V50.6C — ejercicios distintos en una ventana de días.
+
+     ejerciciosDistintosCount() cuenta TODO el historial y se conserva tal cual
+     (sigue exportada y con sus pruebas). Esta es la versión con ventana, que es
+     lo que pide el Resumen: "últimos 7 días" y "últimos 30 días".
+
+     Es pura: recibe la lista y el día de referencia. Descarta lo mismo que
+     descarta el mapa muscular —fechas inválidas y fechas futuras— y cuenta por
+     identidad canónica, así que dos nombres viejos del mismo ejercicio cuentan
+     uno. Un ejercicio que ya salió de la rutina sigue contando: está en el
+     historial, que es de donde sale esto. */
+  function ejerciciosDistintosEnVentana(registros, dias, hoy){
+    const fin = hoy || todayStr();
+    const desde = dateMinusDays(fin, Math.max(0, (dias||0) - 1));
+    const set = new Set();
+    (registros||[]).forEach(r=>{
+      const f = r && r.date;
+      if(!f || typeof f !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(f)) return;
+      if(f < desde || f > fin) return;
+      const c = canonicalExerciseName(r.exercise);
+      if(c) set.add(c);
+    });
+    return set.size;
+  }
+
   function ejerciciosDistintosCount(){
     const set = new Set();
     (state.registros||[]).forEach(r=>{
@@ -11197,33 +11230,52 @@
     `;
   }
 
+  /* ===== V50.6C — Resumen compacto =====
+
+     Cuatro cifras: peso actual, edad, y ejercicios distintos en 7 y en 30 días.
+
+     Lo que SALIÓ de acá, y por qué:
+       · El contador "Esta semana" y la racha. Estaban en Perfil y en Rutina a la
+         vez, calculando lo mismo. La racha vive en Rutina y no se duplica
+         (requisito de V50.6C). rachaCardHtml conserva su parámetro de scope y
+         sus pruebas, pero ninguna pantalla usa ya el scope "perfil".
+
+     LA EDAD, y esto hay que leerlo antes de "arreglarlo": no se calcula desde
+     una fecha de nacimiento porque NO EXISTE tal dato. `profiles` tiene una
+     columna `edad` —un entero que la persona escribe en Configuración— y nada
+     más: no hay fecha_nacimiento en el esquema, ni en el paquete SQL, ni en
+     rowToProfile. Así que acá se muestra ese valor declarado y, cuando falta, un
+     guión: no se inventa ni se deriva de otra cosa. Calcularla de verdad exige
+     una columna nueva, que es un cambio de esquema y queda fuera de alcance. */
   function perfilResumenHtml(){
     const resumen = pesoResumen(state.pesoCorporal||[]);
-    const goal = state.profile.metaSemanal || 3;
-    const all = state.entrenos||[];
-    // V50: mismo criterio único que rachaCardHtml — el Día Especial cuenta para
-    // la meta y para la racha, y las dos cifras salen de una sola llamada.
-    const r = computeRacha(all, goal);
-    const streak = r.streak;
+    const edad = Number.isFinite(state.profile && state.profile.edad) ? state.profile.edad : null;
+    const regs = state.registros||[];
+    const d7 = ejerciciosDistintosEnVentana(regs, 7);
+    const d30 = ejerciciosDistintosEnVentana(regs, 30);
+    const guion = `<span style="color:var(--text-muted)">&#8212;</span>`;
     return `
       <div class="section-title"><h2>Resumen</h2></div>
-      <div class="card perfil-resumen">
-        <div class="pesostats">
-          <div class="pesostat">
-            <div class="num pesostat-val">${
-              resumen ? `${fmtPesoKg(resumen.actual.pesoKg)}<small> kg</small>` : `<span style="color:var(--text-muted)">&#8212;</span>`
-            }</div>
-            <div class="helptext">${resumen ? "Peso actual" : "Sin peso registrado"}</div>
+      <div class="card">
+        <div class="perfil-sum">
+          <div class="perfil-sum-i">
+            <div class="num perfil-sum-v">${resumen ? `${fmtPesoKg(resumen.actual.pesoKg)}<small> kg</small>` : guion}</div>
+            <div class="perfil-sum-l">${resumen ? "Peso actual" : "Sin peso registrado"}</div>
           </div>
-          <div class="pesostat">
-            <div class="num pesostat-val">${r.thisWeekCount}<small> / ${goal}</small></div>
-            <div class="helptext">Esta semana</div>
+          <div class="perfil-sum-i">
+            <div class="num perfil-sum-v">${edad!=null ? `${edad}<small> años</small>` : guion}</div>
+            <div class="perfil-sum-l">${edad!=null ? "Edad" : "Edad sin cargar"}</div>
           </div>
-          <div class="pesostat">
-            <div class="num pesostat-val">${streak > 0 ? `🔥${streak}` : `<span style="color:var(--text-muted)">0</span>`}</div>
-            <div class="helptext">Semana${streak===1?"":"s"} seguida${streak===1?"":"s"}</div>
+          <div class="perfil-sum-i">
+            <div class="num perfil-sum-v">${d7}</div>
+            <div class="perfil-sum-l">Ejercicios · 7 días</div>
+          </div>
+          <div class="perfil-sum-i">
+            <div class="num perfil-sum-v">${d30}</div>
+            <div class="perfil-sum-l">Ejercicios · 30 días</div>
           </div>
         </div>
+        <p class="helptext" style="margin-top:6px">Ejercicios distintos con peso registrado, contados por identidad canónica.</p>
       </div>
     `;
   }
@@ -11287,40 +11339,23 @@
     `;
   }
 
-  function perfilEntrenamientoHtml(){
-    const distintos = ejerciciosDistintosCount();
-    const orig = entrenosPorOrigen();
-    const slotLabel = RUTINA_SLOT_LABELS[state.activeSlot] || "";
+  /* V50.6C — perfilEntrenamientoHtml se RETIRÓ. Qué tenía adentro y dónde quedó:
 
-    const composicion = orig.total === 0
-      ? `<p class="helptext">Todavía no hay entrenamientos registrados.</p>`
-      : `
-        <div class="origin-stack" aria-hidden="true">
-          ${orig.rows.map(row=>`<span class="cal-origin-bar ${row.origin}" style="flex:${row.count} 1 0"></span>`).join("")}
-        </div>
-        <div class="cal-legend">
-          ${orig.rows.map(row=>`<span class="cal-legend-item"><span class="cal-legend-dot ${row.origin}"></span>${esc(CALENDAR_ORIGIN_LABELS[row.origin])} ${row.count} · ${row.pct}%</span>`).join("")}
-        </div>
-      `;
-
+       · "Ejercicios distintos registrados" (ejerciciosDistintosCount) y
+         "Entrenamientos por origen" (entrenosPorOrigen + la barra apilada y la
+         leyenda del calendario). Las dos salen del área principal de Perfil.
+         Las FUNCIONES no se tocaron: siguen exportadas y con sus pruebas, sólo
+         que ninguna pantalla las llama. El dato que sí se conserva —cuántos
+         ejercicios distintos— pasó al Resumen, con ventana de 7 y 30 días.
+       · "Rutina activa: X" (RUTINA_SLOT_LABELS). Se va: la pestaña activa ya se
+         ve en Rutina, que es donde se cambia.
+       · perfilMapaHtml(), que ahora lo llama screenPerfil directo. Conserva su
+         envoltorio .perfil-mapa, que es lo que mountPerfil busca para enganchar
+         mountMuscleMap: sin esa clase el mapa quedaría dibujado pero muerto.
+       · La tarjeta de Estiramientos, ahora en perfilEstiramientosHtml() con el
+         MISMO id #btn-perfil-estiramientos, así que su handler no se tocó. */
+  function perfilEstiramientosHtml(){
     return `
-      <div class="section-title"><h2>Tu entrenamiento</h2></div>
-      <div class="card stack">
-        <div class="statline">
-          <span class="helptext" style="font-size:13px; color:var(--text)">Ejercicios distintos registrados</span>
-          <span class="num">${distintos}</span>
-        </div>
-        ${distintos > 0 ? `<p class="helptext">Contados por identidad canónica: dos nombres viejos del mismo ejercicio cuentan uno.</p>` : `<p class="helptext">Cuando cargues pesos en Registro, acá vas a ver cuántos ejercicios distintos llevás.</p>`}
-        <div class="statline" style="margin-top:4px">
-          <span class="helptext" style="font-size:13px; color:var(--text)">Entrenamientos por origen</span>
-          <span class="num">${orig.total}</span>
-        </div>
-        ${composicion}
-        ${slotLabel ? `<p class="helptext">Rutina activa: <b>${esc(slotLabel)}</b></p>` : ""}
-      </div>
-
-      ${perfilMapaHtml()}
-
       <div class="card stack">
         <p class="helptext">24 estiramientos con instrucciones, buscador y filtro por grupo muscular.</p>
         <button class="btn btn-outline btn-block" id="btn-perfil-estiramientos">Estiramientos</button>
@@ -11544,6 +11579,16 @@
     `;
   }
 
+  /* V50.6C: la tarjeta "Diagnóstico de identidad" salió del área principal de
+     Perfil. openExerciseDiagnosticsModal() NO se modificó —sigue en el código,
+     exportada y con sus pruebas— y tampoco se tocó ningún dato que leía: era un
+     panel de solo lectura. Lo que se retira es su acceso desde esta pantalla,
+     que es lo que ocupaba lugar. El handler de mountPerfil ya estaba guardado
+     con if(diagBtn), así que no rompe.
+
+     La explicación va acá y NO en un comentario HTML dentro del template: eso
+     se serializa en la cadena que devuelve la función y termina viajando al DOM
+     de cada usuario. */
   function perfilConfigHtml(){
     return `
       <div class="section-title" style="margin-top:6px"><h2>Configuración</h2></div>
@@ -11576,12 +11621,6 @@
         </div>
       </div>
 
-      <div class="card stack">
-        <div class="statline"><span class="helptext" style="font-size:13px; color:var(--text); font-weight:600">Diagnóstico de identidad</span></div>
-        <p class="helptext">Revisa los nombres de ejercicio guardados en tu historial y en tus rutinas, y muestra cuáles no llegan a un ejercicio del catálogo. Es solo lectura: no modifica ni borra nada.</p>
-        <button class="btn btn-outline btn-block" id="btn-ex-diagnostics">Identidad de ejercicios</button>
-      </div>
-
       <button class="btn btn-outline btn-block" id="btn-logout">${icon("back")} Cerrar sesión</button>
       <p class="helptext perfil-about">Voda Fit — rutina, registro de pesos y cronómetro de descanso.</p>
     `;
@@ -11594,18 +11633,20 @@
   //
   // La tarjeta de la semana es la MISMA de Rutina (rachaCardHtml), con scope
   // "perfil" para que la navegación semanal tenga su propio estado.
+  /* V50.6C: salieron la tarjeta "Esta semana" —que era rachaCardHtml otra vez,
+     la misma que está arriba de Rutina— y "Tu entrenamiento". Lo que queda es:
+     quién soy → cuatro cifras → peso → mapa muscular → estiramientos →
+     configuración. El mapa, su selección de regiones, el detalle de músculos y
+     el acceso a estiramientos quedan intactos. */
   function screenPerfil(){
     return `
       ${perfilConflictoHtml()}
       ${perfilActivacionHtml()}
       ${perfilCuentaHtml()}
       ${perfilResumenHtml()}
-
-      <div class="section-title"><h2>Esta semana</h2></div>
-      <div class="perfil-week">${rachaCardHtml("perfil")}</div>
-
       ${perfilPesoHtml()}
-      ${perfilEntrenamientoHtml()}
+      ${perfilMapaHtml()}
+      ${perfilEstiramientosHtml()}
       ${perfilConfigHtml()}
     `;
   }
@@ -11614,8 +11655,11 @@
     const el = document.getElementById("screen");
 
     // --- V42: dashboard (solo lectura) ---
-    // Navegación semanal con estado propio de Perfil.
-    mountWeekNav(el, "perfil");
+    // V50.6C: ya no se llama a mountWeekNav("perfil"): la tarjeta de la semana
+    // salió de Perfil y no queda ningún #week-prev/#week-next que enganchar.
+    // mountWeekNav, weekScopeKeys y las claves perfilWeekOffset /
+    // perfilWeekDetailOpen siguen en el código y con sus pruebas; lo que
+    // desaparece es el único consumidor del scope "perfil".
 
     // Período del gráfico de peso. Clave propia: no toca el de Registro.
     el.querySelectorAll("[data-perfil-peso-period]").forEach(btn=>{
@@ -11770,7 +11814,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "03a981a8d0d90467b413ff1830c1fc6ec0a7b9da014fb0766d300fc97671c1e6";
+  const APP_BUILD = "63fec99c52a77722f958f798d7f0cabaeb6b60d85812a26addbe3ed5ecffaca8";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -11993,7 +12037,6 @@
     borradorV48, refrescarSesionNativa,
     // screenSession se expone para afirmar QUE BOTONES existe en cada estado
     // terminal de la sesion nativa (O3). Es presentacion pura: no escribe nada.
-    screenSession,
     // V50.6A: la tira de Rutina es presentacion. rutinaVistaActual deriva la
     // pestana de activeSlot salvo la de Dia especial, que no es un slot.
     RUTINA_VISTAS, RUTINA_VISTA_LABELS, RUTINA_VISTA_TITULOS, rutinaVistaActual,
@@ -12003,10 +12046,6 @@
     registroOrdenDesc, registroMaxHistorico, registroUltimaCarga, etiquetaDeSerie,
     agruparHistorialPorEntrenamiento, nombresFiltrablesDelHistorial,
     registroStatsHtml, registroHistorialHtml, sparklineFor,
-    // loadProfileData se expone para PODER LLAMARLA desde una prueba (contar
-    // lecturas en el recorrido terminal, O2). No sirve para sustituirla: las
-    // llamadas internas usan la referencia del closure, no esta copia.
-    loadProfileData,
     sessionExerciseCardHtml, toggleSessionSet,
     // v37 — vueltas del cronómetro de entrenamiento
     workoutClock, addWorkoutLap, clearWorkoutLaps, workoutLapRows, workoutLapsBlockHtml,
@@ -12051,7 +12090,11 @@
     screenConflictos, renderConflictos, mountConflictos, perfilConflictoHtml, rutinaSync,
     // V50.5: activación de las funciones V48.
     activacionV48Estado, activacionV48Error, activarV48, perfilActivacionHtml,
-    perfilEntrenamientoHtml, perfilConfigHtml, primerDatoFecha, ejerciciosDistintosCount,
+    perfilConfigHtml, primerDatoFecha, ejerciciosDistintosCount,
+    // V50.6C: Perfil compacto. ejerciciosDistintosEnVentana es PURA (recibe la
+    // lista y el dia de referencia); perfilEstiramientosHtml y perfilMapaHtml
+    // son las dos piezas que sobrevivieron a perfilEntrenamientoHtml.
+    ejerciciosDistintosEnVentana, perfilEstiramientosHtml,
     entrenosPorOrigen, rachaCardHtml, mountWeekNav, weekScopeKeys, WEEK_SCOPE_KEYS, PERFIL_ORIGIN_ORDER, setTab,
     currentWorkoutElapsed, fmtElapsed, workoutClockHtml, persistWorkoutClock,
     // v30
