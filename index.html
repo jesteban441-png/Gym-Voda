@@ -498,6 +498,17 @@
      ("Rutina automática") la tira no entra en 375 px y se desborda, así que
      esta variante baja tipografía y padding y los nombres largos quedan para el
      título de la sección. El nombre completo no se pierde: se lee abajo. */
+  /* V50.6B: las dos cifras de un ejercicio, una al lado de la otra. En iPhone
+     dos columnas entran sin apretar y evitan dos tarjetas apiladas. */
+  .reg-stats{ display:flex; gap:8px; margin-bottom:8px; }
+  .reg-stat{ flex:1; background:var(--surface-2); border-radius:10px; padding:8px 10px; min-width:0; }
+  .reg-stat .lbl{ font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:.03em; }
+  .reg-stat .val{ font-size:17px; font-weight:800; margin-top:1px; }
+  .reg-stat .val .x{ font-size:13px; font-weight:600; color:var(--text-muted); }
+  .reg-stat .sub{ font-size:11.5px; color:var(--text-muted); margin-top:1px; }
+  /* Cabecera de cada entrenamiento dentro del historial de un ejercicio. */
+  .log-ent{ font-size:11.5px; font-weight:700; color:var(--text-muted); text-transform:uppercase;
+    letter-spacing:.03em; padding:8px 0 2px; }
   .segmented.seg-4 button{ font-size:12px; padding:8px 2px; line-height:1.15; }
   .segmented.seg-4 .seg-n{ display:block; font-size:10px; font-weight:700; opacity:.65; }
 
@@ -8892,6 +8903,147 @@
     });
   }
 
+  /* ===== V50.6B — lectura del historial de un ejercicio =====
+
+     Cómo están los datos de verdad, porque de acá sale todo lo de abajo:
+       peso       número (columna numeric). Se parsea igual por si viene string.
+       date       "YYYY-MM-DD". Es la fecha DEL DATO, no la de escritura.
+       createdAt  epoch en milisegundos. Es la fecha de ESCRITURA (V50: ms).
+       reps       texto LIBRE: admite "10" y también rangos como "8-12".
+       series     texto. En una fila por serie vale "1"; en una carga manual es
+                  el total de series de esa carga.
+       setNumber  entero 1..12 o NULL. Null = carga manual: el formulario
+                  clásico nunca mandó número de serie.
+       entrenoId  sólo lo traen las filas de una sesión V48. Las filas por serie
+                  de V47 lo tienen en null.
+
+     Nada de esto se modifica. Un registro viejo sin número de serie se muestra
+     como "Carga manual"; no se le inventa un número ni se reescribe la fila. */
+
+  // Orden "de lo más reciente a lo más viejo". El empate de fecha se resuelve
+  // por hora de escritura y, si también empata, por número de serie: dos series
+  // guardadas el mismo día tienen que quedar en el orden en que se hicieron.
+  function registroOrdenDesc(a, b){
+    if(a.date !== b.date) return a.date < b.date ? 1 : -1;
+    const ca = a.createdAt||0, cb = b.createdAt||0;
+    if(ca !== cb) return cb - ca;
+    const sa = a.setNumber==null ? -1 : a.setNumber, sb = b.setNumber==null ? -1 : b.setNumber;
+    return sb - sa;
+  }
+
+  // Máximo histórico: el mayor peso de TODO el historial del ejercicio, sin
+  // ventana de semanas. Ante pesos iguales se devuelve la fecha MÁS VIEJA: es
+  // cuándo se consiguió el récord, no la última vez que se repitió.
+  function registroMaxHistorico(historial){
+    let mejor = null;
+    (historial||[]).forEach(r=>{
+      const peso = parseFloat(r.peso);
+      if(!Number.isFinite(peso)) return;
+      if(!r.date) return;
+      if(!mejor || peso > mejor.peso || (peso === mejor.peso && r.date < mejor.date)) mejor = { peso, date:r.date, registro:r };
+    });
+    return mejor;
+  }
+
+  // Última carga registrada: la serie MÁS RECIENTE del ejercicio. No es el
+  // máximo histórico, y tampoco la serie más pesada del último entrenamiento:
+  // es literalmente lo último que se registró.
+  function registroUltimaCarga(historial){
+    const lista = (historial||[]).filter(r=> r.date && Number.isFinite(parseFloat(r.peso)));
+    if(!lista.length) return null;
+    const r = lista.slice().sort(registroOrdenDesc)[0];
+    return { peso:parseFloat(r.peso), reps:r.reps||"", date:r.date, setNumber:r.setNumber, registro:r };
+  }
+
+  // "Serie 3" o "Carga manual". Es la única puerta de entrada al rótulo.
+  function etiquetaDeSerie(r){
+    return r && r.setNumber!=null ? "Serie " + r.setNumber : "Carga manual";
+  }
+
+  // Agrupa el historial de un ejercicio en ENTRENAMIENTOS, del más reciente al
+  // más viejo. La clave es entrenoId cuando existe —es el vínculo real de una
+  // sesión V48— y la fecha cuando no, que es lo que una persona entiende por
+  // "el entrenamiento de ese día" en el recorrido V47.
+  //
+  // Dentro de cada entrenamiento las filas van por número de serie ASCENDENTE,
+  // y las cargas manuales (setNumber null) quedan al final: no forman parte de
+  // una secuencia de series.
+  function agruparHistorialPorEntrenamiento(historial){
+    const mapa = new Map();
+    (historial||[]).forEach(r=>{
+      const clave = r.entrenoId ? "e:"+r.entrenoId : "f:"+(r.date||"");
+      if(!mapa.has(clave)) mapa.set(clave, { clave, date:r.date||"", entrenoId:r.entrenoId||null, filas:[], ultimo:0 });
+      const g = mapa.get(clave);
+      g.filas.push(r);
+      if((r.createdAt||0) > g.ultimo) g.ultimo = r.createdAt||0;
+      if(r.date && (!g.date || r.date > g.date)) g.date = r.date;
+    });
+    const grupos = Array.from(mapa.values());
+    grupos.forEach(g=>{
+      g.filas.sort((a,b)=>{
+        const sa = a.setNumber==null ? Infinity : a.setNumber, sb = b.setNumber==null ? Infinity : b.setNumber;
+        if(sa !== sb) return sa - sb;
+        return (a.createdAt||0) - (b.createdAt||0);
+      });
+    });
+    grupos.sort((a,b)=> a.date===b.date ? b.ultimo-a.ultimo : (a.date<b.date?1:-1));
+    return grupos;
+  }
+
+  // Nombres disponibles para FILTRAR: los de la rutina activa más los que
+  // existan en el historial. Sin esto, un ejercicio que se dejó de hacer y
+  // salió de la rutina no se podía consultar aunque sus registros siguieran
+  // guardados. Es una unión en memoria: no cambia el modelo de datos.
+  function nombresFiltrablesDelHistorial(){
+    const set = new Set(allExerciseNames());
+    (state.registros||[]).forEach(r=> set.add(canonicalExerciseName(r.exercise)));
+    return Array.from(set).sort((a,b)=> a.localeCompare(b,"es-AR"));
+  }
+
+  // Bloque compacto con las dos cifras que se piden siempre: el récord y lo
+  // último. Va DENTRO de la tarjeta de progreso, no en una tarjeta aparte.
+  function registroStatsHtml(historial){
+    const max = registroMaxHistorico(historial);
+    const ult = registroUltimaCarga(historial);
+    if(!max && !ult) return "";
+    return `
+      <div class="reg-stats">
+        <div class="reg-stat">
+          <div class="lbl">Máximo histórico</div>
+          <div class="val num">${max ? esc(String(max.peso)) + " kg" : "—"}</div>
+          <div class="sub">${max ? esc(fmtDate(max.date)) : "sin registros"}</div>
+        </div>
+        <div class="reg-stat">
+          <div class="lbl">Última carga</div>
+          <div class="val num">${ult ? esc(String(ult.peso)) + " kg" : "—"}${ult && ult.reps ? ` <span class="x">× ${esc(ult.reps)}</span>` : ""}</div>
+          <div class="sub">${ult ? esc(fmtDate(ult.date)) + " · " + esc(etiquetaDeSerie(ult.registro)) : "sin registros"}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Filas de un ejercicio, agrupadas por entrenamiento. Reusa .logrow y el
+  // borrado de siempre (data-del-log), así que no hay un segundo formato de
+  // fila ni un segundo camino de eliminación.
+  function registroHistorialHtml(historial, sangria){
+    const grupos = agruparHistorialPorEntrenamiento(historial);
+    const pad = sangria ? ' style="padding-left:22px; opacity:.92"' : "";
+    return grupos.map(g=>`
+      <div class="log-ent"${sangria?' style="padding-left:22px"':""}>${esc(fmtDate(g.date))}${g.filas.length>1?` · ${g.filas.length} series`:""}</div>
+      ${g.filas.map(r=>`
+        <div class="logrow" data-del-log="${r.id}"${pad}>
+          <div>
+            <div class="lex" style="font-size:13px">${esc(etiquetaDeSerie(r))}</div>
+            ${r.nota?`<div class="ldate">${esc(r.nota)}</div>`:""}
+          </div>
+          <div>
+            <div class="lval num">${esc(r.peso)} kg</div>
+            <div class="lsub">${r.setNumber!=null ? `× ${esc(r.reps||"-")}` : `${esc(r.series||"-")}×${esc(r.reps||"-")}`}</div>
+          </div>
+        </div>`).join("")}
+    `).join("");
+  }
+
   function screenRegistro(){
     const names = allExerciseNames();
     const sel = state.exerciseSelForm && (names.includes(state.exerciseSelForm) || state.exerciseSelForm==="__otro__")
@@ -8900,9 +9052,15 @@
 
     const forExercise = sel==="__otro__" ? null : sel;
     const historyAll = state.registros;
-    const canonSel = forExercise ? canonicalExerciseName(forExercise) : null;
-    const historyForSel = canonSel ? historyAll.filter(r=>canonicalExerciseName(r.exercise)===canonSel) : [];
-    const spark = forExercise ? sparklineFor(historyForSel) : "";
+    // V50.6B: el bloque de progreso sigue al FILTRO cuando hay uno puesto, y al
+    // selector del formulario cuando no. Así, al filtrar por un ejercicio que ya
+    // no está en la rutina activa, sus cifras y su historial se ven igual —que
+    // es el punto de poder consultarlo.
+    const enfoque = state.historyFilter.exercise
+      ? canonicalExerciseName(state.historyFilter.exercise)
+      : (forExercise ? canonicalExerciseName(forExercise) : null);
+    const historyForSel = enfoque ? historyAll.filter(r=>canonicalExerciseName(r.exercise)===enfoque) : [];
+    const spark = enfoque ? sparklineFor(historyForSel) : "";
 
     return `
       ${pesoCorporalBlockHtml()}
@@ -8950,11 +9108,12 @@
         <button class="btn btn-primary btn-block" id="btn-save-reg">${icon("plus")} Guardar registro</button>
       </div>
 
-      ${forExercise ? `
+      ${enfoque ? `
         <div class="card">
           <div class="row between" style="margin-bottom:8px">
-            <h3 style="font-size:15px; text-transform:none; letter-spacing:0; font-family:'Work Sans'">Progreso · ${esc(forExercise)}</h3>
+            <h3 style="font-size:15px; text-transform:none; letter-spacing:0; font-family:'Work Sans'">Progreso · ${esc(enfoque)}</h3>
           </div>
+          ${registroStatsHtml(historyForSel)}
           ${spark}
         </div>
       ` : ""}
@@ -8998,34 +9157,17 @@
                     <div class="lsub">${isOpen?"▲ ocultar":"▼ ver historial"}</div>
                   </div>
                 </div>
-                ${isOpen ? g.list.slice(0,100).map(r=>`
-                  <div class="logrow" data-del-log="${r.id}" style="padding-left:22px; opacity:.92">
-                    <div>
-                      <div class="ldate">${fmtDate(r.date)}${r.nota?" · "+esc(r.nota):""}</div>
-                    </div>
-                    <div>
-                      <div class="lval num">${esc(r.peso)} kg</div>
-                      <div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div>
-                    </div>
-                  </div>
-                `).join("") : ""}
+                ${isOpen ? registroHistorialHtml(g.list.slice(0,100), true) : ""}
               `;
             }).join("")}
           </div>`;
         } else {
+          // V50.6B: filtrando por un ejercicio puntual, las filas se agrupan por
+          // entrenamiento (del más reciente al más viejo) y cada una dice qué
+          // serie es. Antes era una lista plana donde no se distinguía una serie
+          // de otra ni un entrenamiento del siguiente.
           listHtml = `<div class="loglist">
-            ${filtered.slice(0,60).map(r=>`
-              <div class="logrow" data-del-log="${r.id}">
-                <div>
-                  <div class="lex">${esc(r.exercise)}</div>
-                  <div class="ldate">${fmtDate(r.date)}${r.nota?" · "+esc(r.nota):""}</div>
-                </div>
-                <div>
-                  <div class="lval num">${esc(r.peso)} kg</div>
-                  <div class="lsub">${esc(r.series||"-")}×${esc(r.reps||"-")}</div>
-                </div>
-              </div>
-            `).join("")}
+            ${registroHistorialHtml(filtered.slice(0,60), false)}
           </div>`;
         }
         return `
@@ -9035,8 +9177,9 @@
               <label>Filtrar por ejercicio</label>
               <select id="hist-filter-ex">
                 <option value="">Todos (agrupado por ejercicio)</option>
-                ${names.map(n=>`<option value="${esc(n)}" ${state.historyFilter.exercise===n?"selected":""}>${esc(n)}</option>`).join("")}
+                ${nombresFiltrablesDelHistorial().map(n=>`<option value="${esc(n)}" ${canonicalExerciseName(state.historyFilter.exercise||"")===n?"selected":""}>${esc(n)}</option>`).join("")}
               </select>
+              <div class="helptext" style="margin-top:4px">Incluye los ejercicios que ya no están en tu rutina activa pero sí en tu historial.</div>
             </div>
             <div class="field-row">
               <div class="field"><label>Desde</label><input type="date" id="hist-from" value="${state.historyFilter.from}"></div>
@@ -9081,10 +9224,10 @@
         </svg>
         <div class="spark-stats">
           <div class="best num">${best} kg</div>
-          <div class="lbl">Máx. semanal</div>
+          <div class="lbl">Máx. del tramo</div>
         </div>
       </div>
-      <div class="helptext" style="margin-top:4px">Semana del ${esc(fmtDate(weekly[0].weekStart))}${weekly.length>1?` – semana del ${esc(fmtDate(weekly[weekly.length-1].weekStart))}`:""}</div>
+      <div class="helptext" style="margin-top:4px">Un punto por semana, últimas ${weekly.length} semana${weekly.length===1?"":"s"} con registros (semana del ${esc(fmtDate(weekly[0].weekStart))}${weekly.length>1?` a la del ${esc(fmtDate(weekly[weekly.length-1].weekStart))}`:""}). El máximo de este tramo no es tu récord histórico: ese está arriba.</div>
     `;
   }
 
@@ -11627,7 +11770,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "b8979f73215431edc676f298d217795c2baadc879a251fb39cf66065b36f2734";
+  const APP_BUILD = "03a981a8d0d90467b413ff1830c1fc6ec0a7b9da014fb0766d300fc97671c1e6";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -11855,6 +11998,11 @@
     // pestana de activeSlot salvo la de Dia especial, que no es un slot.
     RUTINA_VISTAS, RUTINA_VISTA_LABELS, RUTINA_VISTA_TITULOS, rutinaVistaActual,
     panelDiaEspecialHtml, screenRutina, selectRutinaSlot,
+    // V50.6B: lectura del historial de un ejercicio. Las cinco primeras son
+    // PURAS (no tocan state ni la base); las dos de HTML solo presentan.
+    registroOrdenDesc, registroMaxHistorico, registroUltimaCarga, etiquetaDeSerie,
+    agruparHistorialPorEntrenamiento, nombresFiltrablesDelHistorial,
+    registroStatsHtml, registroHistorialHtml, sparklineFor,
     // loadProfileData se expone para PODER LLAMARLA desde una prueba (contar
     // lecturas en el recorrido terminal, O2). No sirve para sustituirla: las
     // llamadas internas usan la referencia del closure, no esta copia.

@@ -9446,6 +9446,352 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       });
     });
 
+    /* ===================================================================
+       V50.6B — Registro: máximo histórico, última carga y series.
+
+       Los datos de prueba imitan lo que hay de verdad en la base:
+         · filas por serie de V47  → setNumber 1..n, entrenoId null
+         · filas de una sesión V48 → setNumber 1..n, entrenoId con el uuid
+         · cargas del formulario   → setNumber NULL, series con el total
+       Ninguna prueba reescribe un registro histórico para completarle el
+       número de serie: eso es exactamente lo que no hay que hacer.
+       =================================================================== */
+
+    group("V50.6B — Registro: máximo histórico, última carga y series");
+
+    // Historial de un mismo ejercicio, deliberadamente desordenado y con los
+    // tres orígenes mezclados.
+    function histV506B(){
+      return [
+        // Entrenamiento V47 del 10/01: tres series, la más pesada 70.
+        { id:"r1", exercise:"Press de banca con barra", peso:60, date:"2026-01-10", series:"1", reps:"10", nota:"", createdAt:1000, setNumber:1, entrenoId:null },
+        { id:"r3", exercise:"Press de banca con barra", peso:70, date:"2026-01-10", series:"1", reps:"8",  nota:"", createdAt:1200, setNumber:3, entrenoId:null },
+        { id:"r2", exercise:"Press de banca con barra", peso:65, date:"2026-01-10", series:"1", reps:"9",  nota:"", createdAt:1100, setNumber:2, entrenoId:null },
+        // Carga manual vieja, sin número de serie. El récord absoluto está acá.
+        { id:"r0", exercise:"Press de banca con barra", peso:95, date:"2025-11-02", series:"4", reps:"5",  nota:"récord", createdAt:500, setNumber:null, entrenoId:null },
+        // Sesión V48 del 20/01, la más reciente: la última serie es la 2, de 50 kg.
+        { id:"r5", exercise:"Press de banca con barra", peso:55, date:"2026-01-20", series:"1", reps:"12", nota:"", createdAt:2000, setNumber:1, entrenoId:"E-48" },
+        { id:"r6", exercise:"Press de banca con barra", peso:50, date:"2026-01-20", series:"1", reps:"12", nota:"", createdAt:2100, setNumber:2, entrenoId:"E-48" }
+      ];
+    }
+
+    async function conRegistroV506B(regs, filtro, fn){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = { regs:T.state.registros, hf:T.state.historyFilter, rutina:T.state.rutina,
+        slots:T.state.rutinaSlots, activeSlot:T.state.activeSlot, sel:T.state.exerciseSelForm,
+        expandido:T.state.historyExpanded, peso:T.state.pesoCorporal };
+      T.state.registros = regs;
+      T.state.historyFilter = filtro || { exercise:"", from:"", to:"" };
+      T.state.pesoCorporal = T.state.pesoCorporal || [];
+      try { return await fn({ T:T, W:W }); }
+      finally {
+        T.state.registros = prev.regs; T.state.historyFilter = prev.hf; T.state.rutina = prev.rutina;
+        T.state.rutinaSlots = prev.slots; T.state.activeSlot = prev.activeSlot;
+        T.state.exerciseSelForm = prev.sel; T.state.historyExpanded = prev.expandido;
+        T.state.pesoCorporal = prev.peso;
+      }
+    }
+
+    /* ------------------- 1. máximo histórico ------------------- */
+
+    test("V50.6B — el máximo histórico sale de TODO el historial, no de diez semanas", function(){
+      var h = histV506B();
+      var max = A.registroMaxHistorico(h);
+      assert(max, "tendría que haber un máximo");
+      // 95 kg es del 2025-11-02: muy fuera de la ventana de diez semanas que usa
+      // el gráfico. Antes de V50.6B la pantalla no mostraba ese número en ningún
+      // lado y el único "máximo" visible era el del tramo del gráfico.
+      assert(max.peso === 95, "el máximo histórico es 95, dio " + max.peso);
+      assert(max.date === "2025-11-02", "y su fecha es la del récord, dio " + max.date);
+      // Y el gráfico, con su ventana, da otro número: son dos cosas distintas.
+      var tramo = A.exerciseWeeklyMax(h.slice().sort(function(a,b){ return a.date<b.date?-1:1; })).slice(-10);
+      var maxTramo = Math.max.apply(null, tramo.map(function(s){ return s.peso; }));
+      assert(maxTramo === 95 || maxTramo < 95, "control: el tramo no puede superar el récord");
+    });
+
+    test("V50.6B — ante pesos iguales el máximo informa la fecha más vieja", function(){
+      // Es cuándo se consiguió el récord, no la última vez que se repitió.
+      var max = A.registroMaxHistorico([
+        { id:"a", peso:100, date:"2026-02-01", createdAt:1, setNumber:1 },
+        { id:"b", peso:100, date:"2025-12-15", createdAt:2, setNumber:1 },
+        { id:"c", peso:90,  date:"2026-03-01", createdAt:3, setNumber:1 }
+      ]);
+      assert(max.peso === 100, "el máximo es 100, dio " + max.peso);
+      assert(max.date === "2025-12-15", "tendría que informar la fecha más vieja, dio " + max.date);
+    });
+
+    test("V50.6B — el máximo ignora pesos no numéricos y filas sin fecha", function(){
+      var max = A.registroMaxHistorico([
+        { id:"a", peso:"", date:"2026-01-01", createdAt:1 },
+        { id:"b", peso:null, date:"2026-01-02", createdAt:2 },
+        { id:"c", peso:120, date:"", createdAt:3 },
+        { id:"d", peso:"80.5", date:"2026-01-03", createdAt:4 }
+      ]);
+      assert(max && max.peso === 80.5, "un peso string válido tiene que contar, dio " + (max && max.peso));
+      assert(max.date === "2026-01-03", "con su fecha, dio " + max.date);
+      assert(A.registroMaxHistorico([]) === null, "sin registros, null");
+      assert(A.registroMaxHistorico(null) === null, "sin lista, null");
+    });
+
+    /* ------------------- 2. última carga ------------------- */
+
+    test("V50.6B — la última carga es la serie MÁS RECIENTE, no la más pesada", function(){
+      var ult = A.registroUltimaCarga(histV506B());
+      assert(ult, "tendría que haber una última carga");
+      // La última cosa registrada es la serie 2 del 20/01: 50 kg × 12.
+      assert(ult.peso === 50, "la última carga es 50 kg, dio " + ult.peso);
+      assert(ult.reps === "12", "con sus reps, dio " + ult.reps);
+      assert(ult.date === "2026-01-20", "y su fecha, dio " + ult.date);
+      // Los tres números que NO tiene que confundir:
+      assert(ult.peso !== 95, "no puede devolver el máximo histórico");
+      assert(ult.peso !== 55, "no puede devolver la serie más pesada del último entrenamiento");
+      assert(ult.peso !== 70, "ni la más pesada de todas las sesiones por serie");
+    });
+
+    test("V50.6B — con empate de fecha gana la escritura más reciente", function(){
+      // Dos series el mismo día: la última es la que se guardó después, no la de
+      // número más bajo ni la más pesada.
+      var ult = A.registroUltimaCarga([
+        { id:"a", peso:40, date:"2026-01-10", reps:"10", createdAt:100, setNumber:1 },
+        { id:"b", peso:30, date:"2026-01-10", reps:"15", createdAt:300, setNumber:2 },
+        { id:"c", peso:90, date:"2026-01-09", reps:"3",  createdAt:900, setNumber:1 }
+      ]);
+      assert(ult.peso === 30 && ult.reps === "15",
+        "tendría que ser la serie 2 del 10/01, dio " + ult.peso + "×" + ult.reps);
+      // Y si además empata createdAt, decide el número de serie más alto.
+      var ult2 = A.registroUltimaCarga([
+        { id:"a", peso:40, date:"2026-01-10", reps:"10", createdAt:100, setNumber:1 },
+        { id:"b", peso:45, date:"2026-01-10", reps:"8",  createdAt:100, setNumber:2 }
+      ]);
+      assert(ult2.peso === 45, "con createdAt empatado decide el número de serie, dio " + ult2.peso);
+      assert(A.registroUltimaCarga([]) === null, "sin registros, null");
+    });
+
+    test("V50.6B — una carga manual también puede ser la última carga", function(){
+      var ult = A.registroUltimaCarga([
+        { id:"a", peso:60, date:"2026-01-10", reps:"10", createdAt:100, setNumber:3 },
+        { id:"b", peso:72, date:"2026-02-01", reps:"5",  createdAt:200, setNumber:null, series:"4" }
+      ]);
+      assert(ult.peso === 72, "la carga manual más reciente cuenta, dio " + ult.peso);
+      assert(ult.setNumber === null, "y conserva su setNumber null");
+      assert(A.etiquetaDeSerie(ult.registro) === "Carga manual",
+        "y se rotula como carga manual, dio " + A.etiquetaDeSerie(ult.registro));
+    });
+
+    /* ------------------- 3 y 4. entrenamientos y series ------------------- */
+
+    test("V50.6B — los entrenamientos van del más reciente al más antiguo", function(){
+      var grupos = A.agruparHistorialPorEntrenamiento(histV506B());
+      var fechas = grupos.map(function(g){ return g.date; });
+      assert(fechas.join(",") === "2026-01-20,2026-01-10,2025-11-02",
+        "orden de entrenamientos: " + fechas.join(","));
+      // La sesión V48 se agrupa por su entrenoId; las de V47, por fecha.
+      assert(grupos[0].entrenoId === "E-48", "el primero es la sesión V48, dio " + grupos[0].entrenoId);
+      assert(grupos[1].entrenoId === null, "el segundo agrupa por fecha, dio " + grupos[1].entrenoId);
+      assert(grupos[0].filas.length === 2 && grupos[1].filas.length === 3 && grupos[2].filas.length === 1,
+        "cantidad de filas por entrenamiento: " + grupos.map(function(g){ return g.filas.length; }).join(","));
+    });
+
+    test("V50.6B — dentro de un entrenamiento las series van en orden ascendente", function(){
+      var grupos = A.agruparHistorialPorEntrenamiento(histV506B());
+      var delDiez = grupos.filter(function(g){ return g.date === "2026-01-10"; })[0];
+      var nums = delDiez.filas.map(function(r){ return r.setNumber; });
+      assert(nums.join(",") === "1,2,3",
+        "las series tienen que quedar 1,2,3 aunque lleguen desordenadas, dio " + nums.join(","));
+      var pesos = delDiez.filas.map(function(r){ return r.peso; });
+      assert(pesos.join(",") === "60,65,70", "con sus pesos en ese orden, dio " + pesos.join(","));
+      // Y los rótulos salen de set_number, no de la posición en el array.
+      assert(delDiez.filas.map(A.etiquetaDeSerie).join(" ") === "Serie 1 Serie 2 Serie 3",
+        "rótulos: " + delDiez.filas.map(A.etiquetaDeSerie).join(" "));
+    });
+
+    test("V50.6B — las cargas manuales quedan al final del entrenamiento", function(){
+      // No forman parte de la secuencia de series, así que no se mezclan en el
+      // medio ni se les inventa un número.
+      var grupos = A.agruparHistorialPorEntrenamiento([
+        { id:"m", peso:80, date:"2026-01-05", createdAt:50,  setNumber:null, series:"3", reps:"8" },
+        { id:"s2", peso:70, date:"2026-01-05", createdAt:200, setNumber:2, series:"1", reps:"9" },
+        { id:"s1", peso:60, date:"2026-01-05", createdAt:100, setNumber:1, series:"1", reps:"10" }
+      ]);
+      assert(grupos.length === 1, "un solo entrenamiento, dio " + grupos.length);
+      var etiquetas = grupos[0].filas.map(A.etiquetaDeSerie);
+      assert(etiquetas.join(" | ") === "Serie 1 | Serie 2 | Carga manual",
+        "orden de rótulos: " + etiquetas.join(" | "));
+    });
+
+    /* ------------------- 5. registros legados ------------------- */
+
+    test("V50.6B — un registro sin número de serie dice 'Carga manual'", function(){
+      assert(A.etiquetaDeSerie({ setNumber:null }) === "Carga manual", "null → Carga manual");
+      assert(A.etiquetaDeSerie({}) === "Carga manual", "sin la clave → Carga manual");
+      assert(A.etiquetaDeSerie(null) === "Carga manual", "sin registro → Carga manual");
+      assert(A.etiquetaDeSerie({ setNumber:1 }) === "Serie 1", "1 → Serie 1");
+      assert(A.etiquetaDeSerie({ setNumber:12 }) === "Serie 12", "12 → Serie 12");
+      // Y en la pantalla: nunca aparece "Serie 0" ni "Serie null".
+      var html = A.registroHistorialHtml([
+        { id:"m", peso:80, date:"2026-01-05", createdAt:50, setNumber:null, series:"3", reps:"8" }
+      ], false);
+      assert(html.indexOf("Carga manual") !== -1, "la fila legada tiene que decir Carga manual");
+      assert(html.indexOf("Serie 0") === -1 && html.indexOf("Serie null") === -1 && html.indexOf("Serie undefined") === -1,
+        "no se puede inventar un número de serie");
+      // Una carga manual conserva su formato series×reps; una serie suelta no
+      // repite el "1×" que no aporta nada.
+      assert(html.indexOf("3×8") !== -1, "la carga manual muestra su total de series × reps");
+      var unaSerie = A.registroHistorialHtml([
+        { id:"s", peso:60, date:"2026-01-05", createdAt:50, setNumber:1, series:"1", reps:"10" }
+      ], false);
+      assert(unaSerie.indexOf("× 10") !== -1, "una serie muestra sus reps");
+      assert(unaSerie.indexOf("1×10") === -1, "una serie no repite el series=1");
+    });
+
+    test("V50.6B — el registro histórico no se modifica al mostrarlo", function(){
+      var h = histV506B();
+      var antes = JSON.stringify(h);
+      A.registroMaxHistorico(h);
+      A.registroUltimaCarga(h);
+      A.agruparHistorialPorEntrenamiento(h);
+      A.registroHistorialHtml(h, false);
+      A.registroStatsHtml(h);
+      assert(JSON.stringify(h) === antes,
+        "ninguna de estas funciones puede tocar los registros que recibe");
+      // Y el orden del array original tampoco: agrupar no puede reordenar la
+      // lista que vive en state.registros.
+      assert(h[0].id === "r1" && h[1].id === "r3", "el array original se reordenó");
+    });
+
+    /* ------------------- 6. gráfico ------------------- */
+
+    test("V50.6B — el gráfico aclara que su máximo es del tramo, no el récord", function(){
+      var html = A.sparklineFor(histV506B());
+      assert(html.indexOf("Máx. del tramo") !== -1,
+        "el rótulo tiene que decir que es del tramo, no \"Máx. semanal\" sin más");
+      assert(/no es tu r[ée]cord hist[óo]rico/.test(html),
+        "tiene que aclarar explícitamente que no es el récord histórico");
+      assert(/un punto por semana/i.test(html), "y que cada punto es una semana");
+      // El gráfico sigue existiendo y sigue siendo el mismo (10 semanas).
+      assert(html.indexOf("<svg") !== -1 && html.indexOf('class="spark"') !== -1, "el gráfico tiene que seguir dibujándose");
+      assert(A.sparklineFor([]).indexOf("Todavía no hay registros") !== -1, "sin registros, el mensaje de siempre");
+    });
+
+    /* ------------------- 7. filtros ------------------- */
+
+    test("V50.6B — se puede filtrar por un ejercicio que ya no está en la rutina", function(){
+      return conRegistroV506B(histV506B(), null, function(c){
+        c.T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+        c.T.state.activeSlot = "personalizada";
+        c.T.state.rutina = c.T.state.rutinaSlots.personalizada;
+        // La rutina activa está VACÍA, pero el historial tiene el ejercicio.
+        assert(c.T.allExerciseNames().length === 0, "precondición: la rutina activa no tiene ejercicios");
+        var filtrables = c.T.nombresFiltrablesDelHistorial();
+        assert(filtrables.indexOf("Press de banca con barra") !== -1,
+          "el ejercicio del historial tiene que poder filtrarse, dio " + JSON.stringify(filtrables));
+        // Y aparece como opción del filtro en la pantalla.
+        var html = c.T.screenRegistro();
+        assert(html.indexOf('<option value="Press de banca con barra"') !== -1,
+          "falta la opción de filtro del ejercicio histórico");
+        assert(/ya no est[áa]n en tu rutina activa/.test(html),
+          "conviene decirle al usuario que el filtro incluye el historial");
+      });
+    });
+
+    test("V50.6B — filtrando por ese ejercicio se ven sus cifras y su historial", function(){
+      return conRegistroV506B(histV506B(), { exercise:"Press de banca con barra", from:"", to:"" }, function(c){
+        c.T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+        c.T.state.activeSlot = "personalizada";
+        c.T.state.rutina = c.T.state.rutinaSlots.personalizada;
+        var html = c.T.screenRegistro();
+        assert(html.indexOf("Progreso · Press de banca con barra") !== -1,
+          "el bloque de progreso tiene que seguir al filtro cuando la rutina no tiene el ejercicio");
+        assert(html.indexOf("Máximo histórico") !== -1, "falta el máximo histórico");
+        assert(html.indexOf("95 kg") !== -1, "falta el valor del récord");
+        assert(html.indexOf("Última carga") !== -1, "falta la última carga");
+        // Historial agrupado por entrenamiento, con series.
+        assert(html.indexOf("Serie 1") !== -1 && html.indexOf("Serie 3") !== -1, "faltan los rótulos de serie");
+        assert(html.indexOf("Carga manual") !== -1, "falta el rótulo de la carga manual");
+      });
+    });
+
+    test("V50.6B — los filtros de fecha y el CSV siguen funcionando igual", function(){
+      return conRegistroV506B(histV506B(), { exercise:"", from:"2026-01-01", to:"2026-01-15" }, function(c){
+        var filtrado = c.T.filterHistory(c.T.state.registros);
+        assert(filtrado.length === 3,
+          "el rango tendría que dejar las 3 series del 10/01, dio " + filtrado.length);
+        var html = c.T.screenRegistro();
+        assert(html.indexOf('id="hist-from"') !== -1 && html.indexOf('id="hist-to"') !== -1, "faltan los filtros de fecha");
+        assert(html.indexOf('id="btn-clear-filter"') !== -1, "falta limpiar filtro");
+        assert(html.indexOf('id="btn-export-csv"') !== -1, "falta exportar CSV");
+      });
+    });
+
+    /* ------------------- 8 y 9. móvil y compatibilidad ------------------- */
+
+    test("V50.6B — el formulario de registro y el borrado no cambiaron", function(){
+      return conRegistroV506B(histV506B(), null, function(c){
+        var html = c.T.screenRegistro();
+        // El alta: mismos campos y mismo botón.
+        ["reg-exercise","reg-other-name","reg-date","reg-peso","reg-series","reg-reps","reg-nota","btn-save-reg"]
+          .forEach(function(id){
+            assert(html.indexOf('id="' + id + '"') !== -1, "falta el control " + id + " del formulario");
+          });
+        // El borrado sigue por data-del-log, un solo camino. Hay que desplegar el
+        // grupo: sin filtro y cerrado no se dibuja ninguna fila, que es justamente
+        // lo que mantiene corta la pantalla.
+        c.T.state.historyExpanded = "Press de banca con barra";
+        var conFilas = c.T.screenRegistro();
+        assert(conFilas.indexOf("data-del-log=") !== -1, "el borrado del historial tiene que seguir existiendo");
+        // Y el bloque de peso corporal sigue arriba, intacto.
+        assert(html.indexOf("Mi peso") !== -1 || html.indexOf("peso-nuevo") !== -1 || html.indexOf("pesostats") !== -1,
+          "el bloque de peso corporal de V40 tiene que seguir en la pantalla");
+      });
+    });
+
+    test("V50.6B — el historial agrupado por ejercicio sigue siendo el nivel de arriba", function(){
+      return conRegistroV506B(histV506B(), null, function(c){
+        c.T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+        c.T.state.activeSlot = "personalizada";
+        c.T.state.rutina = c.T.state.rutinaSlots.personalizada;
+        c.T.state.historyExpanded = null;
+        var cerrado = c.T.screenRegistro();
+        assert(cerrado.indexOf('data-hist-group="Press de banca con barra"') !== -1,
+          "sin filtro tiene que seguir agrupando por ejercicio");
+        // Cerrado NO despliega las series: es lo que evita una pantalla enorme.
+        assert(cerrado.indexOf("Serie 1") === -1, "con el grupo cerrado no se listan las series");
+        c.T.state.historyExpanded = "Press de banca con barra";
+        var abierto = c.T.screenRegistro();
+        assert(abierto.indexOf("Serie 1") !== -1, "al desplegarlo sí");
+        assert(abierto.indexOf("Carga manual") !== -1, "incluida la carga manual");
+      });
+    });
+
+    test("V50.6B — iPhone 375 px: las dos cifras entran en una fila sin desbordar", function(){
+      var W = frame.contentWindow, D = W.document;
+      var host = D.createElement("div");
+      host.style.cssText = "position:fixed; left:-9999px; top:0; width:351px;";
+      host.innerHTML = A.registroStatsHtml(histV506B());
+      D.body.appendChild(host);
+      try {
+        var fila = host.querySelector(".reg-stats");
+        assert(fila, "falta el bloque de cifras");
+        var cajas = Array.from(host.querySelectorAll(".reg-stat"));
+        assert(cajas.length === 2, "dos cifras, una al lado de la otra, dio " + cajas.length);
+        assert(fila.scrollWidth <= fila.clientWidth + 1,
+          "el bloque desborda: " + fila.scrollWidth + " > " + fila.clientWidth);
+        var recortados = cajas.filter(function(b){ return b.scrollWidth > b.clientWidth + 1; });
+        assert(recortados.length === 0, "alguna cifra queda recortada");
+        // Compacto: las dos cifras no pueden costar más que una tarjeta normal.
+        var alto = fila.getBoundingClientRect().height;
+        assert(alto <= 90, "el bloque de cifras quedó demasiado alto: " + alto.toFixed(0) + "px");
+      } finally { host.remove(); }
+    });
+
+    test("V50.6B — sin registros del ejercicio no se dibuja un bloque vacío", function(){
+      assert(A.registroStatsHtml([]) === "", "con lista vacía tiene que devolver cadena vacía");
+      assert(A.registroStatsHtml(null) === "", "con null también");
+      // Con registros inservibles (sin peso numérico) tampoco.
+      assert(A.registroStatsHtml([{ id:"x", peso:"", date:"2026-01-01", createdAt:1 }]) === "",
+        "sin un peso numérico no hay nada que mostrar");
+    });
+
     group("A5 y M1 — contraste y tipografía del registro heredado");
 
     test("A5 — la serie completada usa --success-on y llega a 4,5:1 en los dos temas", function(){
