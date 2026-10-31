@@ -8122,6 +8122,207 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
     });
 
     /* ===================================================================
+       V51.2 — precarga individual de series.
+
+       `registroSerieAnterior` es pura (igual que registroUltimaCarga /
+       agruparHistorialPorEntrenamiento, que reusa) y se prueba llamándola
+       directo con historiales armados a mano. La integración con el modal
+       real (openSessionLogModal) reusa el harness de A1 (conRegistroDeSerie,
+       EX_A1, flush) para verificar que la sugerencia SOLO aparece cuando no
+       hay un log propio todavía, que nunca marca la serie ni escribe nada
+       por sí sola, y que guardar sin tocar nada persiste igual que si el
+       usuario hubiera tipeado ese valor (no hay un "valor original" oculto).
+       =================================================================== */
+
+    group("V51.2 — registroSerieAnterior (pura)");
+
+    function regHist(rows){
+      // Azúcar para no repetir exercise/profile en cada fila de los tests.
+      return rows.map(function(r){
+        return Object.assign({ exercise:"Press de banca con barra", nota:"" }, r);
+      });
+    }
+
+    test("setNumber exacto: devuelve peso, reps y fecha de esa posición", function(){
+      var hist = regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12" },
+        { date:"2026-10-20", createdAt:2, setNumber:2, peso:80, reps:"10" }
+      ]);
+      var r1 = A.registroSerieAnterior(hist, 1);
+      assert(r1 && r1.peso===70 && r1.reps==="12" && r1.date==="2026-10-20",
+        "serie 1 no coincide, dio " + JSON.stringify(r1));
+      var r2 = A.registroSerieAnterior(hist, 2);
+      assert(r2 && r2.peso===80 && r2.reps==="10", "serie 2 no coincide, dio " + JSON.stringify(r2));
+    });
+
+    test("hueco: sin esa posición en el último entrenamiento, null (no se rellena con una sesión más vieja)", function(){
+      var hist = regHist([
+        { date:"2026-10-01", createdAt:1, setNumber:3, peso:60, reps:"8" },  // sesión VIEJA: sí tiene la serie 3
+        { date:"2026-10-20", createdAt:2, setNumber:1, peso:70, reps:"12" }, // sesión NUEVA: sólo serie 1 y 2
+        { date:"2026-10-20", createdAt:3, setNumber:2, peso:80, reps:"10" }
+      ]);
+      assert(A.registroSerieAnterior(hist, 3) === null,
+        "la serie 3 no debe completarse con la sesión vieja que sí la tenía");
+      assert(A.registroSerieAnterior(hist, 1) !== null, "la serie 1 de la sesión nueva sí debe estar");
+    });
+
+    test("sin ningún antecedente: null, no se inventa nada", function(){
+      assert(A.registroSerieAnterior([], 1) === null, "historial vacío debe dar null");
+      assert(A.registroSerieAnterior(regHist([{date:"2026-10-20",createdAt:1,setNumber:1,peso:70,reps:"10"}]), 4) === null,
+        "pedir una serie que nunca se registró debe dar null");
+    });
+
+    test("carga manual (setNumber null) nunca se usa como antecedente", function(){
+      var hist = regHist([{ date:"2026-10-20", createdAt:1, setNumber:null, peso:70, reps:"10", series:"3" }]);
+      assert(A.registroSerieAnterior(hist, 1) === null,
+        "una carga manual no puede disfrazarse de serie 1");
+      assert(A.registroSerieAnterior(hist, null) === null, "pedir setNumber null siempre da null");
+    });
+
+    test("ambigüedad real — dos entrenamientos el mismo día sin entrenoId, cada uno con su serie 1 — no mezcla, da null", function(){
+      // Esto es V47 puro: sin entrenoId, agruparHistorialPorEntrenamiento junta
+      // los dos entrenamientos del día bajo la misma clave "f:fecha". Dentro de
+      // ese grupo hay DOS filas con setNumber=1 que no tienen por qué ser la
+      // misma serie. Elegir cualquiera sería mezclar sesiones distintas.
+      var hist = regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:60, reps:"10" }, // entreno de la mañana
+        { date:"2026-10-20", createdAt:2, setNumber:1, peso:65, reps:"8"  }  // entreno de la tarde
+      ]);
+      assert(A.registroSerieAnterior(hist, 1) === null,
+        "con dos filas setNumber=1 el mismo día sin entrenoId tiene que ser conservador y dar null");
+    });
+
+    test("entrenoId distinto en el mismo día SÍ permite distinguir dos entrenamientos (V48)", function(){
+      // Con entrenoId cada sesión agrupa aparte, así que no hay ambigüedad: el
+      // grupo más reciente (mayor createdAt) manda y su serie 1 es inequívoca.
+      var hist = regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:60, reps:"10", entrenoId:"e1" },
+        { date:"2026-10-20", createdAt:2, setNumber:1, peso:65, reps:"8",  entrenoId:"e2" }
+      ]);
+      var r = A.registroSerieAnterior(hist, 1);
+      assert(r && r.peso===65, "debería tomar el entrenamiento más reciente (e2), dio " + JSON.stringify(r));
+    });
+
+    test("ejercicio distinto no contamina: hay que filtrar con exerciseHistoryFor antes", function(){
+      // registroSerieAnterior no filtra por nombre — eso es responsabilidad de
+      // quien llama (exerciseHistoryFor). Lo documentamos para que no se use
+      // sin filtrar primero.
+      var hist = [
+        { exercise:"Remo con barra", date:"2026-10-20", createdAt:1, setNumber:1, peso:50, reps:"10" }
+      ];
+      var filtrado = A.exerciseHistoryFor("Press de banca con barra").length === 0 ? [] :
+        hist.filter(function(r){ return A.canonicalExerciseName(r.exercise)===A.canonicalExerciseName("Press de banca con barra"); });
+      assert(A.registroSerieAnterior(filtrado, 1) === null,
+        "sin filtrar por ejercicio no debería quedar ningún antecedente de Press de banca");
+    });
+
+    group("V51.2 — precarga dentro del modal de serie (integración real)");
+
+    test("serie sin log propio y con antecedente: precarga peso y reps, no marca ni guarda nada", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        c.T.state.registros = regHist([
+          { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12" },
+          { date:"2026-10-20", createdAt:2, setNumber:2, peso:80, reps:"10" }
+        ]);
+        var m = c.abrir(0);
+        assert(m.querySelector("h3").textContent.indexOf("Registrar serie") !== -1,
+          "sigue siendo alta, no edición: el título no debe decir \"Editar\"");
+        assert(m.querySelector("#slog-peso").value === "70", "debería precargar 70, dio " + m.querySelector("#slog-peso").value);
+        assert(m.querySelector("#slog-reps").value === "12", "debería precargar 12, dio " + m.querySelector("#slog-reps").value);
+        assert(/Sugerido de tu entrenamiento del/.test(m.innerHTML), "debería avisar que es una sugerencia");
+        // Nada se guarda ni se marca sólo por abrir el modal.
+        assert(c.sets()[0] === false, "abrir el modal no puede marcar la serie");
+        assert(c.logs()[0] === null, "abrir el modal no puede crear un registro");
+        assert(c.llamadas.add === 0, "no debe haber ninguna escritura por el solo hecho de precargar");
+      });
+    });
+
+    test("serie 3 (hueco): sin antecedente en esa posición, el input queda vacío", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        c.T.state.registros = regHist([
+          { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12" },
+          { date:"2026-10-20", createdAt:2, setNumber:2, peso:80, reps:"10" }
+        ]);
+        var m = c.abrir(2); // serie 3, índice 2 — nunca se registró
+        assert(m.querySelector("#slog-peso").value === "", "serie 3 sin antecedente debe quedar vacía, dio " + m.querySelector("#slog-peso").value);
+        assert(!/Sugerido de tu entrenamiento del/.test(m.innerHTML), "sin antecedente no debería aparecer el aviso");
+        // Reps cae al plan de la rutina, como siempre (comportamiento previo a V51.2).
+        assert(m.querySelector("#slog-reps").value === EX_A1.reps,
+          "sin antecedente, reps sigue usando el plan de la rutina");
+      });
+    });
+
+    test("serie con log propio: NO se calcula ninguna sugerencia, se respeta lo ya cargado", function(){
+      var original = { registroId:"r-9", peso:40, reps:"10", nota:"", date:"2026-01-01" };
+      return conRegistroDeSerie([original,null,null], [true,false,false], async function(c){
+        c.T.state.registros = regHist([
+          { date:"2026-10-20", createdAt:1, setNumber:1, peso:999, reps:"1" } // distinto a lo ya cargado
+        ]);
+        var m = c.abrir(0);
+        assert(m.querySelector("h3").textContent.indexOf("Editar serie") !== -1, "con log propio es edición");
+        assert(m.querySelector("#slog-peso").value === "40",
+          "debe mostrar lo que YA está cargado (40), no la sugerencia (999)");
+        assert(!/Sugerido de tu entrenamiento del/.test(m.innerHTML),
+          "con un log propio no corresponde mostrar ninguna sugerencia");
+      });
+    });
+
+    test("se guarda el valor CONFIRMADO, no el precargado, cuando el usuario lo cambia", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        c.T.state.registros = regHist([
+          { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12" }
+        ]);
+        var enviado = null;
+        c.S.addRegistro = function(owner, data){ enviado = data; return Promise.resolve({ ok:true, id:data.id }); };
+        var m = c.abrir(0);
+        assert(m.querySelector("#slog-peso").value === "70", "debería arrancar precargado en 70");
+        m.__guardar("75"); // el usuario corrige la sugerencia antes de confirmar
+        await flush();
+        assert(enviado && enviado.peso === 75,
+          "debe guardarse el valor que confirmó el usuario (75), no el precargado (70), dio " + JSON.stringify(enviado));
+      });
+    });
+
+    test("se guarda la sugerencia TAL CUAL si el usuario la confirma sin tocarla", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        c.T.state.registros = regHist([
+          { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12" }
+        ]);
+        var enviado = null;
+        c.S.addRegistro = function(owner, data){ enviado = data; return Promise.resolve({ ok:true, id:data.id }); };
+        var m = c.abrir(0);
+        m.__guardar(); // sin pasar peso: toca Guardar con lo que ya está en el input
+        await flush();
+        assert(enviado && enviado.peso === 70, "confirmar sin editar debe guardar la sugerencia, dio " + JSON.stringify(enviado));
+        assert(enviado.setNumber === 1, "sigue siendo una fila por serie con su set_number, dio " + enviado.setNumber);
+      });
+    });
+
+    test("historial sólo con cargas manuales: no hay sugerencia para ninguna serie", function(){
+      return conRegistroDeSerie([null,null,null], [false,false,false], async function(c){
+        c.T.state.registros = regHist([
+          { date:"2026-10-20", createdAt:1, setNumber:null, peso:70, reps:"12", series:"3" }
+        ]);
+        var m = c.abrir(0);
+        assert(m.querySelector("#slog-peso").value === "", "una carga manual no puede sugerir la serie 1");
+        assert(!/Sugerido de tu entrenamiento del/.test(m.innerHTML), "no debería aparecer ningún aviso de sugerencia");
+      });
+    });
+
+    test("compatibilidad V48: openSessionLogModal es exclusivo de la sesión V47, no se toca nativeSession", function(){
+      // V51.2 se implementó SÓLO para la ruta V47 (decisión de producto: V48
+      // ya tiene su propio mecanismo de "Referencia guardada" por ejercicio,
+      // distinto y ya cerrado — ver v48-session.js). Esta prueba fija ese
+      // límite: el código de precarga vive dentro de openSessionLogModal, que
+      // nativeSession() nunca llama.
+      assert(typeof A.registroSerieAnterior === "function", "la función pura debe estar expuesta");
+      assert(APP_SRC && /function openSessionLogModal/.test(APP_SRC),
+        "openSessionLogModal debe seguir existiendo como la única puerta de V47");
+      assert(SESSION_SRC === null || SESSION_SRC.indexOf("registroSerieAnterior") === -1,
+        "v48-session.js no debe depender de la precarga de V51.2 (es exclusiva de V47)");
+    });
+
+    /* ===================================================================
        V50.2 — integridad del entrenamiento (E3 · E4 · E5 · E6 · E7 · E8).
 
        Qué se mide corriendo la app y qué se mide en el fuente, y por qué:
@@ -9108,6 +9309,221 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "el refresh tiene que validar que su contenedor siga montado");
       assert(APP_SRC.indexOf("closeModal();refrescarSesionNativa();") !== -1,
         "el modal de referencia tiene que usar el refresh puntual");
+    });
+
+    /* ===================================================================
+       V51.2 — precarga individual de series en la sesión V48 (nativa).
+
+       Reusa el fixture de sesión nativa al estilo sesionNativaV503 (mismo
+       shape que valida VodaFitSession.isNative) y llama directo a
+       aplicarPrecargaNativa / referenciasParaMostrarNativa — son funciones
+       puras sobre el objeto de sesión + state.registros, sin Store ni red,
+       así que se prueban sin mockear Supabase.
+       =================================================================== */
+
+    group("V51.2 — precarga nativa (V48)");
+
+    function sesionNativaV512(sets){
+      return {
+        schemaVersion:48, sessionId:"99999999-8888-7777-6666-555555555555",
+        slot:"personalizada", startedAt: Date.now()-600000, timezone:"America/Argentina/Buenos_Aires",
+        day:{ id:"d-512", nombre:"Día 512", exercises:[
+          { id:"a", nombre:"Press de banca con barra", series:"4", reps:"10" },
+          { id:"b", nombre:"Remo con barra", series:"1", reps:"10" }
+        ]},
+        sets: sets, references:{}, lifecycle:null
+      };
+    }
+
+    function setsVacios4y1(){
+      return [
+        { exerciseInstance:"a", setNumber:1, completed:false, peso:null, reps:null },
+        { exerciseInstance:"a", setNumber:2, completed:false, peso:null, reps:null },
+        { exerciseInstance:"a", setNumber:3, completed:false, peso:null, reps:null },
+        { exerciseInstance:"a", setNumber:4, completed:false, peso:null, reps:null },
+        { exerciseInstance:"b", setNumber:1, completed:false, peso:null, reps:null }
+      ];
+    }
+
+    async function conRegistrosNativos(registros, fn){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = T.state.registros;
+      T.state.registros = registros;
+      try { return await fn({ T:T, W:W, VFS:W.VodaFitSession }); }
+      finally { T.state.registros = prev; }
+    }
+
+    test("precarga individual: serie 1 con antecedente exacto queda poblada y válida", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12", entrenoId:"e1" }
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        var fila = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===1; });
+        assert(fila.peso===70 && fila.reps===12, "serie 1 debería quedar en 70x12, dio " + JSON.stringify(fila));
+        assert(fila.completed===false, "la precarga no puede marcar la serie como hecha");
+        assert(aplicadas.has("a|1"), "debería reportarse como aplicada");
+      });
+    });
+
+    test("series faltantes: sin antecedente en esa posición, la fila queda tal cual (sin inventar)", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-01", createdAt:1, setNumber:3, peso:60, reps:"8", entrenoId:"e-viejo" }, // sesión VIEJA con serie 3
+        { date:"2026-10-20", createdAt:2, setNumber:1, peso:70, reps:"12", entrenoId:"e-nuevo" }  // sesión NUEVA sin serie 3
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        var serie3 = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===3; });
+        assert(serie3.peso===null && serie3.reps===null, "serie 3 no debería tener antecedente en la sesión más reciente");
+        assert(!aplicadas.has("a|3"), "serie 3 no debería figurar como aplicada");
+        assert(aplicadas.has("a|1"), "serie 1 sí tiene antecedente en la sesión nueva");
+      });
+    });
+
+    test("campo vaciado a mano: la CLAVE en ui.inputs sobrevive aunque el valor sea \"\", y bloquea la precarga", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12", entrenoId:"e1" }
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        // El usuario tipeó algo y lo borró: edit() deja la CLAVE con "".
+        c.VFS.edit(s, "a", 1, "peso", "40");
+        c.VFS.edit(s, "a", 1, "peso", "");
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        var fila = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===1; });
+        assert(fila.peso===null, "un peso vaciado a mano debe seguir vacío, no volver a 70");
+        assert(!aplicadas.has("a|1"), "no debe reportarse como aplicada una fila que el usuario ya tocó");
+      });
+    });
+
+    test("borrador recuperado con una entrada propia: se conserva igual, no se pisa", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12", entrenoId:"e1" }
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        // Simula un borrador recuperado: el usuario ya había tipeado 55/9 en
+        // otro dispositivo, antes de que esta carga vuelva a correr.
+        c.VFS.edit(s, "a", 1, "peso", "55");
+        c.VFS.edit(s, "a", 1, "reps", "9");
+        c.T.aplicarPrecargaNativa(s);
+        var fila = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===1; });
+        assert(fila.peso===55 && fila.reps===9, "el borrador recuperado no puede perder lo que el usuario ya cargó, dio " + JSON.stringify(fila));
+      });
+    });
+
+    test("serie parcialmente editada (sólo peso tocado): no se completa el campo que falta", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12", entrenoId:"e1" }
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        c.VFS.edit(s, "a", 1, "peso", "40"); // sólo el peso, reps nunca se tocó
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        var fila = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===1; });
+        assert(fila.peso===40, "el peso ya editado por el usuario no se toca");
+        assert(fila.reps===null, "reps NO debe completarse a medias con la sugerencia: la fila entera queda afuera");
+        assert(!aplicadas.has("a|1"), "una fila con cualquier campo tocado no se considera aplicada");
+      });
+    });
+
+    test("confirmación con \"Hecha\": una serie precargada pasa la validación de toggle() sin tocar nada más", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12", entrenoId:"e1" }
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        c.T.aplicarPrecargaNativa(s);
+        var ok = c.VFS.toggle(s, "a", 1, true);
+        assert(ok === true, "toggle() debería aceptar la serie precargada tal cual");
+        var fila = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===1; });
+        assert(fila.completed === true && fila.peso===70 && fila.reps===12,
+          "debería quedar completada con los valores precargados, dio " + JSON.stringify(fila));
+      });
+    });
+
+    test("sin ninguna escritura involuntaria: aplicarPrecargaNativa no toca Store ni dispara red", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12", entrenoId:"e1" }
+      ]), function(c){
+        var centinela = new Proxy({}, { get: function(){ throw new Error("aplicarPrecargaNativa no debe tocar Store"); } });
+        var prevStore = c.T.Store;
+        try {
+          c.T.Store = centinela; // cualquier acceso a Store.* explota
+          var s = sesionNativaV512(setsVacios4y1());
+          var aplicadas = c.T.aplicarPrecargaNativa(s);
+          assert(aplicadas.has("a|1"), "la precarga debe seguir funcionando sin Store disponible");
+        } finally { c.T.Store = prevStore; }
+      });
+    });
+
+    test("referencia guardada que difiere del historial: la precarga usa SOLO el historial, y se oculta el texto donde chocaría", function(){
+      // Ejemplo del enunciado: entrenamiento real serie1=70/serie2=80;
+      // referencia aceptada serie1=65/serie2=75/serie3=85. La precarga tiene
+      // que mostrar 70 y 80 (nunca 65/75), la serie 3 queda vacía (sin
+      // antecedente real), y el texto "Referencia guardada" sólo se oculta
+      // en las series 1 y 2 — donde SÍ hay un número real que podría chocar.
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:70, reps:"12", entrenoId:"e1" },
+        { date:"2026-10-20", createdAt:1, setNumber:2, peso:80, reps:"10", entrenoId:"e1" }
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        var f1 = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===1; });
+        var f2 = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===2; });
+        var f3 = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===3; });
+        assert(f1.peso===70 && f2.peso===80, "la precarga debe ser 70/80, nunca 65/75 de la referencia");
+        assert(f3.peso===null, "serie 3 sin antecedente real debe quedar vacía, aunque la referencia tenga 85");
+
+        var mapa = { "Press de banca con barra": { accepted:true, updatedAt:999,
+          series:[ {setNumber:1,peso:65,reps:10}, {setNumber:2,peso:75,reps:8}, {setNumber:3,peso:85,reps:6} ] } };
+        var filtrado = c.T.referenciasParaMostrarNativa(mapa, s, aplicadas);
+        var seriesVisibles = filtrado["Press de banca con barra"].series.map(function(x){ return x.setNumber; });
+        assert(seriesVisibles.indexOf(1) === -1, "la referencia de la serie 1 debe ocultarse: ya hay una precarga real");
+        assert(seriesVisibles.indexOf(2) === -1, "idem serie 2");
+        assert(seriesVisibles.indexOf(3) !== -1, "la serie 3 SÍ debe seguir mostrando su referencia: ahí no hay conflicto");
+        // El mapa persistido no se tocó: es otro objeto.
+        assert(mapa["Press de banca con barra"].series.length === 3,
+          "referenciasParaMostrarNativa no puede mutar el mapa original");
+      });
+    });
+
+    test("carga manual sin setNumber: nunca se usa como antecedente de ninguna serie", function(){
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:null, peso:70, reps:"12", series:"4" }
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        assert(aplicadas.size === 0, "una carga manual no puede disfrazarse de ninguna serie numerada");
+      });
+    });
+
+    test("entrenoId distinto mismo día: la selección del último entrenamiento no mezcla series de sesiones distintas", function(){
+      // Dos entrenamientos V48 reales el mismo día (entrenoId distinto):
+      // agruparHistorialPorEntrenamiento los separa correctamente — el más
+      // reciente por createdAt manda, sin mezclar sus series.
+      return conRegistrosNativos(regHist([
+        { date:"2026-10-20", createdAt:1, setNumber:1, peso:60, reps:"10", entrenoId:"mañana" },
+        { date:"2026-10-20", createdAt:1, setNumber:2, peso:62, reps:"10", entrenoId:"mañana" },
+        { date:"2026-10-20", createdAt:2, setNumber:1, peso:65, reps:"8",  entrenoId:"tarde" }
+        // la sesión de la tarde no tiene serie 2
+      ]), function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        var f1 = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===1; });
+        var f2 = c.VFS.rows(s,"a").find(function(r){ return r.setNumber===2; });
+        assert(f1.peso===65, "debe tomar el entrenamiento más reciente (tarde), dio " + f1.peso);
+        assert(f2.peso===null,
+          "la serie 2 de la MAÑANA no puede colarse en el entrenamiento de la tarde, dio " + f2.peso);
+        assert(!aplicadas.has("a|2"), "serie 2 no debería figurar como aplicada");
+      });
+    });
+
+    test("compatibilidad: ninguna fila de un ejercicio sin historial explota ni se altera", function(){
+      return conRegistrosNativos([], function(c){
+        var s = sesionNativaV512(setsVacios4y1());
+        var aplicadas = c.T.aplicarPrecargaNativa(s);
+        assert(aplicadas.size === 0, "sin historial no puede aplicarse ninguna precarga");
+        c.VFS.rows(s,"a").concat(c.VFS.rows(s,"b")).forEach(function(r){
+          assert(r.peso===null && r.reps===null, "todas las filas deben seguir vacías");
+        });
+      });
     });
 
     /* ===================================================================

@@ -4261,6 +4261,12 @@
     historyFilter:{ exercise:"", from:"", to:"" },
     historyExpanded:null,        // nombre del ejercicio desplegado en el Historial agrupado (null = ninguno)
     session:null,        // { dayId, slot, dayNombre, startedAt, sets:{exId:[bool,...]}, setLogs:{exId:[{registroId,peso,reps,nota,date}|null,...]} } while "entrenando" — v28: persistido en rutinas.data.sesionActiva para poder resumirlo. setLogs (v28.1) es una CACHE de resumibilidad (qué fila de `registros` corresponde a cada serie de esta sesión), no una segunda fuente de verdad — el peso/reps real siempre vive en `registros`.
+    // V51.2: qué filas "exId|setNumber" de la sesión V48 en curso recibieron
+    // una precarga real (ver aplicarPrecargaNativa, loadProfileData). Sólo
+    // sirve para el render: ocultar el texto "Referencia guardada" en esas
+    // filas puntuales, para no mostrar dos sugerencias que podrían no
+    // coincidir (ver referenciasParaMostrarNativa). No se persiste.
+    nativePrecargaKeys:new Set(),
     calMonth:null,       // { y, m } mes mostrado en el calendario (m = 0-indexado)
     explorerGroup:null,  // grupo muscular seleccionado en el explorador (null = lista de grupos)
     explorerSub:null,    // V31: sub-filtro dentro del grupo (Piernas y Brazos); null = "Todos"
@@ -4824,8 +4830,15 @@
     // todavía exista en el slot en el que se guardó la sesión. V48.1A conserva
     // una sesión no interpretable en unresolvedSession y bloquea reemplazarla.
     state.session = null;
+    state.nativePrecargaKeys = new Set();
     if(raw && raw.sesionActiva && raw.sesionActiva.schemaVersion===48){
       state.unresolvedSession=deepClone(raw.sesionActiva);
+      // V51.2: se aplica ACÁ, una sola vez por carga, antes de cualquier
+      // render. No importa si esta sesión es "recién iniciada" o
+      // "recuperada" — aplicarPrecargaNativa no distingue eso (ver su
+      // comentario): su guardia mira cada fila, no la sesión entera, así
+      // que es correcta en los dos casos sin necesitar esa distinción.
+      if(nativeSession()) state.nativePrecargaKeys = aplicarPrecargaNativa(nativeSession());
       if(!nativeSession()) showToast("El borrador V48 no puede interpretarse. Se conserva sin modificar.");
     } else if(raw && raw.sesionActiva && raw.sesionActiva.dayId && raw.sesionActiva.sets){
       const s = raw.sesionActiva;
@@ -7834,7 +7847,7 @@
   }
 
   function screenSession(day){
-    if(nativeSession()) return nativeLifecycleHtml(nativeSession())+VodaFitSession.html(nativeSession(),state.rutinaRaw && state.rutinaRaw.referenciasEjercicios,canonicalExerciseName)
+    if(nativeSession()) return nativeLifecycleHtml(nativeSession())+VodaFitSession.html(nativeSession(),referenciasParaMostrarNativa(state.rutinaRaw && state.rutinaRaw.referenciasEjercicios, nativeSession(), state.nativePrecargaKeys),canonicalExerciseName)
       +'<button class="btn btn-outline btn-block" data-native-finalize>Finalizar entrenamiento</button>'
       +(!VodaFitLifecycle.pending(nativeSession()) && !state.rutinaRaw?.__v48TerminalRequest ? '<button class="btn btn-outline btn-block" data-native-cancel>Cancelar entrenamiento</button>' : '')
       +(['REMOTE_ELIMINADA','REMOTE_CANCELADA','REMOTE_FINALIZADA','IDEMPOTENCY_CONFLICT'].includes(state.nativeReconcileIssue)?'<button class="btn btn-outline btn-block" data-native-use-remote>Resolver con el estado remoto</button>':'');
@@ -8080,17 +8093,24 @@
     const current=()=>state.profile?.id===owner && generation===authLoadGeneration && state.session===session;
     let existing = (state.session.setLogs[ex.id] || [])[idx] || null;
     const registroId=existing?.registroId || crypto.randomUUID?.();
+    // V51.2: sólo al ABRIR el modal de una serie sin dato propio todavía
+    // (existing===null) se mira qué se registró en esa misma posición la
+    // última vez. Es una sugerencia editable para los inputs, nunca se marca
+    // la serie como hecha ni se escribe nada hasta que se toque "Guardar" —
+    // eso sigue pasando más abajo, igual que siempre.
+    const sugerido = existing ? null : registroSerieAnterior(exerciseHistoryFor(ex.nombre), idx+1);
     const m = openModal(`
       <h3>${existing?"Editar serie":"Registrar serie"} ${idx+1}</h3>
       <p class="helptext" style="margin:-8px 0 4px">${esc(ex.nombre)}</p>
+      ${sugerido ? `<p class="helptext">Sugerido de tu entrenamiento del ${esc(fmtDate(sugerido.date))}: ${sugerido.peso} kg${sugerido.reps?" × "+esc(sugerido.reps):""}. Podés confirmarlo o cambiarlo.</p>` : ""}
       <div class="stack">
         <div class="field-row">
           <div class="field"><label>Fecha</label><input type="date" id="slog-date" value="${esc(existing? existing.date : todayStr())}"></div>
-          <div class="field"><label>Peso (kg)</label><input type="number" id="slog-peso" inputmode="decimal" step="0.5" min="0" placeholder="Ej: 40" value="${existing? esc(existing.peso) : ""}"></div>
+          <div class="field"><label>Peso (kg)</label><input type="number" id="slog-peso" inputmode="decimal" step="0.5" min="0" placeholder="Ej: 40" value="${existing? esc(existing.peso) : (sugerido? sugerido.peso : "")}"></div>
         </div>
         <div class="field">
           <label>Reps</label>
-          <input type="text" id="slog-reps" maxlength="12" value="${esc(existing? existing.reps : (ex.reps||""))}">
+          <input type="text" id="slog-reps" maxlength="12" value="${esc(existing? existing.reps : (sugerido? sugerido.reps : (ex.reps||"")))}">
         </div>
         <div class="field"><label>Nota (opcional)</label><input type="text" id="slog-nota" maxlength="60" placeholder="Ej: sentí bien la técnica" value="${existing? esc(existing.nota||"") : ""}"></div>
       </div>
@@ -9003,6 +9023,129 @@
     });
     grupos.sort((a,b)=> a.date===b.date ? b.ultimo-a.ultimo : (a.date<b.date?1:-1));
     return grupos;
+  }
+
+  // V51.2 — precarga de serie: qué se registró en ESA posición (setNumber) la
+  // última vez que se entrenó este ejercicio. Pura, sin DOM ni state, al
+  // estilo de registroUltimaCarga.
+  //
+  // Reusa agruparHistorialPorEntrenamiento (grupos[0] = el entrenamiento más
+  // reciente) en vez de ordenar por fecha acá: así la "última sesión" es
+  // SIEMPRE la misma que ve el historial agrupado, y el caso de V47 sin
+  // entrenoId (dos entrenamientos del mismo día agrupados bajo "f:fecha")
+  // queda cubierto gratis.
+  //
+  // Reglas de V51.2 que esto respeta:
+  //  - Sólo mira setNumber EXACTO (nunca el máximo histórico ni "copiar el
+  //    último peso a todas las series").
+  //  - 0 coincidencias en el grupo más reciente = sin antecedente para esa
+  //    posición: no se completa con una sesión más vieja (no se "rellenan
+  //    huecos"), se devuelve null.
+  //  - Más de 1 coincidencia = AMBIGUO: sólo puede pasar con dos
+  //    entrenamientos del mismo día sin entrenoId, cada uno con su propia
+  //    serie en esa posición. En vez de elegir una al azar y mezclar
+  //    sesiones distintas, se devuelve null (conservador, a propósito).
+  //  - Las cargas manuales (setNumber null) nunca entran: el filtro exige
+  //    igualdad numérica exacta con setNumber, que null nunca cumple.
+  function registroSerieAnterior(historial, setNumber){
+    if(setNumber==null) return null;
+    const grupos = agruparHistorialPorEntrenamiento(historial);
+    if(!grupos.length) return null;
+    const filas = grupos[0].filas.filter(r=> r.setNumber===setNumber);
+    if(filas.length!==1) return null;
+    const r = filas[0];
+    const peso = parseFloat(r.peso);
+    if(!Number.isFinite(peso)) return null;
+    return { peso, reps: r.reps||"", date: r.date||null };
+  }
+
+  // V51.2 — precarga de series para la sesión V48 (nativa). La ÚNICA fuente
+  // es registroSerieAnterior / el último entrenamiento con registros
+  // efectivos (igual que en V47, ver openSessionLogModal): NUNCA
+  // referenciasEjercicios. Es deliberado — decisión de producto: la
+  // referencia es una elección pasada que el usuario aceptó a mano; la
+  // precarga es lo que de verdad pasó la última vez, y si difieren no se
+  // reconcilian ni se mezclan (ver referenciasParaMostrarNativa para cómo se
+  // evita mostrar dos números distintos para la misma serie).
+  //
+  // Reusa VodaFitSession.edit(s, exId, setNumber, campo, texto): el MISMO
+  // camino que un keystroke real del usuario. Por eso una serie precargada
+  // pasa la validación de VodaFitSession.toggle() al tildar "Hecha" sin
+  // tocar nada — row.peso/row.reps quedan poblados, no sólo el texto visible.
+  // edit() nunca marca completed=true (sólo toggle() lo hace, por acción
+  // explícita del usuario), así que esto no puede convertir una sugerencia
+  // en una serie realizada ni disparar ninguna escritura: todo pasa en el
+  // objeto de sesión en memoria, y viaja al servidor recién cuando ocurra la
+  // PRÓXIMA escritura legítima (exactamente como cualquier otro campo que
+  // el usuario haya tipeado).
+  //
+  // Guardia por fila — se salta la precarga si CUALQUIERA es cierto:
+  //   - row.completed === true (ya confirmada)
+  //   - row.peso!=null || row.reps!=null (ya tiene algún valor)
+  //   - ya existe la CLAVE de esa fila en s.ui.inputs
+  // Ese último chequeo usa hasOwnProperty, nunca truthiness: un campo que el
+  // usuario vació a mano (edit() escribe "" en el input pero la CLAVE queda)
+  // tiene que seguir vacío, no reaparecer con la sugerencia. Como la
+  // guardia es por FILA (si hay clave para peso o para reps, se saltan las
+  // dos), una serie parcialmente editada tampoco se completa a medias. Y
+  // como s.ui viaja dentro del mismo objeto de sesión que persiste
+  // persistRutina (sesionActiva), un borrador recuperado en otro
+  // dispositivo trae sus claves intactas: esta guardia funciona igual para
+  // una sesión recién reservada que para una recuperada, sin necesitar
+  // distinguir cuál es cuál (ver el comentario en loadProfileData).
+  //
+  // No hace falta preocuparse por la ambigüedad "mismo día sin entrenoId"
+  // de V47 acá: toda fila que crea una sesión V48 llega a `registros` CON
+  // entreno_id (ver supabase/v48/02_rpc.sql), así que agruparHistorialPorEntrenamiento
+  // nunca necesita agrupar por fecha para el historial de una cuenta V48 —
+  // y si existieran registros V47 viejos sin entrenoId el mismo día, la
+  // ambigüedad se resuelve igual de conservador: registroSerieAnterior ya
+  // la devuelve null.
+  //
+  // Devuelve el Set "exId|setNumber" de lo efectivamente precargado.
+  function aplicarPrecargaNativa(s){
+    const aplicadas = new Set();
+    if(!s || !s.day || !Array.isArray(s.day.exercises)) return aplicadas;
+    s.day.exercises.forEach(ex=>{
+      const historial = exerciseHistoryFor(ex.nombre);
+      VodaFitSession.rows(s, ex.id).forEach(row=>{
+        if(row.completed) return;
+        if(row.peso!=null || row.reps!=null) return;
+        const key = JSON.stringify([row.exerciseInstance, row.setNumber]);
+        if(s.ui && s.ui.inputs && Object.prototype.hasOwnProperty.call(s.ui.inputs, key)) return;
+        const sugerido = registroSerieAnterior(historial, row.setNumber);
+        if(!sugerido) return;
+        VodaFitSession.edit(s, ex.id, row.setNumber, "peso", String(sugerido.peso));
+        VodaFitSession.edit(s, ex.id, row.setNumber, "reps", String(sugerido.reps));
+        aplicadas.add(ex.id+"|"+row.setNumber);
+      });
+    });
+    return aplicadas;
+  }
+
+  // V51.2 — copia de referenciasEjercicios para UN render de la sesión V48:
+  // oculta, serie por serie, el texto "Referencia guardada" únicamente
+  // donde aplicarPrecargaNativa ya puso un valor real. No toca el dato
+  // persistido (`map` no se muta) ni las funciones de referencia
+  // existentes — decide(), accept/reject y el blob que viaja al cerrar la
+  // sesión siguen exactamente iguales; esto es sólo lo que se LE PASA a
+  // VodaFitSession.html() para pintar. Las series sin precarga (huecos, sin
+  // antecedente en `registros`) siguen mostrando su referencia normal, si
+  // la tienen: ahí no hay dos números en conflicto.
+  function referenciasParaMostrarNativa(map, s, aplicadas){
+    if(!map || !aplicadas || !aplicadas.size || !s || !s.day) return map;
+    const copia = {};
+    Object.keys(map).forEach(k=>{ copia[k] = map[k]; });
+    (s.day.exercises||[]).forEach(ex=>{
+      const target = canonicalExerciseName(ex.nombre);
+      Object.keys(copia).forEach(k=>{
+        const candidato = copia[k];
+        if(canonicalExerciseName(k)!==target || !candidato || !Array.isArray(candidato.series)) return;
+        const filtradas = candidato.series.filter(x=> !aplicadas.has(ex.id+"|"+x.setNumber));
+        if(filtradas.length !== candidato.series.length) copia[k] = { ...candidato, series: filtradas };
+      });
+    });
+    return copia;
   }
 
   // Nombres disponibles para FILTRAR: los de la rutina activa más los que
@@ -11770,7 +11913,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "a7109ff8beefe23ea124e0c7053bbb7bc094b870229d9bb36fb07cab23c5858c";
+  const APP_BUILD = "0d1d24f755291204d4d40e1c92bf0bb281a52b8112f60fbeeca3140265e382b5";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -12000,7 +12143,7 @@
     // V50.6B: lectura del historial de un ejercicio. Las cinco primeras son
     // PURAS (no tocan state ni la base); las dos de HTML solo presentan.
     registroOrdenDesc, registroMaxHistorico, registroUltimaCarga, etiquetaDeSerie,
-    agruparHistorialPorEntrenamiento, nombresFiltrablesDelHistorial,
+    agruparHistorialPorEntrenamiento, registroSerieAnterior, aplicarPrecargaNativa, referenciasParaMostrarNativa, nombresFiltrablesDelHistorial,
     registroStatsHtml, registroHistorialHtml, sparklineFor,
     sessionExerciseCardHtml, toggleSessionSet,
     // v37 — vueltas del cronómetro de entrenamiento
