@@ -4141,7 +4141,11 @@
       // Activa la cuenta de QUIEN LA LLAMA —deriva el usuario de auth.uid()—, así
       // que tiene que salir por acá, con la sesión autenticada del propio usuario:
       // es el único camino que no obliga a manipular tokens a mano.
-      if(!["v48_iniciar","v48_estado","v48_finalizar","v48_cancelar","v48_eliminar","v48_registro_guardar","v48_registro_eliminar","v48_marcar_dia","v48_historico_eliminar","v48_activar"].includes(name)) throw new Error("RPC_NOT_ENABLED");
+      // V51.3 bloque 3: se suma v48_guardar_sesion a la allowlist. Es la RPC
+      // de 5 argumentos de supabase/v48/12_omitidos_extras.sql (instalada en
+      // staging) que permite empujar día+sets+referencias del borrador
+      // nativo — hasta este bloque, nada en el cliente la llamaba.
+      if(!["v48_iniciar","v48_estado","v48_finalizar","v48_cancelar","v48_eliminar","v48_registro_guardar","v48_registro_eliminar","v48_marcar_dia","v48_historico_eliminar","v48_activar","v48_guardar_sesion"].includes(name)) throw new Error("RPC_NOT_ENABLED");
       const {data,error}=await client().auth.getSession();
       if(error || !data.session || data.session.user.id!==owner) throw new Error("ACCOUNT_CHANGED");
       const response=await fetch(SUPABASE_URL+"/rest/v1/rpc/"+name,{method:"POST",
@@ -4185,6 +4189,14 @@
   const nativeReconciler=VodaFitReconcile.createController({cache:rutinaCache,adapter:nativeTerminalAdapter,
     current:owner=>!!state.profile && state.profile.id===owner,identity:()=>authLoadGeneration,canonical:canonicalExerciseName});
   let nativeTerminalRefresh=null;
+  // V51.3 (diagnóstico, no interviene en ninguna decisión): copia de SOLO
+  // LECTURA del último `saved` fallido de finalizeNativeSession(), para
+  // poder ver su `code` real desde la consola aun si loadProfileData()
+  // reemplaza state.persistence antes de poder consultarlo — variable
+  // aparte de `state` a propósito, nunca una propiedad suya. No incluye
+  // envelope/sesionActiva (ejercicios, series, pesos) ni nada de
+  // state.profile: sólo los campos de estado del guardado en sí.
+  let ultimoCierreNativoFallido = null;
   let nativeClockHandle=null;
   function stopNativeClock(){clearInterval(nativeClockHandle);nativeClockHandle=null;}
   function mountNativeClock(){
@@ -4754,7 +4766,23 @@
     const outcomes=await Promise.allSettled([rutinaSync.load(ownerId),Store.listRegistros(ownerId),Store.listEntrenos(ownerId),pesoPromise]);
     if(outcomes[0].status!=="fulfilled") throw outcomes[0].reason;
     const loaded=outcomes[0].value;
-    if(loaded.conflict && VodaFitSession.isNative(loaded.localDraft?.sesionActiva) && (VodaFitLifecycle.pending(loaded.localDraft.sesionActiva) || loaded.localDraft.__v48TerminalRequest)){
+    // V51.3 bloque 3 (corrección de diagnóstico): esta condición sólo
+    // protegía el cierre local (lifecycle pendiente o una operación terminal
+    // en curso). Un cambio ESTRUCTURAL (omitir/restaurar/agregar extra, ver
+    // bloque 1/2) o cualquier serie/referencia editada localmente que
+    // entrara en conflicto con el servidor NO entraba por ninguna de esas
+    // dos ramas, así que el draft local se descartaba en silencio a favor
+    // del remoto — exactamente la pérdida que había que evitar. Se agrega
+    // una tercera condición: el draft local de la MISMA sesión difiere del
+    // remoto en cualquier cosa (día, series, referencias). Las dos
+    // condiciones viejas quedan intactas (en los hechos ya las cubre esta
+    // tercera, pero no hace falta tocarlas para no arriesgar nada que ya
+    // funcionaba).
+    const mismaSesionNativa = VodaFitSession.isNative(loaded.localDraft?.sesionActiva)
+      && loaded.data && loaded.data.sesionActiva
+      && loaded.localDraft.sesionActiva.sessionId===loaded.data.sesionActiva.sessionId;
+    if(loaded.conflict && VodaFitSession.isNative(loaded.localDraft?.sesionActiva) && (VodaFitLifecycle.pending(loaded.localDraft.sesionActiva) || loaded.localDraft.__v48TerminalRequest
+      || (mismaSesionNativa && !VodaFitPersistence.equal(loaded.localDraft.sesionActiva,loaded.data.sesionActiva)))){
       // Mostrar el cierre local protegido aunque el remoto ya tenga un comprobante.
       loaded.data={...loaded.data,sesionActiva:deepClone(loaded.localDraft.sesionActiva),...(loaded.localDraft.__v48TerminalRequest?{__v48TerminalRequest:deepClone(loaded.localDraft.__v48TerminalRequest)}:{})};
     }
@@ -4861,6 +4889,12 @@
           const n = s.sets[exId].length;
           setLogs[exId] = new Array(n).fill(null).map((_,i)=> savedLog[i] || null);
         });
+        // V51.3 bloque 5: el "...s" de acá abajo ya alcanza para recuperar
+        // omitidos/extras (bloque 0/1/2) — son propiedades más de `s`
+        // (sesionActiva guardada), ni se leen ni se escriben en ningún otro
+        // lado, así que viajan solas sin tocar esta función. Una sesión
+        // vieja sin esas claves simplemente no las trae: todo lo que las
+        // lee ya usa `|| []` (sesionOmitirEjercicioEnSesion, sessionExercisesEfectivos, etc.).
         state.session = { ...s, dayId: s.dayId, slot, dayNombre: s.dayNombre||day.nombre, startedAt: s.startedAt||Date.now(), sets: s.sets, setLogs };
         // El día embebido del Día Especial no vive en rutinaSlots, así que
         // se canonicaliza por separado.
@@ -4912,7 +4946,24 @@
   // esta única vía de persistencia (en vez de una tabla/migración nueva) es
   // lo que permite que "Guardar entrenamiento" y el resumen automático al
   // reabrir la app funcionen sin crear una segunda fuente de verdad.
-  async function persistRutina(){
+  // V51.3 (corrección de concurrencia local V48): toda llamada a
+  // persistRutina() queda rastreada en ultimaEscrituraNativa, sea DIRECTA
+  // (sincronizarEstructuraNativa, finalizeNativeSession, requestNativeCancel,
+  // etc.) o a través de borradorV48.cambio(). Antes sólo cambio() actualizaba
+  // ese rastro, así que una llamada directa todavía en vuelo no quedaba
+  // cubierta por borradorV48.esperar() — y loadProfileData() podía arrancar
+  // un rutinaSync.load() nuevo mientras esa escritura todavía no había
+  // aterrizado en IndexedDB, dejando ctx.localVersion desactualizado (choque
+  // reproducido con VodaFitPersistence.createSync real en tests-v31.html,
+  // grupo "reproducción controlada de LOCAL_CONFLICT", escenario 1).
+  //
+  // Sin dependencia circular: persistRutinaInterna() nunca llama a
+  // borradorV48.esperar(), así que esperar() jamás termina esperándose a sí
+  // misma. rutinaSync.save() sigue siendo quien serializa de verdad (su cola
+  // `tail` interna no se toca) — esto sólo amplía QUÉ promesas puede esperar
+  // alguien antes de leer de nuevo, no CÓMO se escribe ni en qué orden.
+  let ultimaEscrituraNativa = Promise.resolve(null);
+  async function persistRutinaInterna(){
     if(!state.profile) return {ok:false,code:"NOT_AUTHENTICATED"};
     const ownerId=state.profile.id, generation=authLoadGeneration;
     const data={...(state.rutinaRaw || {}),
@@ -4938,6 +4989,11 @@
         : "No se pudo guardar. Conservá la aplicación abierta para no perder los cambios.");
     }
     return result;
+  }
+  async function persistRutina(){
+    const p = persistRutinaInterna();
+    ultimaEscrituraNativa = p.then(r=>r, ()=>null);
+    return p;
   }
 
   /* ===== V50.3 (O1) — guardado inmediato del borrador V48, con espera =====
@@ -4972,7 +5028,6 @@
      frente a un cierre inesperado es exactamente la de 18062d2 — el guardado
      arranca en el mismo tick del cambio y no hay ningún temporizador en el medio. */
   const borradorV48 = (()=>{
-    let ultimaEscritura = Promise.resolve(null);
     let sinResolver = 0;
     let escrituras = 0;      // sólo para las pruebas
     return {
@@ -4980,15 +5035,19 @@
       cambio(){
         escrituras++; sinResolver++;
         const p = persistRutina();
-        // Se recuerda la última para poder esperarla. El rechazo se absorbe acá:
-        // esperar una escritura nunca puede hacer fallar a quien espera, y el
-        // fallo lo informa igualmente persistRutina a su propio llamador.
-        ultimaEscritura = p.then(r=>{ sinResolver--; return r; }, ()=>{ sinResolver--; return null; });
+        // Esa misma llamada ya registra su promesa en ultimaEscrituraNativa
+        // (ver la definición de persistRutina, afuera de este envoltorio) —
+        // acá sólo se lleva la cuenta de escrituras en vuelo para las
+        // pruebas, sin duplicar el rastro que usa esperar().
+        p.then(()=>{ sinResolver--; }, ()=>{ sinResolver--; });
         return p;
       },
-      // Espera la escritura en curso. No encola, no arranca, no reordena nada:
-      // rutinaSync.save ya serializa, así que la última en resolver es la última.
-      esperar(){ return ultimaEscritura; },
+      // Espera la ÚLTIMA escritura nativa en curso, venga de cambio() o de
+      // una llamada directa al guardado del borrador (sincronizarEstructuraNativa,
+      // finalizeNativeSession, requestNativeCancel, etc.). No encola, no
+      // arranca, no reordena nada: rutinaSync.save ya serializa, así que la
+      // última en resolver es la última.
+      esperar(){ return ultimaEscrituraNativa; },
       get hayPendiente(){ return sinResolver > 0; },
       get escrituras(){ return escrituras; },
       reiniciarMedicion(){ escrituras = 0; }
@@ -5291,6 +5350,372 @@
     return (slotObj.days||[]).find(d=>d.id===state.session.dayId) || null;
   }
 
+  // V51.3 bloque 0: modelo puro de "omitir ejercicio" / "ejercicio extra"
+  // DENTRO de la sesión activa. Nada de esto se usa todavía desde ninguna
+  // pantalla, botón, registro de series o finalización — son funciones
+  // puras, reciben todo por parámetro y devuelven estructuras NUEVAS, nunca
+  // mutan lo que les pasaron. Conectarlas es un bloque posterior.
+  //
+  // V48 nativo: sesionActiva.day YA es un snapshot propio de la sesión (ver
+  // nota de V50.2 más abajo), así que el contrato de la migración
+  // 12_omitidos_extras.sql guarda "omitido" y "extra" como claves opcionales
+  // INLINE en cada ejercicio de day.exercises. No hace falta un overlay
+  // aparte: alcanza con normalizar esas dos claves a boolean.
+  function sesionVistaNativa(day){
+    return ((day && day.exercises) || []).map(ex=>({...ex, omitido:!!ex.omitido, extra:!!ex.extra}));
+  }
+
+  // V47 legado: sessionDay() de acá arriba devuelve una referencia VIVA a la
+  // rutina semanal (state.rutinaSlots[slot].days) — jamás se le puede
+  // escribir "omitido"/"extra" ahí sin editar la rutina real. El overlay
+  // vive aparte, indexado por el id real del ejercicio del día; es el único
+  // lugar donde "omitido" y "extra" existen para V47.
+  function sesionOverlayVacio(){ return {omitidos:[], extras:[]}; }
+
+  // Única función que combina día real + overlay para V47. Siempre devuelve
+  // CLONES (spread), nunca los objetos de `day` ni de `overlay.extras`.
+  function sesionVistaLegado(day, overlay){
+    const ov = overlay || sesionOverlayVacio();
+    const base = ((day && day.exercises) || []).map(ex=>
+      ({...ex, omitido:ov.omitidos.indexOf(ex.id)!==-1, extra:false}));
+    const extras = (ov.extras||[]).map(ex=>
+      ({...ex, omitido:ov.omitidos.indexOf(ex.id)!==-1, extra:true}));
+    return base.concat(extras);
+  }
+
+  // Selectores compartidos: operan sobre la vista YA combinada (la que
+  // devuelven sesionVistaNativa/sesionVistaLegado), nunca sobre `day` ni
+  // sobre el overlay directamente — por eso sirven para los dos casos y
+  // permiten identificar activos/omitidos por separado sin perder ningún id:
+  // un ejercicio omitido sigue en la vista, solo cambia su bandera.
+  function sesionEjerciciosActivos(vista){ return (vista||[]).filter(ex=>!ex.omitido); }
+  function sesionEjerciciosOmitidos(vista){ return (vista||[]).filter(ex=>!!ex.omitido); }
+
+  // Guardas de progreso: "no se puede omitir algo con una serie ya hecha" es
+  // la misma regla que v48_private.series() exige del lado del servidor para
+  // V48 (ver 12_omitidos_extras.sql, OMITTED_EXERCISE_HAS_PROGRESS). V47 no
+  // tiene ninguna RPC que la valide, así que hay que exigirla también acá a
+  // mano para no dejar un estado inconsistente.
+  function sesionNativaTieneProgreso(sets, exId){
+    return Array.isArray(sets) && sets.some(r=>r && r.exerciseInstance===exId && r.completed);
+  }
+  function sesionLegadoTieneProgreso(sets, exId){
+    return !!(sets && Array.isArray(sets[exId]) && sets[exId].some(Boolean));
+  }
+
+  // Mutadores puros. Ninguno recibe `state` ni lo toca, ninguno lanza: cada
+  // uno devuelve {ok:false,code} o {ok:true,day:...}/{ok:true,overlay:...}.
+  // Reflejan a mano el mismo contrato que v48_private.validar_patch_dia ya
+  // impone del lado del servidor para V48: nunca se edita nombre/series/reps
+  // de un ejercicio existente, ningún id desaparece, y omitir con progreso
+  // está prohibido en los dos sistemas.
+  function sesionDiaNativoOmitir(day, sets, exId, omitido){
+    const idx = ((day && day.exercises) || []).findIndex(ex=>ex.id===exId);
+    if(idx===-1) return {ok:false, code:"UNKNOWN_EXERCISE"};
+    if(omitido && sesionNativaTieneProgreso(sets, exId)) return {ok:false, code:"HAS_PROGRESS"};
+    const exercises = day.exercises.map((ex,i)=> i===idx ? {...ex, omitido:!!omitido} : ex);
+    return {ok:true, day:{...day, exercises}};
+  }
+  function sesionDiaNativoAgregarExtra(day, ejercicio){
+    const ids = ((day && day.exercises) || []).map(ex=>ex.id);
+    if(!ejercicio || typeof ejercicio.id!=="string" || !ejercicio.id || ids.indexOf(ejercicio.id)!==-1)
+      return {ok:false, code:"DUPLICATE_ID"};
+    if(typeof ejercicio.nombre!=="string" || !ejercicio.nombre.trim()) return {ok:false, code:"INVALID_NAME"};
+    const exercises = day.exercises.concat([{...ejercicio, omitido:false, extra:true}]);
+    return {ok:true, day:{...day, exercises}};
+  }
+  function sesionOverlayOmitir(overlay, sets, exId){
+    if(sesionLegadoTieneProgreso(sets, exId)) return {ok:false, code:"HAS_PROGRESS"};
+    const omitidos = overlay.omitidos.indexOf(exId)!==-1 ? overlay.omitidos : overlay.omitidos.concat([exId]);
+    return {ok:true, overlay:{omitidos, extras:overlay.extras}};
+  }
+  function sesionOverlayRestaurar(overlay, exId){
+    return {ok:true, overlay:{omitidos:overlay.omitidos.filter(id=>id!==exId), extras:overlay.extras}};
+  }
+  function sesionOverlayAgregarExtra(day, overlay, ejercicio){
+    const idsDia = ((day && day.exercises) || []).map(ex=>ex.id);
+    const idsExtra = overlay.extras.map(ex=>ex.id);
+    if(!ejercicio || typeof ejercicio.id!=="string" || !ejercicio.id
+      || idsDia.indexOf(ejercicio.id)!==-1 || idsExtra.indexOf(ejercicio.id)!==-1)
+      return {ok:false, code:"DUPLICATE_ID"};
+    if(typeof ejercicio.nombre!=="string" || !ejercicio.nombre.trim()) return {ok:false, code:"INVALID_NAME"};
+    return {ok:true, overlay:{omitidos:overlay.omitidos, extras:overlay.extras.concat([ejercicio])}};
+  }
+
+  // V51.3 bloque 1: controles de "Omitir"/"Restaurar" DENTRO de la sesión
+  // activa, para V47 y V48. Construidos enteramente sobre las funciones
+  // puras del bloque 0 (sesionVistaNativa/sesionVistaLegado,
+  // sesionEjerciciosActivos/Omitidos, sesionDiaNativoOmitir,
+  // sesionOverlayOmitir/Restaurar) — ninguna lógica de "qué se puede omitir"
+  // se repite acá, solo se conecta a la UI.
+  //
+  // Deliberadamente un panel APARTE de sessionExerciseCardHtml y de
+  // VodaFitSession.html (las tarjetas de siempre): así ninguna de las dos
+  // plantillas que ya registran series o finalizan la sesión se toca en
+  // este bloque, y el riesgo de romper algo existente queda acotado al
+  // panel nuevo.
+  //
+  // SESION_OMITIR_HABILITADO queda en false a propósito: falta la
+  // sincronización con el servidor para V48 (bloque 3) y la persistencia
+  // del overlay para V47 (bloque 5). Mostrar el panel antes de esos bloques
+  // dejaría ver un cambio que después se puede perder (V47, sin
+  // persistencia) o que rompe al finalizar (V48, si el día del servidor no
+  // se actualiza). No se prende por URL, localStorage ni detección alguna
+  // — mismo criterio que `capabilities` en v48-persistence.js.
+  const SESION_OMITIR_HABILITADO = false;
+
+  // Vista + mapa de bloqueos de la sesión ACTUAL (nativa o legado). Un solo
+  // lugar que decide cuál de los dos sistemas está activo, para que el
+  // renderizador y los manejadores de click no tengan que repetir esa rama.
+  function sesionOmitirEstadoActual(){
+    const nativa = nativeSession();
+    if(nativa){
+      const vista = sesionVistaNativa(nativa.day);
+      const bloqueadoPorId = {};
+      vista.forEach(ex=>{ bloqueadoPorId[ex.id] = sesionNativaTieneProgreso(nativa.sets, ex.id); });
+      return { vista, bloqueadoPorId };
+    }
+    if(!state.session) return { vista:[], bloqueadoPorId:{} };
+    const overlay = { omitidos: state.session.omitidos || [], extras: state.session.extras || [] };
+    const vista = sesionVistaLegado(sessionDay(), overlay);
+    const bloqueadoPorId = {};
+    vista.forEach(ex=>{ bloqueadoPorId[ex.id] = sesionLegadoTieneProgreso(state.session.sets, ex.id); });
+    return { vista, bloqueadoPorId };
+  }
+
+  // V51.3 bloque 4: integración de omitidos/extras con las tarjetas, el
+  // progreso y la finalización. Las dos funciones de abajo son la ÚNICA
+  // puerta de entrada que screenSession()/mountSession()/sessionProgress()
+  // usan para decidir qué ejercicios tienen tarjeta — ninguna otra parte del
+  // código vuelve a filtrar omitidos ni a buscar extras a mano.
+  //
+  // V47: NUNCA se lee ni se escribe day.exercises distinto de como vino —
+  // esta función sólo COMBINA (bloque 0: sesionVistaLegado) y FILTRA
+  // (bloque 0: sesionEjerciciosActivos) para armar la lista a dibujar. Sin
+  // overlay (sesión vieja, o SESION_OMITIR_HABILITADO nunca usado todavía),
+  // da exactamente day.exercises — mismo comportamiento que antes del
+  // bloque 0, sin casos especiales.
+  function sessionExercisesEfectivos(day){
+    if(!state.session) return (day && day.exercises) || [];
+    const overlay = { omitidos: state.session.omitidos || [], extras: state.session.extras || [] };
+    return sesionEjerciciosActivos(sesionVistaLegado(day, overlay));
+  }
+
+  // V48: VodaFitSession.html/.bind (v48-session.js, sin modificar en ningún
+  // bloque de V51.3) dibujan TODO lo que encuentren en s.day.exercises — no
+  // conocen "omitido". Para que un ejercicio omitido no tenga tarjeta (ni
+  // forma de registrar una serie nueva) sin tocar ese archivo, se les pasa
+  // una VISTA con el día filtrado, nunca la sesión real: sets/references/
+  // sessionId/etc. siguen siendo las MISMAS referencias que la sesión real
+  // (sólo se sombrea `day`), así que cualquier edición dentro de una
+  // tarjeta activa sigue escribiendo directo sobre la sesión de verdad.
+  function nativeSessionParaTarjetas(s){
+    if(!s) return s;
+    // VodaFitSession.edit/toggle/decide (v48-session.js) inicializan s.ui y
+    // s.references de forma perezosa la PRIMERA vez que algo los toca
+    // (ver ui() ahí). Si la vista fuera un objeto nuevo en cada render y esa
+    // primera inicialización pasara sobre la vista, s.ui quedaría pegado a
+    // un objeto descartable — el próximo render crea OTRA vista y "lo
+    // tipeado hasta ahora" (inputs, errores) desaparecería. Por eso se
+    // inicializan ACÁ, sobre la sesión real, antes de copiar: así la vista
+    // hereda la MISMA referencia y cualquier escritura posterior la
+    // comparte con la sesión real, sea quien la toque primero.
+    if(!s.ui) s.ui = {};
+    if(!s.references) s.references = {};
+    const activos = sesionEjerciciosActivos(sesionVistaNativa(s.day));
+    return { ...s, day:{ ...s.day, exercises:activos } };
+  }
+
+  // Mutador de UI: aplica el cambio EN MEMORIA sobre la sesión activa y
+  // devuelve el mismo {ok,code} que ya devuelven las funciones puras del
+  // bloque 0. Nunca llama a Supabase, a una RPC ni a persistRutina/
+  // borradorV48 — decidir cuándo y cómo persistir esto es de los bloques 3
+  // (V48) y 5 (V47), todavía no implementados.
+  // V51.3 bloque 3: snapshot del último día que el SERVIDOR confirmó, para
+  // poder saber si hay un cambio estructural sin confirmar (ver
+  // nativeEstructuraPendiente). No puede derivarse de state.rutinaRaw: ese
+  // campo lo pisa persistRutina() con el draft LOCAL en cada guardado
+  // "solo en este dispositivo" (el camino normal de cualquier sesión V48,
+  // confirmado o no), así que compararlo contra eso nunca detecta nada
+  // pendiente.
+  //
+  // CORREGIDO tras la revisión del cierre del bloque 3: es una propiedad
+  // MÁS de la sesión (nativa.day/sets/references/etc.), no algo aparte —
+  // por eso SÍ viaja con ella a todos lados sin código nuevo: persistRutina
+  // la incluye en el draft que cache.put guarda en IndexedDB (igual que
+  // cualquier otro campo de sesionActiva), y loadProfileData/rutinaSync.load
+  // la recuperan igual que al resto si el draft local sobrevive a una
+  // recarga. Reusa el borrador V48 existente en vez de inventar un
+  // mecanismo de persistencia paralelo. Lo único que NUNCA pasa es que
+  // llegue al servidor: la RPC sólo recibe nativa.day (p_dia), nunca el
+  // objeto sesión completo.
+  //
+  // Se inicializa perezosamente, en el primer cambio estructural, al día
+  // que había ANTES de ese cambio — que por construcción es el último
+  // confirmado, porque hasta ese momento nunca hubo uno sin confirmar.
+  function nativeMarcarBaselineSiFalta(nativa){
+    if(!nativa._nativeDiaConfirmado) nativa._nativeDiaConfirmado = JSON.parse(JSON.stringify(nativa.day));
+  }
+  function sesionOmitirEjercicioEnSesion(exId, omitido){
+    const nativa = nativeSession();
+    if(nativa){
+      nativeMarcarBaselineSiFalta(nativa);
+      const r = sesionDiaNativoOmitir(nativa.day, nativa.sets, exId, omitido);
+      if(r.ok) nativa.day = r.day;
+      return r;
+    }
+    if(!state.session) return { ok:false, code:"NO_SESSION" };
+    const overlayActual = { omitidos: state.session.omitidos || [], extras: state.session.extras || [] };
+    const r = omitido
+      ? sesionOverlayOmitir(overlayActual, state.session.sets, exId)
+      : sesionOverlayRestaurar(overlayActual, exId);
+    if(r.ok){ state.session.omitidos = r.overlay.omitidos; state.session.extras = r.overlay.extras; }
+    return r;
+  }
+
+  // Presentación. Una fila por ejercicio de la vista combinada: nombre,
+  // por qué no se puede omitir (si corresponde) y el botón que toca según
+  // su estado actual — nunca los dos botones a la vez, y el ejercicio
+  // omitido SIGUE en la lista (con "Restaurar") en vez de desaparecer, para
+  // no perder nunca su id ni la forma de volver a activarlo.
+  function sesionOmitirFilaHtml(ex, bloqueado){
+    const accion = ex.omitido
+      ? `<button class="btn btn-outline btn-sm" data-sesion-restaurar="${esc(ex.id)}">Restaurar</button>`
+      : `<button class="btn btn-outline btn-sm" data-sesion-omitir="${esc(ex.id)}" ${bloqueado?"disabled":""}>Omitir</button>`;
+    // V51.3 bloque 2: un extra omitido usa EL MISMO botón "Restaurar" que
+    // cualquier otro — es a propósito (ver condición 6 del bloque 2): la
+    // migración 12_omitidos_extras.sql no permite borrar un id ya agregado
+    // al día ("ningún id existente se puede remover"), así que "sacar un
+    // extra agregado por error" es omitirlo, nunca eliminarlo. No hay botón
+    // de eliminar en ningún lado de este panel.
+    const nota = ex.omitido ? `<span class="helptext">${ex.extra ? "Extra omitido en esta sesión" : "Omitido en esta sesión"}</span>`
+      : bloqueado ? `<span class="helptext">Ya tiene una serie completada: no se puede omitir</span>` : "";
+    return `<div class="row between" data-sesion-omitir-fila="${esc(ex.id)}" style="gap:10px">
+      <div style="min-width:0">
+        <div class="exname" style="font-size:14px">${esc(ex.nombre)}${ex.extra ? ' <span class="badge">Extra</span>' : ""}</div>
+        ${nota}
+      </div>
+      ${accion}
+    </div>`;
+  }
+  function sesionOmitirPanelHtml(vista, bloqueadoPorId){
+    return `<div class="card stack" data-sesion-omitir-panel>
+      <b>Ejercicios de hoy</b>
+      <p class="helptext">Podés omitir un ejercicio de esta sesión sin tocar tu rutina, restaurarlo cuando quieras, o agregar un extra solo para hoy.</p>
+      ${(vista||[]).map(ex=>sesionOmitirFilaHtml(ex, !!(bloqueadoPorId||{})[ex.id])).join("")}
+      <button class="btn btn-outline btn-block" data-sesion-agregar-extra>${icon("plus")} Agregar ejercicio extra</button>
+    </div>`;
+  }
+
+  // V51.3 bloque 2: agregar un ejercicio extra a la sesión actual, para V47
+  // y V48. El ejercicio en sí (id único, nunca pisa el día/overlay real) ya
+  // lo resuelven sesionDiaNativoAgregarExtra/sesionOverlayAgregarExtra del
+  // bloque 0 — nada de esa validación se repite acá.
+  //
+  // Lo que agrega este bloque es la materialización de las SERIES del
+  // extra, en el lugar que cada sistema ya usa para registrarlas:
+  // state.session.sets/setLogs (V47) o nativeSession().sets (V48). Son
+  // datos de sesión, no del día/overlay puro del bloque 0, así que no hay
+  // superposición ni duplicación con esas funciones — y reusan
+  // sessionSetCount(), el mismo clamp 1..12 que ya usa el resto de la app
+  // (ver V50.2), en vez de reinventar uno.
+  //
+  // Importante (riesgo documentado, no resuelto en este bloque): para V48
+  // el extra queda en nativa.day.exercises, que es EXACTAMENTE lo que
+  // VodaFitSession.html/.bind ya recorren sin cambios — así que su tarjeta
+  // de registro funciona "gratis" en cuanto el flag se habilite. Para V47
+  // el extra queda en el overlay, AFUERA de day.exercises (a propósito: no
+  // se puede tocar el día real) — sessionExerciseCardHtml y el listado de
+  // screenSession() siguen iterando sólo day.exercises, así que el extra
+  // todavía no tiene una tarjeta donde registrar series. Esa integración
+  // queda pendiente para un bloque posterior; lo que deja preparado este
+  // bloque es que, en cuanto exista esa tarjeta, los datos (sets/setLogs ya
+  // creados con la forma correcta) van a estar ahí esperándola.
+  function sesionAgregarExtraEnSesion(ejercicio){
+    const nativa = nativeSession();
+    const count = sessionSetCount(ejercicio);
+    if(nativa){
+      nativeMarcarBaselineSiFalta(nativa);
+      const r = sesionDiaNativoAgregarExtra(nativa.day, ejercicio);
+      if(!r.ok) return r;
+      nativa.day = r.day;
+      for(let i=1;i<=count;i++) nativa.sets.push({exerciseInstance:ejercicio.id, setNumber:i, peso:null, reps:null, completed:false});
+      return r;
+    }
+    if(!state.session) return {ok:false, code:"NO_SESSION"};
+    const overlayActual = {omitidos:state.session.omitidos||[], extras:state.session.extras||[]};
+    const r = sesionOverlayAgregarExtra(sessionDay(), overlayActual, ejercicio);
+    if(!r.ok) return r;
+    state.session.omitidos = r.overlay.omitidos; state.session.extras = r.overlay.extras;
+    state.session.sets[ejercicio.id] = Array.from({length:count}, ()=>false);
+    state.session.setLogs[ejercicio.id] = Array.from({length:count}, ()=>null);
+    return r;
+  }
+
+  // Valida y arma el objeto ejercicio a partir de lo que se tipeó en el
+  // modal. `generarId` se puede inyectar (las pruebas lo hacen) para no
+  // depender de uid() real; por defecto usa EL MISMO generador de ids que
+  // ya usa openExerciseModal para los ejercicios de rutina. `series` queda
+  // guardado YA CLAMPEADO (vía sessionSetCount) para que el número
+  // declarado del ejercicio nunca quede desalineado de las series que
+  // efectivamente se crean en sesionAgregarExtraEnSesion.
+  function sesionPrepararExtra(nombreCrudo, seriesCrudo, repsCrudo, generarId){
+    const nombre = String(nombreCrudo==null?"":nombreCrudo).trim();
+    if(!nombre) return {ok:false, code:"INVALID_NAME"};
+    const count = sessionSetCount({series:seriesCrudo});
+    const reps = String(repsCrudo==null?"":repsCrudo).trim();
+    return {ok:true, ejercicio:{ id:(generarId||uid)(), nombre, series:String(count), reps }};
+  }
+
+  function openSesionExtraModal(){
+    const m = openModal(`
+      <h3>Agregar ejercicio extra</h3>
+      <p class="helptext">Sólo para esta sesión: no se agrega a tu rutina semanal.</p>
+      <div class="field">
+        <label>Ejercicio</label>
+        <div class="ac-wrap">
+          <input type="text" id="sesion-extra-name" placeholder="Buscá o escribí un nombre" maxlength="40" autocomplete="off">
+          <div class="ac-list" id="sesion-extra-name-ac"></div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Series</label><input type="number" id="sesion-extra-series" min="1" max="20" value="3"></div>
+        <div class="field"><label>Repeticiones</label><input type="text" id="sesion-extra-reps" placeholder="Ej: 10 o 8-12" maxlength="12" value="10"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-act="cancel">Cancelar</button>
+        <button class="btn btn-primary" data-act="save">Agregar</button>
+      </div>
+    `);
+    const nameInput = m.querySelector("#sesion-extra-name");
+    nameInput.focus();
+    attachAutocomplete(nameInput, m.querySelector("#sesion-extra-name-ac"));
+    m.querySelector('[data-act="cancel"]').onclick = closeModal;
+    const saveBtn = m.querySelector('[data-act="save"]');
+    // Guarda contra doble tap: un solo click alcanza para agregar el extra,
+    // el botón se deshabilita de inmediato (mismo patrón que
+    // openSessionLogModal) para que un segundo click no cree un segundo
+    // extra con otro id mientras el modal todavía no se cerró.
+    saveBtn.onclick = async ()=>{
+      if(saveBtn.disabled) return;
+      saveBtn.disabled = true;
+      const prep = sesionPrepararExtra(nameInput.value, m.querySelector("#sesion-extra-series").value, m.querySelector("#sesion-extra-reps").value);
+      if(!prep.ok){ saveBtn.disabled = false; showToast("Escribí un nombre para el ejercicio extra."); return; }
+      const r = sesionAgregarExtraEnSesion(prep.ejercicio);
+      if(!r.ok){ saveBtn.disabled = false; showToast("No se pudo agregar el ejercicio extra."); return; }
+      // V51.3 bloque 6 (hotfix): sincronizarEstructuraNativa (bloque 3) sólo
+      // corre al finalizar (requestNativeFinish) — a diferencia de lo que
+      // asumía el comentario original de este bloque, no hay otro guardado
+      // para V48 en el momento de agregar el extra. Mismo fix que
+      // Omitir/Restaurar: borradorV48.cambio() es el persistRutina() de
+      // siempre, así que el extra queda durable en este dispositivo de
+      // inmediato, sin tocar la sincronización remota ni su contrato RPC.
+      await (nativeSession() ? borradorV48.cambio() : persistRutina());
+      closeModal();
+      renderScreenSession();
+    };
+  }
+
   // V50.2: la cantidad de series de un ejercicio se calcula en un solo lugar.
   // Antes el clamp 1..12 estaba escrito a mano en startSession y nada más lo
   // usaba; ahora también lo necesita la sincronización de la sesión (E6).
@@ -5327,7 +5752,12 @@
     const logs = state.session.setLogs || (state.session.setLogs = {});
     const vivos = new Set();
     let cambio = false;
-    (day.exercises||[]).forEach(ex=>{
+    // V51.3 bloque 4: un extra (state.session.extras) nunca vive en
+    // day.exercises a propósito — sin esto, "vivos" no lo incluiría y el
+    // barrido de abajo le borraría sus series y registros de serie en
+    // cuanto esta función corriera (pasa antes de cada finalizeSession),
+    // justo lo que el objetivo 6 de este bloque pide no perder.
+    (day.exercises||[]).concat(state.session.extras||[]).forEach(ex=>{
       vivos.add(ex.id);
       const n = sessionSetCount(ex);
       if(!Array.isArray(sets[ex.id])){ sets[ex.id] = new Array(n).fill(false); cambio = true; }
@@ -5365,7 +5795,20 @@
   // de la semana y del calendario sin forma de detectarlo después.
   // Sin día resoluble se conserva el cálculo anterior sobre `sets`.
   function sessionProgress(){
-    if(nativeSession()) return VodaFitSession.progress(nativeSession());
+    // V51.3 bloque 6 (A1): VodaFitSession.progress() (v48-session.js, sin
+    // tocar) cuenta TODAS las filas de s.sets, incluidas las de un
+    // ejercicio omitido — no conoce "omitido", nunca lo necesitó antes de
+    // V51.3. Se filtra ACÁ, reusando sesionVistaNativa/sesionEjerciciosActivos
+    // del bloque 0 (mismo criterio que sessionExercisesEfectivos para V47),
+    // para que el indicador coincida con sets_totales/sets_completados que
+    // calcula v48_finalizar (12_omitidos_extras.sql): un omitido no cuenta
+    // en ninguno de los dos números.
+    if(nativeSession()){
+      const nativa = nativeSession();
+      const idsActivos = new Set(sesionEjerciciosActivos(sesionVistaNativa(nativa.day)).map(ex=>ex.id));
+      const setsActivos = nativa.sets.filter(r=>idsActivos.has(r.exerciseInstance));
+      return { total: setsActivos.length, done: setsActivos.filter(r=>r.completed && VodaFitSession.valid(r)).length };
+    }
     if(!state.session) return { done:0, total:0 };
     const setsObj = state.session.sets || {};
     const day = sessionDay();
@@ -5374,8 +5817,13 @@
       Object.keys(setsObj).forEach(exId=>{ (setsObj[exId]||[]).forEach(v=>{ total++; if(v) done++; }); });
       return { done, total };
     }
+    // V51.3 bloque 4 (objetivo 4): el progreso se mide sobre la vista
+    // EFECTIVA (activos reales + extras activos), no sobre day.exercises a
+    // secas — un omitido no debe contar en el total, y un extra registrado
+    // de verdad sí tiene que sumar. day.exercises nunca se edita: esta
+    // función sólo LEE la combinación (sessionExercisesEfectivos, bloque 0).
     let total=0, done=0;
-    (day.exercises||[]).forEach(ex=>{
+    sessionExercisesEfectivos(day).forEach(ex=>{
       const n = sessionSetCount(ex), arr = setsObj[ex.id] || [];
       total += n;
       for(let i=0;i<n;i++) if(arr[i]) done++;
@@ -7847,7 +8295,12 @@
   }
 
   function screenSession(day){
-    if(nativeSession()) return nativeLifecycleHtml(nativeSession())+VodaFitSession.html(nativeSession(),referenciasParaMostrarNativa(state.rutinaRaw && state.rutinaRaw.referenciasEjercicios, nativeSession(), state.nativePrecargaKeys),canonicalExerciseName)
+    // V51.3 bloque 1: panel de omitir/restaurar, oculto mientras
+    // SESION_OMITIR_HABILITADO sea false (ver la constante más arriba).
+    const omitirPanel = SESION_OMITIR_HABILITADO
+      ? (()=>{ const e = sesionOmitirEstadoActual(); return sesionOmitirPanelHtml(e.vista, e.bloqueadoPorId); })()
+      : "";
+    if(nativeSession()) return omitirPanel + nativeLifecycleHtml(nativeSession())+VodaFitSession.html(nativeSessionParaTarjetas(nativeSession()),referenciasParaMostrarNativa(state.rutinaRaw && state.rutinaRaw.referenciasEjercicios, nativeSession(), state.nativePrecargaKeys),canonicalExerciseName)
       +'<button class="btn btn-outline btn-block" data-native-finalize>Finalizar entrenamiento</button>'
       +(!VodaFitLifecycle.pending(nativeSession()) && !state.rutinaRaw?.__v48TerminalRequest ? '<button class="btn btn-outline btn-block" data-native-cancel>Cancelar entrenamiento</button>' : '')
       +(['REMOTE_ELIMINADA','REMOTE_CANCELADA','REMOTE_FINALIZADA','IDEMPOTENCY_CONFLICT'].includes(state.nativeReconcileIssue)?'<button class="btn btn-outline btn-block" data-native-use-remote>Resolver con el estado remoto</button>':'');
@@ -7859,7 +8312,10 @@
     const specialNote = (state.session && state.session.slot==="especial")
       ? `<div class="card special-note"><span class="special-badge">Día Especial</span><span class="helptext">Entrenamiento extra — queda en tu historial y calendario, y suma a tu objetivo semanal.</span></div>`
       : "";
-    return specialNote + exs.map(ex=> sessionExerciseCardHtml(ex)).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
+    // V51.3 bloque 4: tarjetas sólo para los ejercicios ACTIVOS (reales no
+    // omitidos + extras activos) — un omitido no tiene tarjeta (objetivo 1:
+    // sigue accesible, pero sólo desde el panel de arriba, con "Restaurar").
+    return omitirPanel + specialNote + sessionExercisesEfectivos(day).map(ex=> sessionExerciseCardHtml(ex)).join("") + `<button class="btn btn-outline btn-block" id="btn-cancel-session">Cancelar entrenamiento</button>`;
   }
 
   // Una sola tarjeta por ejercicio con todo lo necesario para entrenar sin
@@ -7938,6 +8394,41 @@
   function mountSession(day){
     const el = document.getElementById("screen");
     nativeRefresh = null;
+    // V51.3 bloque 1: si SESION_OMITIR_HABILITADO es false, screenSession()
+    // nunca imprimió el panel — estos querySelectorAll no encuentran nada y
+    // el bucle no hace nada. Va ANTES de las ramas de abajo (las dos tienen
+    // `return`) para que corra sin importar si la sesión es nativa o no.
+    if(SESION_OMITIR_HABILITADO){
+      el.querySelectorAll("[data-sesion-omitir]").forEach(b=>{
+        b.onclick = async ()=>{
+          const r = sesionOmitirEjercicioEnSesion(b.dataset.sesionOmitir, true);
+          if(!r.ok){
+            showToast(r.code==="HAS_PROGRESS" ? "No se puede omitir: ya tiene una serie completada." : "No se pudo omitir el ejercicio.");
+            return;
+          }
+          // V51.3 bloque 6 (hotfix): omitir/restaurar mutaba nativa.day sólo
+          // en memoria — sin este guardado, el cambio se perdía al recargar
+          // salvo que después se registrara una serie (que sí guarda, de
+          // arrastre, el day ya mutado). borradorV48.cambio() es el MISMO
+          // persistRutina() que usa cada tecla de serie (ver su definición),
+          // así que el guardado del extra queda tan inmediato y durable como
+          // cualquier otro cambio nativo, sin mecanismo nuevo.
+          await (nativeSession() ? borradorV48.cambio() : persistRutina());
+          renderScreenSession();
+        };
+      });
+      el.querySelectorAll("[data-sesion-restaurar]").forEach(b=>{
+        b.onclick = async ()=>{
+          sesionOmitirEjercicioEnSesion(b.dataset.sesionRestaurar, false);
+          await (nativeSession() ? borradorV48.cambio() : persistRutina());
+          renderScreenSession();
+        };
+      });
+      // V51.3 bloque 2: mismo criterio que los dos de arriba — sin el panel
+      // (flag en false) este botón no existe en el DOM, así que esto es inerte.
+      const agregarExtraBtn = el.querySelector("[data-sesion-agregar-extra]");
+      if(agregarExtraBtn) agregarExtraBtn.onclick = openSesionExtraModal;
+    }
     if(nativeSession()){
       const session=nativeSession(),owner=state.profile && state.profile.id,generation=authLoadGeneration;
       const current=()=>nativeSession()===session && state.profile && state.profile.id===owner && generation===authLoadGeneration;
@@ -7965,7 +8456,12 @@
       // ejercicio, y se descartaba. Se guarda junto con su contenedor: si el
       // contenedor sigue montado, terminar un ejercicio actualiza eso en vez de
       // rearmar la pantalla entera.
-      nativeRefresh = { refresh: VodaFitSession.bind(el,session,{
+      // V51.3 bloque 4: bind() recibe la VISTA filtrada (sin omitidos), igual
+      // que VodaFitSession.html() más arriba — así los nodos que efectivamente
+      // dibujó el HTML coinciden con los que bind() recorre para refrescar.
+      // Los callbacks (onChange/onFinish/onRest/onInfo) siguen usando
+      // `session`, la sesión REAL: mutan y deciden sobre ella, nunca sobre la vista.
+      nativeRefresh = { refresh: VodaFitSession.bind(el,nativeSessionParaTarjetas(session),{
         onChange:async()=>{
           if(!current()) return;
           const status=el.querySelector('[data-native-save-status]');
@@ -7994,21 +8490,26 @@
     el.querySelectorAll("[data-rest-btn]").forEach(b=>{
       b.onclick = ()=> openRestModal();
     });
+    // V51.3 bloque 4: estos tres botones sólo existen en el DOM para
+    // ejercicios ACTIVOS (ver screenSession/sessionExercisesEfectivos) —
+    // buscar en day.exercises a secas los dejaba sin encontrar un extra
+    // (vive en state.session.extras, nunca en el día real).
+    const activosParaClicks = sessionExercisesEfectivos(day);
     el.querySelectorAll("[data-howto-ex-session]").forEach(b=>{
       b.onclick = ()=>{
-        const ex = (day.exercises||[]).find(x=>x.id===b.dataset.howtoExSession);
+        const ex = activosParaClicks.find(x=>x.id===b.dataset.howtoExSession);
         if(ex) openExerciseDetail(ex, { returnTab:"sesion" });
       };
     });
     el.querySelectorAll("[data-log-weight]").forEach(b=>{
       b.onclick = ()=>{
-        const ex = (day.exercises||[]).find(x=>x.id===b.dataset.logWeight);
+        const ex = activosParaClicks.find(x=>x.id===b.dataset.logWeight);
         if(ex) openSessionLogModal(ex, parseInt(b.dataset.logIdx,10));
       };
     });
     el.querySelectorAll("[data-edit-set]").forEach(row=>{
       row.onclick = ()=>{
-        const ex = (day.exercises||[]).find(x=>x.id===row.dataset.editSet);
+        const ex = activosParaClicks.find(x=>x.id===row.dataset.editSet);
         if(ex) openSessionLogModal(ex, parseInt(row.dataset.idx,10));
       };
     });
@@ -8208,6 +8709,124 @@
   // vive en el banner "Entrenamiento en curso" de Mi rutina (spec v28 sección
   // 11), separado de guardar progreso, para que no se puedan crear dos
   // registros del mismo entrenamiento.
+  // V51.3 bloque 3: sincronización de día/sets/referencias del borrador
+  // NATIVO (V48) con el servidor, vía v48_guardar_sesion (5 args). Hasta
+  // este bloque esa RPC no se llamaba desde ningún lado: todo lo que pasaba
+  // dentro de una sesión V48 (tildar series, pesos, reps, y desde el bloque 1/2
+  // también omitir/restaurar/agregar extra) quedaba SOLO en el borrador local
+  // (IndexedDB), y el día que v48_finalizar valida es el que el SERVIDOR tiene
+  // guardado desde v48_iniciar — nunca el del cliente. Sin este bloque, omitir
+  // o agregar un extra localmente haría que v48_finalizar rechazara con
+  // UNKNOWN_SET en cuanto SESION_OMITIR_HABILITADO se active.
+  //
+  // DISEÑO (contrastado contra v48-lifecycle.js/v48-reconcile.js antes de
+  // escribir esto, no inventado de cero):
+  //   - La revisión para el CAS sale de rutinaSync.getContext()?.base.revision
+  //     — EXACTAMENTE la misma fuente que ya usan requestNativeCancel y
+  //     finalizeNativeSession para v48_cancelar/v48_finalizar. No hay una
+  //     segunda forma de rastrear la revisión.
+  //   - v48-persistence.js NO expone ningún setter para `ctx.base`: la única
+  //     forma pública de refrescarlo es rutinaSync.load() (que v48-persistence.js
+  //     sí expone), y loadProfileData() ya la llama. Por eso, al confirmar el
+  //     push, se reconcilia con loadProfileData()+render() — el MISMO camino
+  //     que applyNativeTerminalResult usa después de cancelar/finalizar — en
+  //     vez de inventar una actualización parcial que dejaría rutinaSync
+  //     desincronizado para la siguiente operación (cancelar o finalizar
+  //     mandarían una revisión vieja y chocarían con un 40001 que no es un
+  //     conflicto real).
+  //   - v48_guardar_sesion exige los 5 argumentos juntos (día + sets +
+  //     referencias): no hay una variante "solo el día". Por eso el push
+  //     manda SIEMPRE el estado completo del borrador (s.sets/s.references
+  //     actuales), no sólo el cambio de omitido/extra — así cualquier serie
+  //     tipeada mientras tanto también queda confirmada en la misma escritura.
+  //   - El propio v48_guardar_sesion hace idempotente un reintento con el
+  //     MISMO contenido (compara contra lo ya guardado ANTES de mirar la
+  //     revisión — ver 02_rpc.sql) — no hace falta un hash de cierre como en
+  //     v48_finalizar, porque esto no inserta filas en otra tabla.
+  async function v48GuardarSesionRemoto(owner,revision,sessionId,dia,series,referencias){
+    try {
+      const r=await Store.nativeRpc(owner,"v48_guardar_sesion",{
+        p_revision:revision,p_sesion:sessionId,p_series:series,p_referencias:referencias,p_dia:dia});
+      if(r.error) return {ok:false,code:r.error.code==="40001"?"REVISION_CONFLICT":(r.error.message||r.error.code||"RPC_ERROR")};
+      const e=r.data;
+      if(!e || !Number.isSafeInteger(e.revision) || e.revision<0 || e.clienteV48!==true || !e.data || typeof e.data!=="object")
+        return {ok:false,code:"INVALID_RESPONSE"};
+      return {ok:true,envelope:e};
+    } catch(error){ return {ok:false,code:"NETWORK_ERROR"}; }
+  }
+
+  // "Hay un cambio estructural sin confirmar" ⟺ el día en memoria difiere
+  // del snapshot `_nativeDiaConfirmado` (ver nativeMarcarBaselineSiFalta,
+  // junto a sesionOmitirEjercicioEnSesion). NO se puede derivar de
+  // state.rutinaRaw.sesionActiva.day: persistRutina() lo pisa con el draft
+  // LOCAL en cada guardado "solo en este dispositivo" —el camino normal de
+  // cualquier sesión V48, confirmada o no—, así que comparar contra eso
+  // nunca detectaría nada pendiente. Sin snapshot todavía (ningún cambio
+  // estructural intentado), no hay nada pendiente por definición.
+  function nativeEstructuraPendiente(){
+    const s=nativeSession();
+    if(!s || !s._nativeDiaConfirmado) return false;
+    return !VodaFitPersistence.equal(s.day,s._nativeDiaConfirmado);
+  }
+
+  // Se deduplican llamadas concurrentes (mismo criterio que
+  // VodaFitReconcile.createController.perform): si ya hay un push en curso,
+  // quien lo pida de nuevo espera EL MISMO, no dispara uno en paralelo.
+  let estructuraV48Promesa=null;
+  function sincronizarEstructuraNativa(){
+    if(estructuraV48Promesa) return estructuraV48Promesa;
+    const p=(async ()=>{
+      // Prioridad 2: nunca se tocan sets/referencias locales en este bloque.
+      // persistRutina() sólo los deja durables en IndexedDB antes del envío;
+      // si el envío falla, esta función vuelve sin haber movido nada en
+      // memoria, así que no hay forma de perder lo tipeado.
+      await borradorV48.esperar();
+      if(state.rutinaRaw?.__v48TerminalRequest) return {ok:false,code:"OPERATION_IN_PROGRESS"};
+      const s=nativeSession(),owner=state.profile?.id,generation=authLoadGeneration;
+      if(!s) return {ok:false,code:"NO_SESSION"};
+      if(!nativeEstructuraPendiente()) return {ok:true,unchanged:true};
+      const guardadoLocal=await persistRutina();
+      if(generation!==authLoadGeneration || state.profile?.id!==owner) return {ok:false,code:"ACCOUNT_CHANGED"};
+      if(!guardadoLocal.ok) return {ok:false,code:"LOCAL_SAVE_FAILED"};
+      const base=rutinaSync.getContext()?.base;
+      if(!base) return {ok:false,code:"V48_NOT_READY"};
+      // Prioridad 3: CAS con la MISMA revisión que ya usan cancelar/finalizar.
+      //
+      // Revisión del cierre del bloque 3 (riesgo 2): s.day/s.sets/s.references
+      // se pasan por REFERENCIA. Store.nativeRpc hace `await
+      // client().auth.getSession()` ANTES de construir el body — un hueco
+      // async real entre "decidimos enviar esto" y "esto es lo que de
+      // verdad viaja". Si una serie se edita justo en ese hueco (tildar una
+      // serie, cambiar un peso), sin clonar el body terminaría reflejando
+      // la edición nueva en vez de la foto que CAS validó, aunque esta
+      // función nunca se entera. Clonar ACÁ congela exactamente lo que se
+      // decidió enviar, pase lo que pase después con el objeto en memoria.
+      const diaEnviado=JSON.parse(JSON.stringify(s.day)),
+        seriesEnviadas=JSON.parse(JSON.stringify(s.sets)),
+        referenciasEnviadas=JSON.parse(JSON.stringify(s.references));
+      const result=await v48GuardarSesionRemoto(owner,base.revision,s.sessionId,diaEnviado,seriesEnviadas,referenciasEnviadas);
+      if(generation!==authLoadGeneration || state.profile?.id!==owner) return {ok:false,code:"ACCOUNT_CHANGED"};
+      // Prioridad 4: conflicto o fallo de red se devuelven tal cual, sin
+      // reconciliar nada — igual que nativeReconciler, nunca se auto-resuelve
+      // un conflicto en silencio.
+      if(!result.ok) return result;
+      try { await loadProfileData(); }
+      catch(error){ return {ok:true,applied:true,reloadError:true}; }
+      if(generation!==authLoadGeneration || state.profile?.id!==owner) return {ok:true,applied:true,stale:true};
+      // loadProfileData() reconstruye la sesión nativa desde cero (objeto
+      // NUEVO) — el snapshot anterior, propiedad del objeto viejo, no viaja
+      // solo. El día que acaba de confirmar el servidor es, por definición,
+      // el nuevo "último confirmado".
+      const confirmada=nativeSession();
+      if(confirmada) confirmada._nativeDiaConfirmado=JSON.parse(JSON.stringify(confirmada.day));
+      render();
+      return {ok:true,applied:true};
+    })();
+    estructuraV48Promesa=p;
+    p.finally(()=>{ if(estructuraV48Promesa===p) estructuraV48Promesa=null; });
+    return p;
+  }
+
   function nativeLifecycleHtml(s){
     const pending=VodaFitLifecycle.pending(s);
     return `<div class="card stack"><div>Duración <strong data-native-duration>${VodaFitLifecycle.clock(s)}</strong></div>
@@ -8217,9 +8836,25 @@
   }
   async function requestNativeFinish(){
     if(state.rutinaRaw?.__v48TerminalRequest){showToast("Hay una operación terminal pendiente. Recargá con conexión para reconciliarla.");return;}
-    const s=nativeSession(),owner=state.profile?.id,generation=authLoadGeneration;
+    let s=nativeSession();const owner=state.profile?.id,generation=authLoadGeneration;
     if(!s) return;
     if(VodaFitLifecycle.pending(s)) return finalizeSession(s.day);
+    // V51.3 bloque 3 (prioridad 5): no se puede finalizar con un cambio de
+    // omitido/restaurado/extra todavía sin confirmar contra el servidor — el
+    // día que v48_finalizar valida es el que el SERVIDOR tiene, y finalizar
+    // sin este paso dejaría una sesión con series de un ejercicio que el
+    // servidor ni conoce. Se intenta sincronizar una vez; si falla, se
+    // bloquea el cierre en vez de seguir con datos no confirmados.
+    if(nativeEstructuraPendiente()){
+      const sync=await sincronizarEstructuraNativa();
+      if(state.profile?.id!==owner || generation!==authLoadGeneration) return;
+      s=nativeSession();
+      if(!s){ showToast("La sesión ya no está disponible. Revisá la pantalla.");return; }
+      if(!sync.ok){
+        showToast("Hay cambios de ejercicios (omitidos o extras) sin confirmar con el servidor. Probá de nuevo con conexión antes de finalizar.");
+        return;
+      }
+    }
     for(const ex of s.day.exercises){
       const sets=VodaFitSession.completed(s,ex.id),decision=s.references[ex.id];
       if(sets.length && (!decision || !VodaFitPersistence.equal(sets,decision.sets))){
@@ -8278,7 +8913,19 @@
       const durableClose=cached && VodaFitPersistence.equal(cached.draft.sesionActiva?.lifecycle,s.lifecycle);
       const saved=nativeTerminalRefresh || durableClose?{ok:true}:await persistRutina();
       if(generation!==authLoadGeneration || state.profile?.id!==owner) return saved;
-      if(!saved.ok){render();showToast("Cierre pendiente sin confirmar el guardado local. Conservá esta pantalla abierta y reintentá.");return saved;}
+      if(!saved.ok){
+        // V51.3 (diagnóstico): se registra DESPUÉS de decidir que falló, así
+        // que nunca puede influir en esa decisión — sólo documenta el `saved`
+        // que ya se obtuvo. Mismos campos acordados, nada de envelope/datos
+        // de la sesión ni del perfil.
+        ultimoCierreNativoFallido = {
+          at: Date.now(), code: saved.code, localSaved: saved.localSaved,
+          localOnly: saved.localOnly, conflict: saved.conflict,
+          localErrorMessage: saved.localError && saved.localError.message,
+          durableClose: !!durableClose,
+        };
+        render();showToast("Cierre pendiente sin confirmar el guardado local. Conservá esta pantalla abierta y reintentá.");return saved;
+      }
       const result=nativeTerminalRefresh || await nativeReconciler.finish(owner,rutinaSync.getContext()?.base,s.sessionId,navigator.onLine!==false);
       if(generation!==authLoadGeneration || state.profile?.id!==owner) return result;
       if(result.ok) await applyNativeTerminalResult(result,owner,generation);
@@ -8336,8 +8983,16 @@
     // sugerencia opcional no puede ensuciar un guardado que ya salió bien.
     let estirSugeridos = [];
     try {
+      // V51.3 bloque 4 (objetivo 7): se le pasa la vista EFECTIVA, no day a secas.
       estirSugeridos = estiramientosParaEjercicios(
-        ejerciciosConSerieCompletada(day, state.session && state.session.sets)
+        // ejerciciosConSerieCompletada sigue siendo la misma función pura de
+        // siempre (day.exercises a secas) — lo que cambió es QUÉ día recibe:
+        // así un extra con series de verdad también puede sugerir
+        // estiramiento. Un omitido jamás tiene series completadas (no se
+        // puede omitir con progreso ni registrar una nueva estando omitido
+        // — objetivo 1), así que de todas formas nunca pasaría el filtro
+        // `.some(Boolean)` de esa función.
+        ejerciciosConSerieCompletada({ exercises: sessionExercisesEfectivos(day) }, state.session && state.session.sets)
       );
     } catch(e){
       console.error("V46: no se pudieron calcular los estiramientos sugeridos", e);
@@ -11913,7 +12568,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "0d1d24f755291204d4d40e1c92bf0bb281a52b8112f60fbeeca3140265e382b5";
+  const APP_BUILD = "16954673d643ec0314c958815d74c9b72492412658fdeb2f898ce823b2446015";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
@@ -12119,6 +12774,9 @@
     // v34: el prime bump depende SOLO de la edad (ver profileHasPrimeBump).
     profileHasPrimeBump,
     EXERCISES_RISKY_50PLUS, dayModality, get state(){ return state; },
+    // V51.3 (diagnóstico de finalización V48): solo lectura, no se puede
+    // asignar desde acá — ver su definición junto a nativeTerminalRefresh.
+    get ultimoCierreNativoFallido(){ return ultimoCierreNativoFallido; },
     EXERCISES,
     screenExerciseDetail, EXERCISES_COMPOUND, seriesForExercise,
     FOCUS_OPTIONS, FOCUS_LABELS, FOCUS_MAX_GROUPS, buildRoutinePdfData, exportRoutinePDF,
@@ -12232,6 +12890,28 @@
     // v31 — sub-filtros del Explorador (misma función que usa la pantalla)
     EXPLORER_SUBFILTERS, EXPLORER_LEG_SUBGROUPS, EXPLORER_ARM_SUBGROUPS, explorerNamesFor, explorerSubFor,
     screenExplorerList,
+    // V51.3 bloque 0: modelo puro de omitidos/extras de sesión (ver más
+    // arriba, junto a sessionDay). Nada de esto está conectado todavía.
+    sesionVistaNativa, sesionOverlayVacio, sesionVistaLegado,
+    sesionEjerciciosActivos, sesionEjerciciosOmitidos,
+    sesionNativaTieneProgreso, sesionLegadoTieneProgreso,
+    sesionDiaNativoOmitir, sesionDiaNativoAgregarExtra,
+    sesionOverlayOmitir, sesionOverlayRestaurar, sesionOverlayAgregarExtra,
+    // V51.3 bloque 1: controles de omitir/restaurar (ver screenSession /
+    // mountSession). SESION_OMITIR_HABILITADO queda en false — las pruebas
+    // llaman estas funciones de forma directa, sin pasar por el flag.
+    SESION_OMITIR_HABILITADO, sesionOmitirEstadoActual, sesionOmitirEjercicioEnSesion,
+    sesionOmitirFilaHtml, sesionOmitirPanelHtml,
+    // V51.3 bloque 2: agregar ejercicio extra (ver junto a sesionOmitirPanelHtml).
+    sesionAgregarExtraEnSesion, sesionPrepararExtra, openSesionExtraModal,
+    // V51.3 bloque 3: sincronización V48 (ver junto a nativeLifecycleHtml).
+    // rutinaSync, borradorV48 y requestNativeFinish ya se exponían más arriba.
+    v48GuardarSesionRemoto, nativeEstructuraPendiente, sincronizarEstructuraNativa,
+    // V51.3 bloque 4: integración con tarjetas/progreso/finalización.
+    sessionExercisesEfectivos, nativeSessionParaTarjetas,
+    // V51.3 bloque 6 (A1): se expone para probar el indicador de la sesión
+    // activa directamente sobre su HTML, no sólo sobre sessionProgress().
+    sessionResumeBannerHtml,
   };
 
 })();

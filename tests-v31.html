@@ -9071,14 +9071,28 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
 
     test("O1 — el orden de persistencia no cambió y no se duplican escrituras", function(){
       assert(APP_SRC, "no se pudo traer index.html");
-      // persistRutina es la única puerta de escritura del documento, y sigue
-      // siendo la misma: V50.3 no la tocó.
-      var i = APP_SRC.indexOf("async function persistRutina()");
+      // V51.3 (corrección de concurrencia local V48): esta aserción se
+      // actualiza, no se afloja — decisión documentada en index.html junto a
+      // persistRutinaInterna/persistRutina. persistRutina() dejó de ser una
+      // única función: ahora es persistRutinaInterna() (quien de verdad
+      // llama a rutinaSync.save, idéntico a antes) + un envoltorio delgado
+      // persistRutina() que sólo registra ultimaEscrituraNativa para que
+      // borradorV48.esperar() cubra también las llamadas DIRECTAS (no sólo
+      // las de cambio()) — ver el diagnóstico de LOCAL_CONFLICT reproducido
+      // más abajo en este archivo. El guardado real sigue siendo la MISMA
+      // línea, sólo que ahora vive en persistRutinaInterna.
+      var i = APP_SRC.indexOf("async function persistRutinaInterna()");
       var cuerpo = APP_SRC.slice(i, i + 1800);
       assert(/let result=await rutinaSync\.save\(data\);/.test(cuerpo),
-        "persistRutina tiene que seguir guardando con rutinaSync.save");
+        "persistRutinaInterna tiene que seguir guardando con rutinaSync.save");
       assert(cuerpo.indexOf("borradorV48") === -1,
-        "persistRutina no puede conocer el envoltorio: la dependencia va en un solo sentido");
+        "persistRutinaInterna no puede conocer el envoltorio: la dependencia va en un solo sentido");
+      var iWrapper = APP_SRC.indexOf("async function persistRutina()");
+      var cuerpoWrapper = APP_SRC.slice(iWrapper, iWrapper + 300);
+      assert(cuerpoWrapper.indexOf("borradorV48") === -1,
+        "el envoltorio persistRutina() tampoco puede conocer borradorV48: la dependencia sigue yendo en un solo sentido, sin ciclo");
+      assert(/persistRutinaInterna\(\)/.test(cuerpoWrapper),
+        "persistRutina() debe delegar en persistRutinaInterna(), no reimplementar el guardado");
       // Y esperar() no escribe: no hay ninguna llamada a persistRutina ahí.
       // La ventana se corta en el cierre del envoltorio: una ventana de largo
       // fijo se pasaba de largo y contaba el persistRutina de la función de al
@@ -9181,12 +9195,17 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       var i = APP_SRC.indexOf("async function applyNativeTerminalResult");
       assert(i !== -1 && APP_SRC.slice(i, i + 500).indexOf("terminal:result") !== -1,
         "el único lugar tiene que ser applyNativeTerminalResult");
-      // Ninguna RPC ni estructura de base cambió.
-      assert(APP_SRC.indexOf('"v48_activar"') !== -1, "la allowlist de RPC no puede cambiar");
+      // Ninguna RPC de ESTE test (O2, el atajo de loadProfileData) cambió.
+      assert(APP_SRC.indexOf('"v48_activar"') !== -1, "la allowlist de RPC no puede perder entradas viejas");
       var iRpc = APP_SRC.indexOf('if(!["v48_iniciar"');
       var linea = APP_SRC.slice(iRpc, APP_SRC.indexOf("\n", iRpc));
-      assert((linea.match(/v48_/g) || []).length === 10,
-        "la cantidad de RPC habilitadas cambió: " + (linea.match(/v48_/g) || []).length);
+      // ACTUALIZADO EN V51.3 BLOQUE 3: eran 10. Se agregó "v48_guardar_sesion"
+      // a propósito — es la RPC de 5 argumentos de
+      // supabase/v48/12_omitidos_extras.sql que la sincronización de
+      // omitidos/extras necesita llamar (ver v48GuardarSesionRemoto en
+      // index.html); hasta ese bloque nada en el cliente la llamaba.
+      assert((linea.match(/v48_/g) || []).length === 11,
+        "la cantidad de RPC habilitadas cambió sin que corresponda: " + (linea.match(/v48_/g) || []).length);
     });
 
     /* ---------------------------- O3 ---------------------------- */
@@ -10600,6 +10619,2179 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         assert(m.querySelector("#slog-reps").type === "text",
           "reps debe seguir siendo texto libre, dio type=" + m.querySelector("#slog-reps").type);
       });
+    });
+
+    /* ---------------- V51.3 BLOQUE 0 ---------------- */
+    group("V51.3 bloque 0 — modelo puro de omitidos/extras de sesión");
+
+    // Fixtures compartidas por todo el grupo. Nunca se pasan por referencia
+    // sin clonar entre tests: cada test las reconstruye o clona, porque las
+    // funciones bajo prueba deben devolver SIEMPRE estructuras nuevas.
+    function dayV48Fixture(){
+      return { id:"d1", nombre:"Día 1", exercises:[
+        { id:"e1", nombre:"Sentadilla con barra", series:3, reps:"8-10" },
+        { id:"e2", nombre:"Press de banca con barra", series:3, reps:"8-10" }
+      ]};
+    }
+    function setsV48ConProgresoEnE1(){
+      return [
+        { exerciseInstance:"e1", setNumber:1, completed:true, peso:40, reps:8 },
+        { exerciseInstance:"e1", setNumber:2, completed:false, peso:null, reps:null },
+        { exerciseInstance:"e2", setNumber:1, completed:false, peso:null, reps:null }
+      ];
+    }
+
+    test("sesionVistaNativa normaliza omitido/extra a boolean cuando faltan", function(){
+      var vista = A.sesionVistaNativa(dayV48Fixture());
+      assert(vista.length === 2, "deberían quedar los 2 ejercicios del día");
+      vista.forEach(function(ex){
+        assert(ex.omitido === false, "sin la clave, omitido debe normalizar a false");
+        assert(ex.extra === false, "sin la clave, extra debe normalizar a false");
+      });
+    });
+
+    test("sesionDiaNativoOmitir rechaza omitir un ejercicio con una serie completada", function(){
+      var r = A.sesionDiaNativoOmitir(dayV48Fixture(), setsV48ConProgresoEnE1(), "e1", true);
+      assert(r.ok === false, "no debería permitir omitir e1: tiene una serie completed=true");
+      assert(r.code === "HAS_PROGRESS", "código esperado HAS_PROGRESS, dio " + r.code);
+    });
+
+    test("sesionDiaNativoOmitir permite omitir un ejercicio sin progreso, sin mutar el día original", function(){
+      var original = dayV48Fixture();
+      var copia = JSON.parse(JSON.stringify(original));
+      var r = A.sesionDiaNativoOmitir(original, setsV48ConProgresoEnE1(), "e2", true);
+      assert(r.ok === true, "e2 no tiene series completadas: debería poder omitirse");
+      assert(JSON.stringify(original) === JSON.stringify(copia),
+        "el día original no debe mutarse nunca, aunque la operación tenga éxito");
+      var e2 = r.day.exercises.find(function(ex){ return ex.id === "e2"; });
+      assert(e2 && e2.omitido === true, "el día devuelto debe tener e2 marcado omitido");
+      var e1 = r.day.exercises.find(function(ex){ return ex.id === "e1"; });
+      assert(e1 && e1.omitido === undefined, "e1 no debía tocarse: ningún otro ejercicio cambia");
+    });
+
+    test("sesionDiaNativoOmitir(false) restaura sin perder el id ni los datos del ejercicio", function(){
+      var omitido = A.sesionDiaNativoOmitir(dayV48Fixture(), [], "e1", true);
+      assert(omitido.ok === true, "sin progreso, omitir e1 debe poder hacerse");
+      var restaurado = A.sesionDiaNativoOmitir(omitido.day, [], "e1", false);
+      assert(restaurado.ok === true, "restaurar (omitido:false) siempre debe poder hacerse");
+      var e1 = restaurado.day.exercises.find(function(ex){ return ex.id === "e1"; });
+      assert(e1 && e1.omitido === false, "e1 debe quedar activo otra vez");
+      assert(e1.nombre === "Sentadilla con barra" && e1.series === 3 && e1.reps === "8-10",
+        "restaurar no puede perder nombre/series/reps del ejercicio");
+      assert(restaurado.day.exercises.length === 2, "ningún id puede desaparecer en el camino");
+    });
+
+    test("sesionDiaNativoOmitir con un id inexistente devuelve UNKNOWN_EXERCISE", function(){
+      var r = A.sesionDiaNativoOmitir(dayV48Fixture(), [], "no-existe", true);
+      assert(r.ok === false && r.code === "UNKNOWN_EXERCISE", "dio " + JSON.stringify(r));
+    });
+
+    test("sesionDiaNativoAgregarExtra agrega un id nuevo marcado extra:true, y rechaza duplicados", function(){
+      var base = dayV48Fixture();
+      var r = A.sesionDiaNativoAgregarExtra(base, { id:"ex1", nombre:"Zancadas", series:3, reps:"10" });
+      assert(r.ok === true, "un id nuevo debería poder agregarse");
+      assert(r.day.exercises.length === 3, "el día debe tener ahora 3 ejercicios");
+      var nuevo = r.day.exercises.find(function(ex){ return ex.id === "ex1"; });
+      assert(nuevo && nuevo.extra === true && nuevo.omitido === false,
+        "el extra debe quedar marcado extra:true, omitido:false");
+      assert(base.exercises.length === 2, "el día original no debe mutarse al agregar el extra");
+
+      var dup = A.sesionDiaNativoAgregarExtra(r.day, { id:"e1", nombre:"Otra cosa", series:1 });
+      assert(dup.ok === false && dup.code === "DUPLICATE_ID",
+        "no se puede agregar un id que ya existe en el día (ni el de un ejercicio original)");
+    });
+
+    test("sesionEjerciciosActivos / sesionEjerciciosOmitidos separan la vista sin perder ids", function(){
+      var omitido = A.sesionDiaNativoOmitir(dayV48Fixture(), [], "e1", true);
+      var vista = A.sesionVistaNativa(omitido.day);
+      var activos = A.sesionEjerciciosActivos(vista);
+      var omitidos = A.sesionEjerciciosOmitidos(vista);
+      assert(activos.length === 1 && activos[0].id === "e2", "sólo e2 debería quedar activo");
+      assert(omitidos.length === 1 && omitidos[0].id === "e1", "e1 debe aparecer en la lista de omitidos, no desaparecer");
+    });
+
+    test("V47 — sesionVistaLegado combina el día real con el overlay sin modificar ninguno de los dos", function(){
+      var day = dayV48Fixture(); // mismo shape de ejercicios, acá representa un día de rutina real
+      var overlay = A.sesionOverlayVacio();
+      var conOmision = A.sesionOverlayOmitir(overlay, {}, "e1");
+      assert(conOmision.ok === true, "omitir e1 sin progreso debe poder hacerse");
+      var conExtra = A.sesionOverlayAgregarExtra(day, conOmision.overlay, { id:"x1", nombre:"Elevaciones laterales", series:3, reps:"12" });
+      assert(conExtra.ok === true, "agregar un extra nuevo debe poder hacerse");
+
+      var dayAntes = JSON.stringify(day);
+      var overlayVacioAntes = JSON.stringify(overlay);
+      var vista = A.sesionVistaLegado(day, conExtra.overlay);
+
+      assert(JSON.stringify(day) === dayAntes, "sesionVistaLegado NUNCA debe mutar el día real de la rutina");
+      assert(JSON.stringify(overlay) === overlayVacioAntes, "el overlay vacío original tampoco debe mutarse");
+      assert(vista.length === 3, "2 del día real + 1 extra = 3 en la vista combinada");
+
+      var e1 = vista.find(function(ex){ return ex.id === "e1"; });
+      var e2 = vista.find(function(ex){ return ex.id === "e2"; });
+      var x1 = vista.find(function(ex){ return ex.id === "x1"; });
+      assert(e1 && e1.omitido === true && e1.extra === false, "e1 debe verse omitido y NO extra");
+      assert(e2 && e2.omitido === false && e2.extra === false, "e2 debe seguir activo y NO extra");
+      assert(x1 && x1.omitido === false && x1.extra === true, "x1 debe verse activo y marcado extra");
+    });
+
+    test("V47 — sesionOverlayOmitir rechaza omitir un ejercicio con alguna serie marcada hecha", function(){
+      var setsLegado = { e1:[true,false,false] }; // shape V47: ids -> array de booleans por serie
+      var r = A.sesionOverlayOmitir(A.sesionOverlayVacio(), setsLegado, "e1");
+      assert(r.ok === false && r.code === "HAS_PROGRESS",
+        "e1 tiene una serie en true: no debería poder omitirse, dio " + JSON.stringify(r));
+    });
+
+    test("V47 — sesionOverlayRestaurar siempre permite volver a activar, sin perder el id omitido de la lista", function(){
+      var omitido = A.sesionOverlayOmitir(A.sesionOverlayVacio(), {}, "e1");
+      assert(omitido.overlay.omitidos.indexOf("e1") !== -1, "e1 debe quedar en la lista de omitidos");
+      var restaurado = A.sesionOverlayRestaurar(omitido.overlay, "e1");
+      assert(restaurado.ok === true && restaurado.overlay.omitidos.indexOf("e1") === -1,
+        "restaurar debe sacar a e1 de la lista de omitidos");
+    });
+
+    test("V47 — sesionOverlayAgregarExtra rechaza un id ya usado en el día real o entre los extras", function(){
+      var day = dayV48Fixture();
+      var overlay = A.sesionOverlayVacio();
+      var contraDia = A.sesionOverlayAgregarExtra(day, overlay, { id:"e1", nombre:"Otra cosa", series:1 });
+      assert(contraDia.ok === false && contraDia.code === "DUPLICATE_ID",
+        "no puede agregarse un extra con el mismo id que un ejercicio real del día");
+
+      var primero = A.sesionOverlayAgregarExtra(day, overlay, { id:"x1", nombre:"Face pull", series:3 });
+      assert(primero.ok === true, "el primer extra con id nuevo debe poder agregarse");
+      var repetido = A.sesionOverlayAgregarExtra(day, primero.overlay, { id:"x1", nombre:"Otro nombre", series:2 });
+      assert(repetido.ok === false && repetido.code === "DUPLICATE_ID",
+        "no puede agregarse dos veces el mismo id entre los extras");
+    });
+
+    test("V51.3 bloque 0 — ninguna función del modelo toca state.rutinaSlots ni la rutina semanal", function(){
+      // No es un test de integración: llama a las funciones puras pasando un
+      // día TOMADO de la rutina real cargada en memoria y verifica que
+      // state.rutinaSlots (la fuente de verdad de la rutina semanal) sigue
+      // intacto después. Si alguna de estas funciones escribiera sobre el
+      // día real en vez de devolver una copia, esto lo detectaría.
+      var slots = A.state.rutinaSlots;
+      assert(slots, "la app debería tener state.rutinaSlots cargado");
+      var antes = JSON.stringify(slots);
+      Object.keys(slots).forEach(function(slotKey){
+        var dias = (slots[slotKey] && slots[slotKey].days) || [];
+        dias.forEach(function(dia){
+          A.sesionVistaNativa(dia);
+          A.sesionVistaLegado(dia, A.sesionOverlayVacio());
+          var overlayConExtra = A.sesionOverlayAgregarExtra(dia, A.sesionOverlayVacio(), { id:"zzz-test", nombre:"Zzz", series:1 });
+          if(overlayConExtra.ok) A.sesionVistaLegado(dia, overlayConExtra.overlay);
+          if((dia.exercises||[]).length){
+            var primerId = dia.exercises[0].id;
+            A.sesionDiaNativoOmitir(dia, [], primerId, true);
+          }
+        });
+      });
+      assert(JSON.stringify(A.state.rutinaSlots) === antes,
+        "state.rutinaSlots no debía cambiar: estas funciones nunca deben tocar la rutina semanal real");
+    });
+
+    /* ---------------- V51.3 BLOQUE 1 ---------------- */
+    group("V51.3 bloque 1 — controles de omitir/restaurar");
+
+    // Sesión V47: mismo patrón que conSesionV502 (el día vive FUERA de la
+    // sesión, en state.rutinaSlots), reconstruido acá para no acoplar este
+    // grupo al de V50.2. Restaura todo siempre, incluso si el test lanza.
+    function diaV513(){
+      return { id:"d-513", nombre:"Día 513", exercises:[
+        { id:"e1", nombre:"Sentadilla con barra", series:"3", reps:"8-10" },
+        { id:"e2", nombre:"Press de banca con barra", series:"3", reps:"8-10" }
+      ]};
+    }
+    function conSesionLegadaV513(sets, overlay, fn){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = {
+        session: T.state.session, unresolved: T.state.unresolvedSession,
+        slots: T.state.rutinaSlots, activeSlot: T.state.activeSlot, rutina: T.state.rutina
+      };
+      var day = diaV513();
+      T.state.unresolvedSession = null;
+      T.state.rutinaSlots = { personalizada:{ days:[day] }, automatica:{ days:[] }, enfocada:{ days:[] } };
+      T.state.activeSlot = "personalizada";
+      T.state.rutina = T.state.rutinaSlots.personalizada;
+      T.state.session = {
+        dayId: day.id, slot:"personalizada", dayNombre: day.nombre, startedAt: 1,
+        sets: sets, setLogs: { e1:[null,null,null], e2:[null,null,null] },
+        omitidos: (overlay && overlay.omitidos) || [], extras: (overlay && overlay.extras) || []
+      };
+      try { return fn({ T:T, day:day }); }
+      finally {
+        T.state.session = prev.session; T.state.unresolvedSession = prev.unresolved;
+        T.state.rutinaSlots = prev.slots; T.state.activeSlot = prev.activeSlot;
+        T.state.rutina = prev.rutina;
+      }
+    }
+
+    // Sesión V48 nativa: reusa la fixture de día de V51.2 (sesionNativaV512),
+    // pero ACÁ se asigna a state.session para que nativeSession() la vea.
+    function conSesionNativaV513(sets, fn){
+      var W = frame.contentWindow, T = W.__appTest;
+      var prev = { session: T.state.session, unresolved: T.state.unresolvedSession };
+      T.state.unresolvedSession = null;
+      T.state.session = sesionNativaV512(sets);
+      try { return fn({ T:T, session:T.state.session }); }
+      finally { T.state.session = prev.session; T.state.unresolvedSession = prev.unresolved; }
+    }
+
+    test("SESION_OMITIR_HABILITADO está en false: el panel no se muestra al usuario final todavía", function(){
+      assert(A.SESION_OMITIR_HABILITADO === false,
+        "el bloque 1 no debe habilitarse hasta completar la sincronización V48 (bloque 3) y la persistencia V47 (bloque 5)");
+    });
+
+    test("V48 — sesionOmitirEstadoActual detecta el bloqueo por progreso y no por otra cosa", function(){
+      var sets = setsVacios4y1(); // a: 4 series, b: 1 serie — todas sin completar
+      sets[0] = { exerciseInstance:"a", setNumber:1, completed:true, peso:70, reps:8 }; // "a" ya tiene una hecha
+      return conSesionNativaV513(sets, function(c){
+        var estado = c.T.sesionOmitirEstadoActual();
+        assert(estado.vista.length === 2, "deberían verse los 2 ejercicios del día nativo");
+        assert(estado.bloqueadoPorId.a === true, "\"a\" tiene una serie completada: debe quedar bloqueado");
+        assert(estado.bloqueadoPorId.b === false, "\"b\" no tiene ninguna serie completada: no debe bloquearse");
+      });
+    });
+
+    test("V48 — omitir un ejercicio con progreso se rechaza y no toca el día de la sesión", function(){
+      var sets = setsVacios4y1();
+      sets[0] = { exerciseInstance:"a", setNumber:1, completed:true, peso:70, reps:8 };
+      return conSesionNativaV513(sets, function(c){
+        var diaAntes = JSON.stringify(c.session.day);
+        var r = c.T.sesionOmitirEjercicioEnSesion("a", true);
+        assert(r.ok === false && r.code === "HAS_PROGRESS", "dio " + JSON.stringify(r));
+        assert(JSON.stringify(c.session.day) === diaAntes, "el día de la sesión no debe cambiar si la operación se rechaza");
+      });
+    });
+
+    test("V48 — omitir y restaurar un ejercicio sin progreso, sin perder su id", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var r1 = c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(r1.ok === true, "\"b\" no tiene progreso: debería poder omitirse");
+        var b = c.session.day.exercises.find(function(ex){ return ex.id === "b"; });
+        assert(b && b.omitido === true, "\"b\" debe quedar marcado omitido en el día de la sesión");
+        assert(c.session.day.exercises.length === 2, "ningún ejercicio puede desaparecer del día");
+
+        var estado = c.T.sesionOmitirEstadoActual();
+        assert(c.T.sesionEjerciciosActivos(estado.vista).length === 1, "sólo \"a\" debería quedar activo");
+        assert(c.T.sesionEjerciciosOmitidos(estado.vista).length === 1, "\"b\" debe seguir viéndose, como omitido");
+
+        var r2 = c.T.sesionOmitirEjercicioEnSesion("b", false);
+        assert(r2.ok === true, "restaurar siempre debe poder hacerse");
+        var bRestaurado = c.session.day.exercises.find(function(ex){ return ex.id === "b"; });
+        assert(bRestaurado.omitido === false, "\"b\" debe quedar activo otra vez");
+      });
+    });
+
+    test("V47 — omitir un ejercicio con una serie ya marcada se rechaza y no modifica la rutina semanal", function(){
+      return conSesionLegadaV513({ e1:[true,false,false], e2:[false,false,false] }, null, function(c){
+        var rutinaAntes = JSON.stringify(c.T.state.rutinaSlots);
+        var r = c.T.sesionOmitirEjercicioEnSesion("e1", true);
+        assert(r.ok === false && r.code === "HAS_PROGRESS", "dio " + JSON.stringify(r));
+        assert((c.T.state.session.omitidos||[]).length === 0, "e1 no debe quedar en la lista de omitidos");
+        assert(JSON.stringify(c.T.state.rutinaSlots) === rutinaAntes,
+          "la rutina semanal (state.rutinaSlots) no puede cambiar nunca por esta operación");
+      });
+    });
+
+    test("V47 — omitir y restaurar un ejercicio sin progreso queda sólo en el overlay de la sesión", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var rutinaAntes = JSON.stringify(c.T.state.rutinaSlots);
+        var r1 = c.T.sesionOmitirEjercicioEnSesion("e2", true);
+        assert(r1.ok === true, "e2 no tiene progreso: debería poder omitirse");
+        assert(c.T.state.session.omitidos.indexOf("e2") !== -1, "e2 debe quedar registrado en el overlay de la sesión");
+        assert(JSON.stringify(c.T.state.rutinaSlots) === rutinaAntes,
+          "omitir en V47 no puede escribir en state.rutinaSlots (el día real de la rutina)");
+
+        var estado = c.T.sesionOmitirEstadoActual();
+        var omitidos = c.T.sesionEjerciciosOmitidos(estado.vista);
+        assert(omitidos.length === 1 && omitidos[0].id === "e2", "e2 debe seguir viéndose en la vista, como omitido");
+
+        var r2 = c.T.sesionOmitirEjercicioEnSesion("e2", false);
+        assert(r2.ok === true && c.T.state.session.omitidos.indexOf("e2") === -1,
+          "restaurar debe sacar a e2 de la lista de omitidos");
+        assert(JSON.stringify(c.T.state.rutinaSlots) === rutinaAntes, "restaurar tampoco puede tocar la rutina semanal");
+      });
+    });
+
+    test("sesionOmitirPanelHtml muestra \"Omitir\" deshabilitado con progreso y \"Restaurar\" para lo omitido", function(){
+      var vista = [
+        { id:"e1", nombre:"Sentadilla con barra", omitido:false, extra:false },
+        { id:"e2", nombre:"Press de banca con barra", omitido:true, extra:false }
+      ];
+      var html = A.sesionOmitirPanelHtml(vista, { e1:true, e2:false });
+      assert(html.indexOf('data-sesion-omitir="e1"') !== -1, "e1 activo debe tener el botón Omitir");
+      assert(/data-sesion-omitir="e1"[^>]*disabled/.test(html), "e1 está bloqueado por progreso: el botón debe estar disabled");
+      assert(html.indexOf('data-sesion-restaurar="e2"') !== -1, "e2 omitido debe tener el botón Restaurar, no Omitir");
+      assert(html.indexOf('data-sesion-omitir="e2"') === -1, "e2 omitido no debe mostrar el botón Omitir");
+    });
+
+    // ACTUALIZADO EN EL BLOQUE 2: hasta entonces, una vista vacía hacía que
+    // el panel no imprimiera nada. Desde que el panel también ofrece
+    // "Agregar ejercicio extra" (bloque 2), ese botón tiene que verse incluso
+    // sin ejercicios en la vista — por eso ya no hay una fila sin filas de
+    // ejercicio en blanco; sigue sin dibujarse.
+    test("sesionOmitirPanelHtml con una vista vacía: sin filas de ejercicio, pero SÍ con el botón de agregar extra", function(){
+      var html = A.sesionOmitirPanelHtml([], {});
+      assert(html.indexOf("data-sesion-omitir-fila") === -1, "sin ejercicios no debería haber ninguna fila");
+      assert(html.indexOf("data-sesion-agregar-extra") !== -1,
+        "el botón de agregar extra debe seguir disponible aunque la sesión no tenga ejercicios todavía");
+    });
+
+    test("screenSession()/mountSession() NO muestran el panel mientras SESION_OMITIR_HABILITADO sea false", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var html = c.T.screenSession(c.day);
+        assert(html.indexOf("data-sesion-omitir-panel") === -1,
+          "el panel de omitir/restaurar no debe aparecer en la pantalla de sesión todavía");
+        assert(html.indexOf("data-sesion-omitir=") === -1 && html.indexOf("data-sesion-restaurar=") === -1,
+          "tampoco deben aparecer los botones individuales");
+      });
+    });
+
+    test("screenSession()/mountSession() tampoco muestran el panel en una sesión nativa V48", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var html = c.T.screenSession(c.session.day);
+        assert(html.indexOf("data-sesion-omitir-panel") === -1,
+          "tampoco debe aparecer en la sesión nativa mientras el flag esté en false");
+      });
+    });
+
+    /* ---------------- V51.3 BLOQUE 2 ---------------- */
+    group("V51.3 bloque 2 — agregar ejercicio extra");
+
+    function idFijo(valor){ return function(){ return valor; }; }
+
+    test("sesionPrepararExtra — nombre personalizado válido, con id generado", function(){
+      var r = A.sesionPrepararExtra("  Mi ejercicio inventado  ", "4", "12", idFijo("extra-fijo-1"));
+      assert(r.ok === true, "dio " + JSON.stringify(r));
+      assert(r.ejercicio.id === "extra-fijo-1", "debe usar el generador de id inyectado");
+      assert(r.ejercicio.nombre === "Mi ejercicio inventado", "el nombre debe recortarse, no reescribirse");
+      assert(r.ejercicio.series === "4" && r.ejercicio.reps === "12", "dio " + JSON.stringify(r.ejercicio));
+    });
+
+    test("sesionPrepararExtra — un nombre del catálogo oficial se acepta literal, sin canonicalizar", function(){
+      // Regla del catálogo (ver §3 de CLAUDE.md): un nombre no se reescribe en
+      // silencio. Un extra con el nombre EXACTO de un oficial sigue siendo un
+      // texto libre para este modelo — la canonicalización, si corresponde,
+      // es cosa de otra capa (historial/registro), no de este bloque.
+      var r = A.sesionPrepararExtra("press de banca con barra", "3", "10", idFijo("extra-catalogo"));
+      assert(r.ok === true && r.ejercicio.nombre === "press de banca con barra",
+        "no debía tocar mayúsculas/tildes del nombre tipeado, dio " + JSON.stringify(r));
+    });
+
+    test("sesionPrepararExtra — nombre vacío o sólo espacios se rechaza", function(){
+      [ "", "   ", null, undefined ].forEach(function(nombre){
+        var r = A.sesionPrepararExtra(nombre, "3", "10", idFijo("x"));
+        assert(r.ok === false && r.code === "INVALID_NAME", "con " + JSON.stringify(nombre) + " dio " + JSON.stringify(r));
+      });
+    });
+
+    test("sesionPrepararExtra — reusa el mismo clamp 1..12 que el resto de la app (sessionSetCount)", function(){
+      var alto = A.sesionPrepararExtra("Extra series altas", "99", "10", idFijo("e1"));
+      var bajo = A.sesionPrepararExtra("Extra series bajas", "0", "10", idFijo("e2"));
+      var negativo = A.sesionPrepararExtra("Extra series negativas", "-5", "10", idFijo("e3"));
+      assert(alto.ejercicio.series === "12", "99 debe clampear a 12, dio " + alto.ejercicio.series);
+      assert(bajo.ejercicio.series === "1", "0 debe clampear a 1, dio " + bajo.ejercicio.series);
+      assert(negativo.ejercicio.series === "1", "-5 debe clampear a 1, dio " + negativo.ejercicio.series);
+    });
+
+    test("sesionPrepararExtra — sin generador inyectado, dos extras consecutivos reciben ids distintos", function(){
+      var r1 = A.sesionPrepararExtra("Extra A", "3", "10");
+      var r2 = A.sesionPrepararExtra("Extra B", "3", "10");
+      assert(r1.ejercicio.id && r2.ejercicio.id && r1.ejercicio.id !== r2.ejercicio.id,
+        "ids: " + r1.ejercicio.id + " / " + r2.ejercicio.id);
+    });
+
+    test("V48 — agregar un extra lo materializa en day.exercises y en sets, sin tocar nada más", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var antesIds = c.session.day.exercises.map(function(ex){ return ex.id; });
+        var antesSets = JSON.stringify(c.session.sets);
+        var prep = c.T.sesionPrepararExtra("Face pull", "3", "15", idFijo("nat-extra-1"));
+        var r = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        var nuevo = c.session.day.exercises.find(function(ex){ return ex.id === "nat-extra-1"; });
+        assert(nuevo && nuevo.extra === true && nuevo.omitido === false, "el extra debe quedar marcado extra:true, omitido:false");
+        assert(c.session.day.exercises.length === antesIds.length + 1, "ningún ejercicio original debe desaparecer");
+        var seriesDelExtra = c.session.sets.filter(function(s){ return s.exerciseInstance === "nat-extra-1"; });
+        assert(seriesDelExtra.length === 3, "deberían crearse 3 filas de serie, dio " + seriesDelExtra.length);
+        assert(seriesDelExtra.every(function(s){ return s.completed === false && s.peso === null && s.reps === null; }),
+          "las series nuevas arrancan vacías y sin completar");
+        // Las series de ANTES no deben tocarse.
+        var setsOriginales = JSON.parse(antesSets);
+        setsOriginales.forEach(function(original){
+          var actual = c.session.sets.find(function(s){ return s.exerciseInstance===original.exerciseInstance && s.setNumber===original.setNumber; });
+          assert(actual && JSON.stringify(actual) === JSON.stringify(original), "una serie preexistente cambió: " + JSON.stringify(original));
+        });
+      });
+    });
+
+    test("V48 — agregar dos extras con el mismo id se rechaza (DUPLICATE_ID) y no deja rastro", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var prep = c.T.sesionPrepararExtra("Face pull", "3", "15", idFijo("nat-extra-dup"));
+        var r1 = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(r1.ok === true, "el primero debería poder agregarse");
+        var totalSetsAntes = c.session.sets.length;
+        var r2 = c.T.sesionAgregarExtraEnSesion(prep.ejercicio); // mismo id a propósito
+        assert(r2.ok === false && r2.code === "DUPLICATE_ID", "dio " + JSON.stringify(r2));
+        assert(c.session.sets.length === totalSetsAntes, "el rechazo no debe agregar series sueltas de todas formas");
+      });
+    });
+
+    test("V47 — agregar un extra queda en el overlay de la sesión, nunca en la rutina semanal", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var rutinaAntes = JSON.stringify(c.T.state.rutinaSlots);
+        var prep = c.T.sesionPrepararExtra("Elevaciones laterales", "3", "12", idFijo("leg-extra-1"));
+        var r = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        assert(c.T.state.session.extras.some(function(ex){ return ex.id === "leg-extra-1"; }),
+          "el extra debe quedar registrado en state.session.extras");
+        assert(c.T.state.session.sets["leg-extra-1"] && c.T.state.session.sets["leg-extra-1"].length === 3
+          && c.T.state.session.sets["leg-extra-1"].every(function(v){ return v === false; }),
+          "deben crearse 3 series sin marcar en state.session.sets, dio " + JSON.stringify(c.T.state.session.sets["leg-extra-1"]));
+        assert(c.T.state.session.setLogs["leg-extra-1"] && c.T.state.session.setLogs["leg-extra-1"].length === 3
+          && c.T.state.session.setLogs["leg-extra-1"].every(function(v){ return v === null; }),
+          "deben crearse 3 casilleros de registro vacíos en setLogs");
+        assert(JSON.stringify(c.T.state.rutinaSlots) === rutinaAntes,
+          "agregar un extra en V47 no puede escribir en state.rutinaSlots (la rutina semanal real)");
+        assert(c.day.exercises.length === 2, "el día real de la rutina sigue con sus 2 ejercicios originales, sin el extra");
+      });
+    });
+
+    test("compatibilidad V47/V48 — la misma preparación produce un extra coherente en los dos sistemas", function(){
+      var prepNativo = A.sesionPrepararExtra("Zancadas", "6", "12", idFijo("compat-nat"));
+      var prepLegado = A.sesionPrepararExtra("Zancadas", "6", "12", idFijo("compat-leg"));
+      return conSesionNativaV513(setsVacios4y1(), function(cNat){
+        var rNat = cNat.T.sesionAgregarExtraEnSesion(prepNativo.ejercicio);
+        return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(cLeg){
+          var rLeg = cLeg.T.sesionAgregarExtraEnSesion(prepLegado.ejercicio);
+          assert(rNat.ok === true && rLeg.ok === true, "los dos deben poder agregarse");
+          var seriesNat = cNat.session.sets.filter(function(s){ return s.exerciseInstance==="compat-nat"; }).length;
+          var seriesLeg = cLeg.T.state.session.sets["compat-leg"].length;
+          assert(seriesNat === 6 && seriesLeg === 6, "las dos deben respetar el mismo número de series: " + seriesNat + " / " + seriesLeg);
+        });
+      });
+    });
+
+    test("quitar un extra agregado por error es OMITIRLO, no eliminarlo — compatible con la migración 12 (V48)", function(){
+      // La migración 12_omitidos_extras.sql prohíbe que un id ya agregado al
+      // día desaparezca (v48_private.validar_patch_dia). Por eso este bloque
+      // no agrega ningún mecanismo de borrado: reusa sesionOmitirEjercicioEnSesion
+      // del bloque 1, que YA sabe tratar cualquier id de la vista por igual.
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var prep = c.T.sesionPrepararExtra("Extra por error", "3", "10", idFijo("nat-error"));
+        c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        var r = c.T.sesionOmitirEjercicioEnSesion("nat-error", true);
+        assert(r.ok === true, "un extra sin series completadas debe poder omitirse igual que cualquier ejercicio");
+        var ex = c.session.day.exercises.find(function(x){ return x.id==="nat-error"; });
+        assert(ex && ex.omitido === true && ex.extra === true, "sigue existiendo, marcado extra Y omitido — nunca se borra del array");
+      });
+    });
+
+    test("quitar un extra agregado por error es OMITIRLO, no eliminarlo (V47)", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var prep = c.T.sesionPrepararExtra("Extra por error", "3", "10", idFijo("leg-error"));
+        c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        var r = c.T.sesionOmitirEjercicioEnSesion("leg-error", true);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        assert(c.T.state.session.omitidos.indexOf("leg-error") !== -1, "debe quedar en la lista de omitidos");
+        assert(c.T.state.session.extras.some(function(ex){ return ex.id==="leg-error"; }),
+          "sigue existiendo en session.extras — nunca se borra");
+      });
+    });
+
+    test("sesionOmitirPanelHtml muestra el botón para agregar extra y distingue un extra omitido", function(){
+      var vista = [
+        { id:"e1", nombre:"Sentadilla con barra", omitido:false, extra:false },
+        { id:"x1", nombre:"Face pull", omitido:true, extra:true }
+      ];
+      var html = A.sesionOmitirPanelHtml(vista, { e1:false, x1:false });
+      assert(html.indexOf("data-sesion-agregar-extra") !== -1, "debe incluir el botón de agregar extra");
+      assert(/Extra<\/span>/.test(html), "un ejercicio extra debe llevar su distintivo visual");
+      assert(html.indexOf("Extra omitido en esta sesión") !== -1, "un extra omitido debe aclarar que es un extra");
+      assert(html.indexOf('data-sesion-restaurar="x1"') !== -1, "un extra omitido se restaura con el MISMO botón que cualquier otro");
+    });
+
+    test("screenSession() no muestra el botón de agregar extra mientras el flag esté en false", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var html = c.T.screenSession(c.day);
+        assert(html.indexOf("data-sesion-agregar-extra") === -1, "no debe verse todavía, ni en V47...");
+        return conSesionNativaV513(setsVacios4y1(), function(c2){
+          var html2 = c2.T.screenSession(c2.session.day);
+          assert(html2.indexOf("data-sesion-agregar-extra") === -1, "...ni en V48");
+        });
+      });
+    });
+
+    test("openSesionExtraModal + doble click rápido en \"Agregar\": sólo se crea un extra", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var W = frame.contentWindow, D = W.document;
+        var viejo = D.querySelector(".modal-back"); if(viejo) viejo.remove();
+        c.T.openSesionExtraModal();
+        var modal = D.querySelector(".modal-back");
+        assert(modal, "el modal de agregar extra debería estar abierto");
+        modal.querySelector("#sesion-extra-name").value = "Doble click test";
+        var saveBtn = modal.querySelector('[data-act="save"]');
+        saveBtn.onclick(); // primer click: agrega y deshabilita el botón
+        saveBtn.onclick(); // segundo click inmediato: el guard debe ignorarlo
+        assert(c.T.state.session.extras.length === 1,
+          "dos clicks rápidos no deben crear dos extras, dio " + c.T.state.session.extras.length);
+        assert(c.T.state.session.extras[0].nombre === "Doble click test");
+        var viejo2 = D.querySelector(".modal-back"); if(viejo2) viejo2.remove();
+      });
+    });
+
+    /* ---------------- V51.3 BLOQUE 3 ---------------- */
+    group("V51.3 bloque 3 — sincronización V48 (v48_guardar_sesion)");
+
+    function sesionNativaSyncV513(sets){
+      return {
+        schemaVersion:48, sessionId:"77777777-6666-5555-4444-333333333333",
+        slot:"personalizada", startedAt: Date.now()-600000, timezone:"America/Argentina/Buenos_Aires",
+        day:{ id:"d-sync513", nombre:"Día Sync", exercises:[
+          { id:"a", nombre:"Press de banca con barra", series:"2", reps:"10" },
+          { id:"b", nombre:"Remo con barra", series:"1", reps:"10" }
+        ]},
+        sets: sets, references:{}, lifecycle:null
+      };
+    }
+    function setsVacios2y1(){
+      return [
+        { exerciseInstance:"a", setNumber:1, completed:false, peso:null, reps:null },
+        { exerciseInstance:"a", setNumber:2, completed:false, peso:null, reps:null },
+        { exerciseInstance:"b", setNumber:1, completed:false, peso:null, reps:null }
+      ];
+    }
+
+    // Harness del bloque 3: NADA de esto toca Supabase de verdad — se
+    // sustituyen Store.listPesoCorporal/listRegistros/listEntrenos/nativeRpc
+    // por dobles que simulan el contrato real de v48_guardar_sesion (orden
+    // "no-op antes del CAS" incluido, ver 02_rpc.sql) sin reimplementar las
+    // validaciones de forma del SQL — esas ya las cubre la suite de staging
+    // (13_pruebas_omitidos_extras_sintetico.sql). Lo que se prueba acá es la
+    // reacción del CLIENTE: qué hace con éxito, conflicto y error de red.
+    //
+    // rutinaSync.save/load/getContext se sustituyen DIRECTO, sin tocar el
+    // singleton real (createSync): este harness corre la suite con DOS
+    // consumidores concurrentes sobre la misma cola (ver el comentario de A1
+    // más arriba, "dos bucles la consumen en paralelo"), y el `active` de
+    // createSync es mutable a nivel de módulo — un load()/detach() de OTRO
+    // test (de cualquier grupo) corriendo en paralelo lo pisa a mitad de
+    // camino. Es exactamente lo que conCola (V50.3) también evita, por la
+    // misma razón, estubeando rutinaSync.save en vez de usar el real.
+    async function conSyncV48(fn){
+      var W = frame.contentWindow, T = W.__appTest, S = T.Store;
+      var prev = {
+        profile:T.state.profile, rutinaSlots:T.state.rutinaSlots, activeSlot:T.state.activeSlot, rutina:T.state.rutina,
+        rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence, session:T.state.session, unresolvedSession:T.state.unresolvedSession,
+        readRutina:S.readRutina, listPesoCorporal:S.listPesoCorporal, listRegistros:S.listRegistros, listEntrenos:S.listEntrenos, nativeRpc:S.nativeRpc,
+        rutinaSyncSave:T.rutinaSync.save, rutinaSyncLoad:T.rutinaSync.load, rutinaSyncGetContext:T.rutinaSync.getContext,
+        nativeReconcilerRecover:T.nativeReconciler.recover, nativeLifecycleRecover:T.nativeLifecycle.recover
+      };
+      // Id único por invocación: nativeReconciler/nativeLifecycle SÍ usan
+      // rutinaCache (IndexedDB real) por ownerId — con un id nuevo cada vez,
+      // cache.get(owner) da siempre null sin que importe qué otro test
+      // corre en paralelo con otro owner.
+      var owner = "perfil-sync513-" + Math.random().toString(36).slice(2) + Date.now();
+      var revision = 10;
+      var sesionActiva = sesionNativaSyncV513(setsVacios2y1());
+      var docData = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]}, activeSlot:"personalizada", sesionActiva: sesionActiva };
+      var llamadasRpc = [];
+      function clon(x){ return JSON.parse(JSON.stringify(x)); }
+      // `baseRevisionConocida` es lo que ESTE cliente sabe (lo que vio en el
+      // último load() real) — a propósito, SEPARADO de `revision` (lo que el
+      // "servidor" simulado tiene de verdad). bumpExterno() mueve `revision`
+      // sin tocar `baseRevisionConocida`: así se simula a otro dispositivo
+      // cambiando la sesión sin que este cliente se entere todavía, que es
+      // justo el escenario que dispara REVISION_CONFLICT. Si getContext()
+      // leyera `revision` en vivo, nunca podría quedar desactualizado.
+      var baseRevisionConocida = revision;
+      // Lo último que persistRutina() dejó en "caché" (nunca tocamos
+      // IndexedDB real — ver más arriba). Permite que el stub de load()
+      // simule la MISMA detección de "draft local pendiente y distinto del
+      // remoto" que createSync.load() hace de verdad, sin la fragilidad de
+      // tocar el singleton real bajo la ejecución concurrente del harness.
+      var ultimoDraftGuardado = null;
+      function sinBookkeeping(sesion){
+        if(!sesion) return sesion;
+        var copia = clon(sesion);
+        delete copia._nativeDiaConfirmado; // campo de sólo-cliente, el servidor nunca lo tiene
+        return copia;
+      }
+      T.rutinaSync.getContext = function(){ return { base:{ revision:baseRevisionConocida, data:clon(docData), clienteV48:true, schemaReady:true } }; };
+      // Una sesionActiva V48 nunca llega al camino de rutina (ver el wrapper
+      // real de `write` en index.html): sólo queda local. Mismo código de
+      // retorno que usaría el real para que persistRutina() lo trate igual.
+      T.rutinaSync.save = function(data){
+        ultimoDraftGuardado = clon(data);
+        return Promise.resolve({ ok:false, code:"NATIVE_LOCAL_ONLY", localSaved:true });
+      };
+      // El load() real SÍ deja ctx.base al día — por eso el stub actualiza
+      // baseRevisionConocida, igual que loadProfileData()/rutinaSync.load()
+      // hacen de verdad después de confirmar un push. Y, como createSync.load()
+      // de verdad, si el ÚLTIMO draft guardado localmente difiere del remoto
+      // (ignorando el campo de sólo-cliente), lo reporta como conflicto en
+      // vez de pisarlo en silencio — es la pieza que loadProfileData() tiene
+      // que usar para no perder un cambio sin confirmar (cierre del bloque 3).
+      T.rutinaSync.load = function(){
+        baseRevisionConocida = revision;
+        if(ultimoDraftGuardado && JSON.stringify(sinBookkeeping(ultimoDraftGuardado.sesionActiva)) !== JSON.stringify(sinBookkeeping(docData.sesionActiva))){
+          return Promise.resolve({ ok:true, conflict:true, localDraft:{ sesionActiva:ultimoDraftGuardado.sesionActiva },
+            data:clon(docData), revision:revision, clienteV48:true, schemaReady:true });
+        }
+        return Promise.resolve({ ok:true, data:clon(docData), revision:revision, clienteV48:true, schemaReady:true });
+      };
+      // loadProfileData() (adentro de sincronizarEstructuraNativa, al
+      // confirmar) TAMBIÉN llama a Store.readRutina() de nuevo y, antes de
+      // eso, a nativeReconciler.recover()/nativeLifecycle.recover() — que por
+      // su cuenta leen rutinaCache (IndexedDB REAL) por ownerId. Esa lectura
+      // resuelve por EVENTO (macrotask), no por microtask: es la grieta por
+      // la que el otro consumidor concurrente de la cola (ver comentario de
+      // A1) puede colarse a mitad de ESTE test y pisar estos mismos stubs
+      // globales antes de que este test los vuelva a necesitar. Se stubean
+      // los tres para que loadProfileData() resuelva sólo con microtasks.
+      S.readRutina = function(){ return Promise.resolve({ data:clon(docData), revision:revision, clienteV48:true, schemaReady:true }); };
+      T.nativeReconciler.recover = function(){ return Promise.resolve({ ok:true, unchanged:true }); };
+      T.nativeLifecycle.recover = function(){ return Promise.resolve({ ok:true, unchanged:true }); };
+      S.listPesoCorporal = function(){ return Promise.resolve([]); };
+      S.listRegistros = function(){ return Promise.resolve([]); };
+      S.listEntrenos = function(){ return Promise.resolve([]); };
+      // Simula v48_guardar_sesion: compara contra lo YA guardado ANTES de
+      // mirar la revisión (mismo orden que 02_rpc.sql) — así un reintento con
+      // el MISMO contenido es idempotente aunque la revisión local esté vieja.
+      S.nativeRpc = function(pid, name, args){
+        llamadasRpc.push({ name:name, args:clon(args) });
+        if(name === "v48_guardar_sesion"){
+          var actual = docData.sesionActiva;
+          var sinCambios = JSON.stringify(actual.day)===JSON.stringify(args.p_dia)
+            && JSON.stringify(actual.sets)===JSON.stringify(args.p_series)
+            && JSON.stringify(actual.references)===JSON.stringify(args.p_referencias);
+          if(sinCambios) return Promise.resolve({data:{revision:revision,clienteV48:true,data:clon(docData),terminal:null}});
+          if(args.p_revision !== revision) return Promise.resolve({error:{code:"40001",message:"REVISION_CONFLICT"}});
+          docData.sesionActiva = { ...actual, day:args.p_dia, sets:args.p_series, references:args.p_referencias };
+          revision++;
+          return Promise.resolve({data:{revision:revision,clienteV48:true,data:clon(docData),terminal:null}});
+        }
+        if(name === "v48_estado") return Promise.resolve({data:{revision:revision,clienteV48:true,data:clon(docData),terminal:null}});
+        return Promise.reject(new Error("RPC inesperada en este harness: "+name));
+      };
+      T.state.profile = { id:owner, name:"Test", edad:30, sexo:"m" };
+      T.state.rutinaRaw = clon(docData);
+      T.state.persistence = { data: clon(docData), revision: revision, clienteV48:true, schemaReady:true };
+      T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+      T.state.activeSlot = "personalizada";
+      T.state.rutina = T.state.rutinaSlots.personalizada;
+      T.state.session = null;
+      T.state.unresolvedSession = clon(sesionActiva);
+      var ctx = {
+        T:T, D:W.document, owner:owner, llamadasRpc:llamadasRpc,
+        revision: function(){ return revision; },
+        docDia: function(){ return docData.sesionActiva.day; },
+        docSesion: function(){ return clon(docData.sesionActiva); },
+        // Simula OTRO dispositivo cambiando la sesión por su cuenta: sube la
+        // revisión Y el contenido guardado, sin pasar por este cliente.
+        bumpExterno: function(nuevoDia){ revision++; docData.sesionActiva = {...docData.sesionActiva, day:nuevoDia}; },
+        // Revisión del cierre del bloque 3 (riesgo 1): simula lo que
+        // rutinaSync.load() devolvería en una "recarga" puntual (conflicto,
+        // recuperado, etc.) SIN tocar IndexedDB real — mismo criterio que
+        // el resto de este harness. `resultado` es la forma COMPLETA que
+        // createSync.load() devolvería; se restaura siempre.
+        conLoadSimulado: async function(resultado, fn){
+          var anterior = T.rutinaSync.load;
+          T.rutinaSync.load = function(){ return Promise.resolve(resultado); };
+          try { return await fn(); } finally { T.rutinaSync.load = anterior; }
+        }
+      };
+      try { return await fn(ctx); }
+      finally {
+        T.state.profile=prev.profile; T.state.rutinaSlots=prev.rutinaSlots; T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina;
+        T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence; T.state.session=prev.session; T.state.unresolvedSession=prev.unresolvedSession;
+        S.readRutina=prev.readRutina; S.listPesoCorporal=prev.listPesoCorporal; S.listRegistros=prev.listRegistros; S.listEntrenos=prev.listEntrenos; S.nativeRpc=prev.nativeRpc;
+        T.rutinaSync.save=prev.rutinaSyncSave; T.rutinaSync.load=prev.rutinaSyncLoad; T.rutinaSync.getContext=prev.rutinaSyncGetContext;
+        T.nativeReconciler.recover=prev.nativeReconcilerRecover; T.nativeLifecycle.recover=prev.nativeLifecycleRecover;
+      }
+    }
+
+    test("v48_guardar_sesion está en la allowlist de Store.nativeRpc (antes del bloque 3 no estaba)", function(){
+      assert(APP_SRC, "no se pudo traer index.html");
+      var ini = APP_SRC.indexOf('if(!["v48_iniciar"');
+      assert(ini !== -1, "no se encontró la allowlist de nativeRpc");
+      var linea = APP_SRC.slice(ini, ini+400);
+      assert(linea.indexOf('"v48_guardar_sesion"') !== -1, "v48_guardar_sesion debe estar en la allowlist");
+    });
+
+    test("SESION_OMITIR_HABILITADO sigue en false: el bloque 3 no habilita nada al usuario final", function(){
+      assert(A.SESION_OMITIR_HABILITADO === false, "sigue deshabilitado, como pide la condición 6 del bloque 3");
+    });
+
+    test("nativeEstructuraPendiente() es false recién iniciada la sesión, y true después de omitir", function(){
+      return conSyncV48(async function(c){
+        assert(c.T.nativeEstructuraPendiente() === false, "sin cambios locales no debería haber nada pendiente");
+        c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(c.T.nativeEstructuraPendiente() === true, "omitir localmente tiene que marcarse como pendiente de confirmar");
+      });
+    });
+
+    test("sincronizarEstructuraNativa(): sin cambios pendientes, no llama a la RPC", function(){
+      return conSyncV48(async function(c){
+        var r = await c.T.sincronizarEstructuraNativa();
+        assert(r.ok === true && r.unchanged === true, "dio " + JSON.stringify(r));
+        assert(c.llamadasRpc.length === 0, "no debería haber llamado a ninguna RPC, llamó " + c.llamadasRpc.length);
+      });
+    });
+
+    test("sincronizarEstructuraNativa(): push exitoso confirma el día, sube la revisión y deja de estar pendiente", function(){
+      return conSyncV48(async function(c){
+        var r1 = c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(r1.ok === true, "precondición: omitir \"b\" debe poder hacerse (sin progreso)");
+        var revisionAntes = c.revision();
+        var r = await c.T.sincronizarEstructuraNativa();
+        assert(r.ok === true && r.applied === true, "dio " + JSON.stringify(r));
+        assert(c.revision() === revisionAntes + 1, "la revisión del servidor simulado debe haber subido en 1");
+        assert(c.docDia().exercises.find(function(ex){ return ex.id==="b"; }).omitido === true,
+          "el día confirmado en el servidor debe tener \"b\" omitido");
+        assert(c.T.nativeEstructuraPendiente() === false, "tras confirmar, ya no debería quedar nada pendiente");
+        var s = c.T.nativeSession();
+        assert(s && s.day.exercises.find(function(ex){ return ex.id==="b"; }).omitido === true,
+          "la sesión en memoria debe reflejar el día confirmado");
+        // Sólo se llamó a la RPC de guardado — nada de v48_estado ni otra:
+        // nativeReconciler.recover/nativeLifecycle.recover no tenían nada que
+        // reconciliar (sin __v48TerminalRequest ni lifecycle pendiente).
+        var nombres = c.llamadasRpc.map(function(x){ return x.name; });
+        assert(nombres.indexOf("v48_guardar_sesion") !== -1, "debió llamar a v48_guardar_sesion, llamó " + nombres.join(","));
+        assert(nombres.every(function(n){ return n==="v48_guardar_sesion"; }),
+          "no debería haber disparado ninguna otra RPC de paso, llamó " + nombres.join(","));
+      });
+    });
+
+    test("sincronizarEstructuraNativa(): conflicto de revisión no corrompe nada local (prioridades 2 y 3)", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("b", true);
+        var diaLocalAntes = JSON.stringify(c.T.nativeSession().day);
+        // Otro dispositivo cambia la sesión por su cuenta ANTES de que este
+        // cliente llegue a confirmar su propio cambio.
+        var diaDelOtroDispositivo = JSON.parse(JSON.stringify(c.docDia()));
+        diaDelOtroDispositivo.exercises[0].omitido = true; // "a" omitido por el otro dispositivo
+        c.bumpExterno(diaDelOtroDispositivo);
+        var r = await c.T.sincronizarEstructuraNativa();
+        assert(r.ok === false && r.code === "REVISION_CONFLICT", "dio " + JSON.stringify(r));
+        // Prioridad 2: lo que el usuario tipeó/omitió LOCALMENTE sigue intacto.
+        assert(JSON.stringify(c.T.nativeSession().day) === diaLocalAntes,
+          "un conflicto no puede perder ni alterar el cambio local no confirmado");
+        assert(c.T.nativeEstructuraPendiente() === true, "sigue pendiente: el conflicto no se resuelve solo");
+      });
+    });
+
+    test("sincronizarEstructuraNativa(): fallo de red devuelve NETWORK_ERROR y conserva el borrador local", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("a", true);
+        var diaLocalAntes = JSON.stringify(c.T.nativeSession().day);
+        var nativeRpcOriginal = c.T.Store.nativeRpc;
+        c.T.Store.nativeRpc = function(){ return Promise.reject(new Error("sin conexión (simulado)")); };
+        try {
+          var r = await c.T.sincronizarEstructuraNativa();
+          assert(r.ok === false && r.code === "NETWORK_ERROR", "dio " + JSON.stringify(r));
+          assert(JSON.stringify(c.T.nativeSession().day) === diaLocalAntes, "un fallo de red no puede perder el cambio local");
+        } finally { c.T.Store.nativeRpc = nativeRpcOriginal; }
+      });
+    });
+
+    test("sincronizarEstructuraNativa(): dos llamadas simultáneas comparten la misma operación", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("a", true);
+        var p1 = c.T.sincronizarEstructuraNativa();
+        var p2 = c.T.sincronizarEstructuraNativa();
+        assert(p1 === p2, "una sincronización en curso no debería disparar una segunda en paralelo");
+        var r = await p1;
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        assert(c.llamadasRpc.filter(function(x){ return x.name==="v48_guardar_sesion"; }).length === 1,
+          "sólo debió llamarse una vez a la RPC, aunque se pidió dos veces");
+      });
+    });
+
+    test("requestNativeFinish: con un cambio estructural pendiente y el push bloqueado, NO deja finalizar", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("a", true);
+        // Fuerza el conflicto que bloquea el push (ver test de arriba).
+        var otro = JSON.parse(JSON.stringify(c.docDia()));
+        otro.exercises[1].omitido = true;
+        c.bumpExterno(otro);
+        var viejo = c.D.querySelector(".modal-back"); if(viejo) viejo.remove();
+        // Igual que el test de abajo: no se hace await directo por si la
+        // lógica llegara a abrir confirmDialog (quedaría esperando un click
+        // que nunca llega) — se drenan microtasks con un tope, así un
+        // bloqueo real se ve como aserción fallida y no como un timeout ciego.
+        var terminado = false;
+        c.T.requestNativeFinish().then(function(){ terminado = true; });
+        for(var i=0;i<300 && !terminado;i++) await Promise.resolve();
+        assert(terminado, "requestNativeFinish no debería quedar colgado cuando el push se bloquea");
+        assert(!c.D.querySelector(".modal-back"), "no debería haber abierto el diálogo de confirmar finalizar");
+        assert(c.T.nativeEstructuraPendiente() === true, "el cambio sigue pendiente: finalizar no se puede completar así");
+      });
+    });
+
+    test("requestNativeFinish: con un cambio estructural pendiente que SÍ sincroniza, sigue el flujo normal", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("a", true);
+        var viejo = c.D.querySelector(".modal-back"); if(viejo) viejo.remove();
+        // requestNativeFinish() TERMINA en confirmDialog(), que no resuelve
+        // hasta que alguien toque un botón del modal — no se puede await
+        // completo acá (quedaría colgado esperando un click que no llega).
+        // Se dispara sin esperar y se drenan microtasks hasta que el modal
+        // aparezca: alcanza porque todo el camino (sync incluido, con los
+        // dobles de este harness) es async/await sin ningún setTimeout.
+        var terminado = false;
+        c.T.requestNativeFinish().then(function(){ terminado = true; });
+        for(var i=0;i<200 && !c.D.querySelector(".modal-back");i++) await Promise.resolve();
+        // Las dos series de "a" y "b" están sin completar: no hay decisión de
+        // referencia pendiente, así que debería llegar al diálogo de confirmar.
+        assert(c.D.querySelector(".modal-back"), "después de confirmar el push, debería abrir el diálogo de finalizar");
+        assert(c.T.nativeEstructuraPendiente() === false, "el push debió confirmarse antes de llegar al diálogo");
+        var modal = c.D.querySelector(".modal-back");
+        var cancelar = modal && modal.querySelector('[data-act="cancel"]');
+        if(cancelar) cancelar.click(); else if(modal) modal.remove();
+        for(var j=0;j<200 && !terminado;j++) await Promise.resolve();
+      });
+    });
+
+    /* ------- Cierre pendiente del bloque 3 (revisión del usuario) ------- */
+    // Diagnóstico que motivó estas pruebas: _nativeDiaConfirmado SÍ viaja en
+    // el draft que persistRutina()/cache.put ya guardan en IndexedDB (es una
+    // propiedad más de la sesión, no algo aparte) — pero loadProfileData()
+    // sólo protegía el draft local de un conflicto cuando la sesión estaba
+    // en lifecycle pendiente o con una operación terminal en curso. Un
+    // cambio estructural (omitir/extra) o una serie editada que entrara en
+    // conflicto con el servidor se descartaba en silencio a favor del
+    // remoto. La corrección amplía esa condición (ver loadProfileData en
+    // index.html, junto a "recoverableNative").
+
+    test("cambio pendiente + error de red + recarga: el cambio sigue pendiente, no se pierde", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("a", true);
+        var nativeRpcOriginal = c.T.Store.nativeRpc;
+        c.T.Store.nativeRpc = function(){ return Promise.reject(new Error("sin conexión (simulado)")); };
+        var r;
+        try { r = await c.T.sincronizarEstructuraNativa(); }
+        finally { c.T.Store.nativeRpc = nativeRpcOriginal; }
+        assert(r.ok === false && r.code === "NETWORK_ERROR", "dio " + JSON.stringify(r));
+
+        // "Recarga": el draft local (con el cambio, ya durable en caché por
+        // el persistRutina() que corrió ANTES del intento de red) sigue
+        // pendiente; el remoto nunca llegó a tocarse.
+        var draftLocal = JSON.parse(JSON.stringify(c.T.nativeSession()));
+        await c.conLoadSimulado({ ok:true, conflict:true, localDraft:{ sesionActiva:draftLocal },
+          data:{ personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]}, activeSlot:"personalizada", sesionActiva:c.docSesion() },
+          revision:c.revision(), clienteV48:true, schemaReady:true }, async function(){
+          await c.T.loadProfileData();
+        });
+
+        var sAfter = c.T.nativeSession();
+        assert(sAfter && sAfter.day.exercises.find(function(ex){ return ex.id==="a"; }).omitido === true,
+          "el cambio omitido debe sobrevivir a la recarga, no perderse en silencio");
+        assert(c.T.nativeEstructuraPendiente() === true,
+          "sigue pendiente: el servidor nunca lo confirmó, no puede tratarse como confirmado");
+      });
+    });
+
+    test("recuperación del borrador: un ejercicio extra agregado localmente sobrevive a la recarga", function(){
+      return conSyncV48(async function(c){
+        var prep = c.T.sesionPrepararExtra("Face pull", "3", "12", function(){ return "extra-recovery"; });
+        var agregado = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(agregado.ok === true, "precondición: el extra debe poder agregarse");
+        var draftLocal = JSON.parse(JSON.stringify(c.T.nativeSession()));
+        await c.conLoadSimulado({ ok:true, conflict:true, localDraft:{ sesionActiva:draftLocal },
+          data:{ personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]}, activeSlot:"personalizada", sesionActiva:c.docSesion() },
+          revision:c.revision(), clienteV48:true, schemaReady:true }, async function(){
+          await c.T.loadProfileData();
+        });
+        var sAfter = c.T.nativeSession();
+        var extra = sAfter && sAfter.day.exercises.find(function(ex){ return ex.id==="extra-recovery"; });
+        assert(extra && extra.extra === true, "el extra debe seguir en el día recuperado, no desaparecer");
+        var seriesExtra = sAfter.sets.filter(function(x){ return x.exerciseInstance==="extra-recovery"; });
+        assert(seriesExtra.length === 3, "sus 3 series también deben sobrevivir, dio " + seriesExtra.length);
+      });
+    });
+
+    test("revisión distinta del servidor al recargar: el draft local no se pisa con la del servidor", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("b", true);
+        var draftLocal = JSON.parse(JSON.stringify(c.T.nativeSession()));
+        // El servidor avanzó por su cuenta mientras tanto (otro dispositivo).
+        var otro = JSON.parse(JSON.stringify(c.docDia()));
+        otro.exercises[0].omitido = true; // "a" omitido por el otro dispositivo
+        c.bumpExterno(otro);
+        await c.conLoadSimulado({ ok:true, conflict:true, localDraft:{ sesionActiva:draftLocal },
+          data:{ personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]}, activeSlot:"personalizada", sesionActiva:c.docSesion() },
+          revision:c.revision(), clienteV48:true, schemaReady:true }, async function(){
+          await c.T.loadProfileData();
+        });
+        var sAfter = c.T.nativeSession();
+        assert(sAfter.day.exercises.find(function(ex){ return ex.id==="b"; }).omitido === true,
+          "el cambio local (\"b\" omitido) no puede perderse sólo porque el servidor avanzó distinto");
+        assert(c.T.nativeEstructuraPendiente() === true, "sigue pendiente: hay un conflicto por resolver, no se resolvió solo");
+      });
+    });
+
+    test("sincronización exitosa: las series completadas y la referencia de otro ejercicio no se pierden", function(){
+      return conSyncV48(async function(c){
+        var s = c.T.nativeSession();
+        s.sets = s.sets.map(function(row){
+          return row.exerciseInstance==="a" ? Object.assign({}, row, { completed:true, peso:40, reps:10 }) : row;
+        });
+        s.references = { a: { accepted:true, sets:[{setNumber:1,peso:40,reps:10},{setNumber:2,peso:40,reps:10}] } };
+        var r1 = c.T.sesionOmitirEjercicioEnSesion("b", true); // "b" no tiene progreso: se puede omitir
+        assert(r1.ok === true, "precondición: omitir \"b\" debe poder hacerse");
+        var r = await c.T.sincronizarEstructuraNativa();
+        assert(r.ok === true && r.applied === true, "dio " + JSON.stringify(r));
+        var sAfter = c.T.nativeSession();
+        var seriesA = sAfter.sets.filter(function(x){ return x.exerciseInstance==="a"; });
+        assert(seriesA.length === 2 && seriesA.every(function(x){ return x.completed===true && x.peso===40 && x.reps===10; }),
+          "las series completadas de \"a\" no pueden perderse al sincronizar la omisión de \"b\", dio " + JSON.stringify(seriesA));
+        assert(sAfter.references.a && sAfter.references.a.accepted === true,
+          "la decisión de referencia de \"a\" tampoco puede perderse, dio " + JSON.stringify(sAfter.references));
+      });
+    });
+
+    test("edición de series durante la sincronización: el pedido ya enviado no cambia, y la edición no se pierde", function(){
+      return conSyncV48(async function(c){
+        c.T.sesionOmitirEjercicioEnSesion("b", true);
+        var nativeRpcOriginal = c.T.Store.nativeRpc;
+        var payloadEnviado = null;
+        // Simula una edición EXACTAMENTE durante el viaje de red: después de
+        // que sincronizarEstructuraNativa ya armó (y clonó) el pedido, pero
+        // antes de que la RPC responda.
+        var cambioPromise = null;
+        c.T.Store.nativeRpc = function(pid, name, args){
+          if(name === "v48_guardar_sesion" && !payloadEnviado){
+            payloadEnviado = JSON.parse(JSON.stringify(args));
+            var s = c.T.nativeSession();
+            var fila = s.sets.find(function(x){ return x.exerciseInstance==="a" && x.setNumber===1; });
+            fila.completed = true; fila.peso = 999; fila.reps = 99;
+            // Así se persiste de verdad una edición en la app: el onChange
+            // de la tarjeta llama a borradorV48.cambio() EN EL ACTO (ver
+            // V50.3), nunca espera a que esta RPC conteste.
+            cambioPromise = c.T.borradorV48.cambio();
+          }
+          return nativeRpcOriginal(pid, name, args);
+        };
+        var r;
+        try { r = await c.T.sincronizarEstructuraNativa(); }
+        finally { c.T.Store.nativeRpc = nativeRpcOriginal; }
+        if(cambioPromise) await cambioPromise;
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        assert(payloadEnviado, "la RPC debió llamarse");
+        var serieEnPayload = payloadEnviado.p_series.find(function(x){ return x.exerciseInstance==="a" && x.setNumber===1; });
+        assert(serieEnPayload.peso !== 999,
+          "el body YA enviado no puede reflejar una edición hecha después de armar el pedido (riesgo 2 del cierre del bloque 3)");
+        var sAfter = c.T.nativeSession();
+        var serieEnMemoria = sAfter.sets.find(function(x){ return x.exerciseInstance==="a" && x.setNumber===1; });
+        assert(serieEnMemoria && serieEnMemoria.peso === 999,
+          "la edición hecha durante el round-trip tampoco puede perderse después de reconciliar, dio " + JSON.stringify(serieEnMemoria));
+      });
+    });
+
+    /* ---------------- V51.3 BLOQUE 4 ---------------- */
+    group("V51.3 bloque 4 — integración con tarjetas, progreso y finalización");
+
+    test("V47 — un ejercicio omitido no tiene tarjeta de registro (objetivo 1)", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var r = c.T.sesionOmitirEjercicioEnSesion("e1", true);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        var html = c.T.screenSession(c.day);
+        assert(html.indexOf('data-exercise-card="e1"') === -1, "e1 omitido no debe tener tarjeta de registro");
+        assert(html.indexOf('data-exercise-card="e2"') !== -1, "e2 activo sí debe seguir con su tarjeta");
+      });
+    });
+
+    test("V47 — restaurar un ejercicio omitido le devuelve su tarjeta original", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        c.T.sesionOmitirEjercicioEnSesion("e1", true);
+        assert(c.T.screenSession(c.day).indexOf('data-exercise-card="e1"') === -1, "precondición: sin tarjeta mientras está omitido");
+        var r = c.T.sesionOmitirEjercicioEnSesion("e1", false);
+        assert(r.ok === true, "restaurar siempre debe poder hacerse");
+        assert(c.T.screenSession(c.day).indexOf('data-exercise-card="e1"') !== -1, "e1 restaurado debe recuperar su tarjeta");
+      });
+    });
+
+    test("V48 — un ejercicio omitido queda fuera de la vista que arma las tarjetas", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var r = c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        var vistaOmitido = c.T.nativeSessionParaTarjetas(c.session);
+        assert(!vistaOmitido.day.exercises.some(function(ex){ return ex.id==="b"; }), "\"b\" omitido no debe estar en la vista para tarjetas");
+        assert(vistaOmitido.day.exercises.some(function(ex){ return ex.id==="a"; }), "\"a\" activo sí debe seguir en la vista");
+        var r2 = c.T.sesionOmitirEjercicioEnSesion("b", false);
+        assert(r2.ok === true, "dio " + JSON.stringify(r2));
+        var vistaRestaurado = c.T.nativeSessionParaTarjetas(c.session);
+        assert(vistaRestaurado.day.exercises.some(function(ex){ return ex.id==="b"; }), "\"b\" restaurado debe volver a la vista");
+      });
+    });
+
+    test("V47 — un extra agregado tiene tarjeta y se le puede registrar una serie de verdad", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var prep = c.T.sesionPrepararExtra("Face pull", "3", "12", function(){ return "extra-v47-card"; });
+        var agregado = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(agregado.ok === true, "dio " + JSON.stringify(agregado));
+        var html = c.T.screenSession(c.day);
+        assert(html.indexOf('data-exercise-card="extra-v47-card"') !== -1, "el extra debe tener su propia tarjeta");
+        c.T.toggleSessionSet("extra-v47-card", 0);
+        assert(c.T.state.session.sets["extra-v47-card"][0] === true, "la serie del extra debe poder marcarse como hecha");
+      });
+    });
+
+    test("V48 — un extra agregado entra en la vista para tarjetas y sus series se completan con el motor real", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var prep = c.T.sesionPrepararExtra("Face pull", "3", "12", function(){ return "extra-v48-card"; });
+        var agregado = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(agregado.ok === true, "dio " + JSON.stringify(agregado));
+        var vista = c.T.nativeSessionParaTarjetas(c.session);
+        assert(vista.day.exercises.some(function(ex){ return ex.id==="extra-v48-card"; }), "el extra debe estar en la vista para tarjetas");
+        var VFS = frame.contentWindow.VodaFitSession;
+        var rechazado = VFS.toggle(c.session, "extra-v48-card", 1, true);
+        assert(rechazado === false, "sin peso/reps válidos, completar a mano debe rechazarse, igual que cualquier serie nueva");
+        VFS.edit(c.session, "extra-v48-card", 1, "peso", "20");
+        VFS.edit(c.session, "extra-v48-card", 1, "reps", "12");
+        var aceptado = VFS.toggle(c.session, "extra-v48-card", 1, true);
+        assert(aceptado === true, "con datos válidos, la serie del extra debe poder completarse con el motor real (v48-session.js, sin tocar)");
+      });
+    });
+
+    test("V47 — sessionProgress excluye omitidos e incluye extras activos (objetivo 4)", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var base = c.T.sessionProgress();
+        assert(base.total === 6, "e1(3)+e2(3)=6 al empezar, dio " + base.total);
+        c.T.sesionOmitirEjercicioEnSesion("e1", true);
+        var sinE1 = c.T.sessionProgress();
+        assert(sinE1.total === 3, "omitido e1, sólo quedan las 3 de e2, dio " + sinE1.total);
+        var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-progreso"; });
+        c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        var conExtra = c.T.sessionProgress();
+        assert(conExtra.total === 5, "e2(3)+extra(2)=5, dio " + conExtra.total);
+        c.T.toggleSessionSet("extra-progreso", 0);
+        var conHecha = c.T.sessionProgress();
+        assert(conHecha.done === 1, "la serie marcada del extra debe contar como hecha, dio " + conHecha.done);
+        var r = c.T.sesionOmitirEjercicioEnSesion("e1", false);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        var restaurado = c.T.sessionProgress();
+        assert(restaurado.total === 8, "e1(3)+e2(3)+extra(2)=8 al restaurar, dio " + restaurado.total);
+      });
+    });
+
+    test("V47 — finalizeSession excluye un omitido e incluye un extra en sets_totales/sets_completados", function(){
+      return conSesionLegadaV513({ e1:[true,false,false], e2:[false,false,false] }, null, async function(c){
+        var S = c.T.Store;
+        var prevAdd = S.addEntreno, prevList = S.listEntrenos, prevSave = S.saveRutina;
+        var capturado = null;
+        S.addEntreno = function(pid, data){ capturado = data; return Promise.resolve({ ok:true, id:"entreno-test-b4" }); };
+        S.listEntrenos = function(){ return Promise.resolve([]); };
+        S.saveRutina = function(){ return Promise.resolve(true); };
+        c.T.state.profile = { id:"perfil-fin-v47-b4", name:"Test" };
+        try {
+          var prep = c.T.sesionPrepararExtra("Face pull", "1", "12", function(){ return "extra-fin-b4"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          c.T.toggleSessionSet("extra-fin-b4", 0); // la única serie del extra, hecha
+          var r = c.T.sesionOmitirEjercicioEnSesion("e2", true); // e2 sin progreso: se puede omitir
+          assert(r.ok === true, "dio " + JSON.stringify(r));
+          await c.T.finalizeSession(c.day);
+          assert(capturado, "debió llamarse Store.addEntreno");
+          // e1 (3 series, 1 hecha) + extra (1 serie, hecha) = 4 totales, 2 hechas.
+          // e2 omitido no entra en ninguno de los dos números.
+          assert(capturado.setsTotales === 4, "dio " + capturado.setsTotales);
+          assert(capturado.setsCompletados === 2, "dio " + capturado.setsCompletados);
+          var modal = frame.contentWindow.document.querySelector(".modal-back");
+          if(modal) modal.remove();
+        } finally { S.addEntreno = prevAdd; S.listEntrenos = prevList; S.saveRutina = prevSave; }
+      });
+    });
+
+    test("omitir/restaurar/agregar extra no tocan el historial de registros", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var S = c.T.Store;
+        var llamadas = 0;
+        var metodos = ["addRegistro","updateRegistro","deleteRegistro","listRegistros"];
+        var previos = {};
+        metodos.forEach(function(m){ previos[m]=S[m]; S[m]=function(){ llamadas++; return previos[m].apply(S, arguments); }; });
+        try {
+          c.T.sesionOmitirEjercicioEnSesion("e1", true);
+          c.T.sesionOmitirEjercicioEnSesion("e1", false);
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-historial"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          assert(llamadas === 0, "ninguna de estas operaciones debería tocar el historial de registros, llamó " + llamadas);
+        } finally { metodos.forEach(function(m){ S[m]=previos[m]; }); }
+      });
+    });
+
+    test("V48 — omitir/restaurar/agregar extra conservan las referencias de otros ejercicios", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        c.session.sets = c.session.sets.map(function(row){
+          return row.exerciseInstance==="a" ? Object.assign({}, row, { completed:true, peso:40, reps:10 }) : row;
+        });
+        c.session.references = { a: { accepted:true, sets:[{setNumber:1,peso:40,reps:10},{setNumber:2,peso:40,reps:10}] } };
+        c.T.sesionOmitirEjercicioEnSesion("b", true);
+        c.T.sesionOmitirEjercicioEnSesion("b", false);
+        var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-refs"; });
+        c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(c.session.references.a && c.session.references.a.accepted === true,
+          "la referencia de \"a\" no puede perderse por tocar \"b\" o agregar un extra");
+        var filaA = c.session.sets.find(function(x){ return x.exerciseInstance==="a" && x.setNumber===1; });
+        assert(filaA.peso === 40 && filaA.reps === 10 && filaA.completed === true,
+          "las series completadas de \"a\" tampoco pueden perderse, dio " + JSON.stringify(filaA));
+      });
+    });
+
+    test("screenSession/sessionProgress nunca modifican la rutina semanal real (inmutabilidad)", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        var antes = JSON.stringify(c.T.state.rutinaSlots);
+        c.T.sesionOmitirEjercicioEnSesion("e1", true);
+        var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-inmutable"; });
+        c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        c.T.screenSession(c.day);
+        c.T.sessionProgress();
+        assert(JSON.stringify(c.T.state.rutinaSlots) === antes, "la rutina semanal no puede cambiar por integrar omitidos/extras en las tarjetas");
+        assert(c.day.exercises.length === 2, "el día real sigue con sus 2 ejercicios originales, sin el extra ni cambios por la omisión");
+      });
+    });
+
+    test("compatibilidad: una sesión V48 sin ningún omitido/extra se ve exactamente igual que antes (objetivo 8)", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var vista = c.T.nativeSessionParaTarjetas(c.session);
+        assert(vista.day.exercises.length === c.session.day.exercises.length,
+          "sin omitidos, la vista para tarjetas debe tener los mismos ejercicios que el día real");
+      });
+    });
+
+    test("compatibilidad: una sesión V47 sin overlay se comporta igual que antes del bloque 0 (objetivo 8)", function(){
+      return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
+        assert(c.T.sessionExercisesEfectivos(c.day).length === 2, "sin overlay, la vista efectiva es el día real tal cual");
+        assert(c.T.sessionProgress().total === 6, "el progreso no cambia para una sesión sin omitidos/extras");
+      });
+    });
+
+    /* ---------------- V51.3 BLOQUE 5 ---------------- */
+    group("V51.3 bloque 5 — persistencia y recuperación del overlay V47");
+
+    // Harness del bloque 5: simula el "backend" (la fila de rutinas.data) con
+    // una variable en memoria, igual que conSyncV48 hizo para V48 en el
+    // bloque 3 — por la misma razón (el harness corre con dos consumidores
+    // concurrentes sobre la cola duplicada; tocar el singleton real de
+    // rutinaSync/IndexedDB es justamente lo que causó la inestabilidad que
+    // tuve que diagnosticar en el cierre del bloque 3). Nada de esto toca
+    // Supabase real.
+    function diaV515(){
+      return { id:"d-515", nombre:"Día 515", exercises:[
+        { id:"e1", nombre:"Sentadilla con barra", series:"3", reps:"10" },
+        { id:"e2", nombre:"Press de banca con barra", series:"3", reps:"10" }
+      ]};
+    }
+    async function conSesionLegadaPersistenteV515(sets, setLogs, fn){
+      var W = frame.contentWindow, T = W.__appTest, S = T.Store;
+      function clon(x){ return JSON.parse(JSON.stringify(x)); }
+      var prev = {
+        profile:T.state.profile, rutinaSlots:T.state.rutinaSlots, activeSlot:T.state.activeSlot, rutina:T.state.rutina,
+        rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence, session:T.state.session, unresolvedSession:T.state.unresolvedSession,
+        saveRutina:S.saveRutina, readRutina:S.readRutina, listPesoCorporal:S.listPesoCorporal, listRegistros:S.listRegistros, listEntrenos:S.listEntrenos, addEntreno:S.addEntreno,
+        rutinaSyncSave:T.rutinaSync.save, rutinaSyncLoad:T.rutinaSync.load, rutinaSyncGetContext:T.rutinaSync.getContext,
+        nativeReconcilerRecover:T.nativeReconciler.recover, nativeLifecycleRecover:T.nativeLifecycle.recover
+      };
+      var owner = "perfil-v515-" + Math.random().toString(36).slice(2) + Date.now();
+      var day = diaV515();
+      var sesionActiva = { dayId:day.id, slot:"personalizada", dayNombre:day.nombre, startedAt:1, sets:sets, setLogs:setLogs };
+      var docData = { personalizada:{days:[day]}, automatica:{days:[]}, enfocada:{days:[]}, activeSlot:"personalizada", sesionActiva: sesionActiva };
+      var revision = 1;
+      // rutinaSync.save/load/getContext sustituidos DIRECTO (no el real
+      // createSync): docData hace de "fila" guardada. Mismo criterio que V48
+      // en el bloque 3, aplicado acá a una sesión V47 (sin schemaVersion:48,
+      // así que el wrapper real de `write` en index.html la habría dejado
+      // pasar al camino normal de Store.saveRutina — por eso el escenario es
+      // justamente el que hay que probar con un doble simulado, no real).
+      T.rutinaSync.getContext = function(){ return { base:{ revision:revision, data:clon(docData), clienteV48:false, schemaReady:true } }; };
+      T.rutinaSync.save = function(data){
+        docData = clon(data); revision++;
+        return Promise.resolve({ ok:true, envelope:{ data:clon(docData), revision:revision, clienteV48:false, schemaReady:true } });
+      };
+      T.rutinaSync.load = function(){ return Promise.resolve({ ok:true, data:clon(docData), revision:revision, clienteV48:false, schemaReady:true }); };
+      S.saveRutina = function(){ return Promise.resolve(true); };
+      S.readRutina = function(){ return Promise.resolve({ data:clon(docData), revision:revision, clienteV48:false, schemaReady:true }); };
+      S.listPesoCorporal = function(){ return Promise.resolve([]); };
+      S.listRegistros = function(){ return Promise.resolve([]); };
+      S.listEntrenos = function(){ return Promise.resolve([]); };
+      T.nativeReconciler.recover = function(){ return Promise.resolve({ ok:true, unchanged:true }); };
+      T.nativeLifecycle.recover = function(){ return Promise.resolve({ ok:true, unchanged:true }); };
+      T.state.profile = { id:owner, name:"Test", edad:30, sexo:"m" };
+      T.state.rutinaRaw = clon(docData);
+      T.state.persistence = { data: clon(docData), revision: revision, clienteV48:false, schemaReady:true };
+      T.state.rutinaSlots = { personalizada:{days:[day]}, automatica:{days:[]}, enfocada:{days:[]} };
+      T.state.activeSlot = "personalizada";
+      T.state.rutina = T.state.rutinaSlots.personalizada;
+      T.state.session = clon(sesionActiva);
+      T.state.unresolvedSession = null;
+      var ctx = { T:T, D:W.document, owner:owner, day:day, docData:function(){ return docData; }, revision:function(){ return revision; } };
+      try { return await fn(ctx); }
+      finally {
+        T.state.profile=prev.profile; T.state.rutinaSlots=prev.rutinaSlots; T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina;
+        T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence; T.state.session=prev.session; T.state.unresolvedSession=prev.unresolvedSession;
+        S.saveRutina=prev.saveRutina; S.readRutina=prev.readRutina; S.listPesoCorporal=prev.listPesoCorporal; S.listRegistros=prev.listRegistros; S.listEntrenos=prev.listEntrenos; S.addEntreno=prev.addEntreno;
+        T.rutinaSync.save=prev.rutinaSyncSave; T.rutinaSync.load=prev.rutinaSyncLoad; T.rutinaSync.getContext=prev.rutinaSyncGetContext;
+        T.nativeReconciler.recover=prev.nativeReconcilerRecover; T.nativeLifecycle.recover=prev.nativeLifecycleRecover;
+      }
+    }
+
+    test("V47 bloque 5 — guardado: omitir y agregar extra persisten el overlay con persistRutina(), sin storage paralelo", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          var r1 = c.T.sesionOmitirEjercicioEnSesion("e1", true);
+          assert(r1.ok === true, "dio " + JSON.stringify(r1));
+          await c.T.persistRutina();
+          assert((c.docData().sesionActiva.omitidos||[]).indexOf("e1") !== -1,
+            "el \"backend\" simulado debe recibir el id omitido tras persistRutina()");
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-515"; });
+          var r2 = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          assert(r2.ok === true, "dio " + JSON.stringify(r2));
+          await c.T.persistRutina();
+          var guardado = c.docData().sesionActiva;
+          assert((guardado.extras||[]).some(function(ex){ return ex.id==="extra-515"; }), "el extra debe quedar en el overlay guardado");
+          assert(guardado.sets["extra-515"] && guardado.sets["extra-515"].length===2, "sus series también deben quedar guardadas");
+        }
+      );
+    });
+
+    test("V47 bloque 5 — recarga: loadProfileData() recupera el overlay completo (omitidos + extras + sus series)", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          c.T.sesionOmitirEjercicioEnSesion("e1", true);
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-recarga"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          await c.T.persistRutina();
+          // "Recarga": se descarta la memoria y se vuelve a cargar desde el backend simulado.
+          c.T.state.session = null;
+          await c.T.loadProfileData();
+          var s = c.T.state.session;
+          assert(s, "debería recuperar una sesión V47 activa");
+          assert((s.omitidos||[]).indexOf("e1") !== -1, "el omitido debe sobrevivir a la recarga");
+          assert((s.extras||[]).some(function(ex){ return ex.id==="extra-recarga"; }), "el extra debe sobrevivir a la recarga");
+          assert(s.sets["extra-recarga"] && s.sets["extra-recarga"].length===2, "las series del extra deben sobrevivir, dio " + JSON.stringify(s.sets["extra-recarga"]));
+          assert(s.setLogs["extra-recarga"] && s.setLogs["extra-recarga"].length===2, "los casilleros de registro del extra también deben sobrevivir");
+          assert(c.T.screenSession(c.day).indexOf('data-exercise-card="e1"') === -1, "e1 sigue omitido tras la recarga: sin tarjeta");
+          assert(c.T.screenSession(c.day).indexOf('data-exercise-card="extra-recarga"') !== -1, "el extra recuperado sí tiene tarjeta");
+        }
+      );
+    });
+
+    test("V47 bloque 5 — los pesos y repeticiones ya registrados en un extra sobreviven a la recarga (objetivo 4)", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-peso-515"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          c.T.state.session.setLogs["extra-peso-515"][0] = { registroId:"reg-1", peso:25, reps:"12", nota:"", date:"2026-10-30" };
+          c.T.toggleSessionSet("extra-peso-515", 0);
+          await c.T.persistRutina();
+          c.T.state.session = null;
+          await c.T.loadProfileData();
+          var log = c.T.state.session.setLogs["extra-peso-515"][0];
+          assert(log && log.peso === 25 && log.reps === "12" && log.registroId === "reg-1",
+            "el peso/reps/registroId ya cargados del extra deben sobrevivir, dio " + JSON.stringify(log));
+          assert(c.T.state.session.sets["extra-peso-515"][0] === true, "la marca de serie hecha también debe sobrevivir");
+        }
+      );
+    });
+
+    test("V47 bloque 5 — compatibilidad: una sesión vieja sin omitidos/extras se recupera igual que antes (objetivo 3)", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          // Simula una fila vieja: ni siquiera tiene las claves nuevas.
+          delete c.docData().sesionActiva.omitidos;
+          delete c.docData().sesionActiva.extras;
+          c.T.state.session = null;
+          await c.T.loadProfileData();
+          var s = c.T.state.session;
+          assert(s, "debe recuperar la sesión igual que antes del bloque 0");
+          assert(c.T.sessionExercisesEfectivos(c.day).length === 2, "sin overlay, la vista efectiva es el día completo, sin casos especiales");
+          assert(c.T.sessionProgress().total === 6, "el progreso también se calcula igual que siempre");
+        }
+      );
+    });
+
+    test("V47 bloque 5 — cancelar descarta el overlay sin dejar efectos en la próxima sesión (objetivo 7)", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          c.T.sesionOmitirEjercicioEnSesion("e1", true);
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-cancel"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          await c.T.persistRutina();
+          // Mismo patrón que el botón "Cancelar entrenamiento" de mountSession.
+          c.T.state.session = null;
+          await c.T.persistRutina();
+          assert(!c.docData().sesionActiva, "el backend debe quedar sin sesión activa, dio " + JSON.stringify(c.docData().sesionActiva));
+          // Una sesión nueva, arrancada después, no puede arrastrar nada del overlay viejo.
+          c.T.state.session = { dayId:c.day.id, slot:"personalizada", dayNombre:c.day.nombre, startedAt:Date.now(),
+            sets:{ e1:[false,false,false], e2:[false,false,false] }, setLogs:{ e1:[null,null,null], e2:[null,null,null] } };
+          assert((c.T.state.session.omitidos||[]).length === 0, "la sesión nueva no debe heredar omitidos de la cancelada");
+          assert(c.T.sessionExercisesEfectivos(c.day).length === 2, "la vista efectiva de la sesión nueva es el día completo, sin el extra viejo");
+        }
+      );
+    });
+
+    test("V47 bloque 5 — finalizar descarta el overlay sin dejar efectos en entrenamientos posteriores (objetivo 7)", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[true,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          var S = c.T.Store;
+          S.addEntreno = function(){ return Promise.resolve({ ok:true, id:"entreno-515" }); };
+          var r = c.T.sesionOmitirEjercicioEnSesion("e2", true);
+          assert(r.ok === true, "dio " + JSON.stringify(r));
+          var prep = c.T.sesionPrepararExtra("Face pull", "1", "12", function(){ return "extra-fin-515"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          await c.T.finalizeSession(c.day);
+          assert(c.T.state.session === null, "finalizar debe limpiar state.session, llevándose el overlay con él");
+          assert(!c.docData().sesionActiva, "el backend debe quedar sin sesión activa, dio " + JSON.stringify(c.docData().sesionActiva));
+          var modal = c.D.querySelector(".modal-back"); if(modal) modal.remove();
+        }
+      );
+    });
+
+    test("V47 bloque 5 — syncSessionSetsWithDay conserva las series de un extra recuperado (objetivo 6)", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-sync-515"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          await c.T.persistRutina();
+          c.T.state.session = null;
+          await c.T.loadProfileData();
+          c.T.syncSessionSetsWithDay(c.day);
+          assert(c.T.state.session.sets["extra-sync-515"] && c.T.state.session.sets["extra-sync-515"].length === 2,
+            "syncSessionSetsWithDay no puede borrar las series del extra recuperado");
+        }
+      );
+    });
+
+    test("V47 bloque 5 — el ciclo completo de guardado y recarga nunca toca la rutina semanal real (inmutabilidad)", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          var antes = JSON.stringify(c.T.state.rutinaSlots);
+          c.T.sesionOmitirEjercicioEnSesion("e1", true);
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-inm-515"; });
+          c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          await c.T.persistRutina();
+          c.T.state.session = null;
+          await c.T.loadProfileData();
+          assert(JSON.stringify(c.T.state.rutinaSlots) === antes, "la rutina semanal no puede cambiar en todo el ciclo de persistencia/recuperación");
+          assert(c.day.exercises.length === 2 && !c.day.exercises.some(function(ex){ return ex.id==="extra-inm-515"; }),
+            "el día real sigue sin el extra, sin cambios por la omisión");
+        }
+      );
+    });
+
+    /* ---------------- V51.3 BLOQUE 6 — GRUPO A ---------------- */
+    group("V51.3 bloque 6 (Grupo A) — progreso visual V48 y fallos de persistencia V47");
+
+    /* -------- A1: sessionProgress() en V48 excluye omitidos -------- */
+
+    test("A1 — V48: sessionProgress excluye un omitido del total y lo recupera al restaurar", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var base = c.T.sessionProgress();
+        assert(base.total === 5, "\"a\"(4)+\"b\"(1)=5 al empezar, dio " + base.total);
+        var r = c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        var sinB = c.T.sessionProgress();
+        assert(sinB.total === 4 && sinB.done === 0, "omitido \"b\", sólo quedan las 4 de \"a\", dio " + JSON.stringify(sinB));
+        var r2 = c.T.sesionOmitirEjercicioEnSesion("b", false);
+        assert(r2.ok === true, "dio " + JSON.stringify(r2));
+        var restaurado = c.T.sessionProgress();
+        assert(restaurado.total === 5, "restaurado \"b\", vuelve a 5, dio " + restaurado.total);
+      });
+    });
+
+    test("A1 — V48: sessionProgress incluye un extra agregado y cuenta su serie completada", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-progreso-v48"; });
+        var r = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        var conExtra = c.T.sessionProgress();
+        assert(conExtra.total === 7, "\"a\"(4)+\"b\"(1)+extra(2)=7, dio " + conExtra.total);
+        var VFS = frame.contentWindow.VodaFitSession;
+        VFS.edit(c.session, "extra-progreso-v48", 1, "peso", "20");
+        VFS.edit(c.session, "extra-progreso-v48", 1, "reps", "12");
+        var aceptado = VFS.toggle(c.session, "extra-progreso-v48", 1, true);
+        assert(aceptado === true, "completar la serie del extra con datos válidos debe aceptarse");
+        var conHecha = c.T.sessionProgress();
+        assert(conHecha.done === 1, "la serie completada del extra debe contar, dio " + conHecha.done);
+      });
+    });
+
+    test("A1 — V48: sessionProgress coincide con el criterio de sets_totales de la migración 12 (omitido + extra combinados)", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var r1 = c.T.sesionOmitirEjercicioEnSesion("a", true); // "a" tiene 4 series, se omite
+        assert(r1.ok === true, "dio " + JSON.stringify(r1));
+        var prep = c.T.sesionPrepararExtra("Face pull", "3", "12", function(){ return "extra-criterio"; });
+        var r2 = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+        assert(r2.ok === true, "dio " + JSON.stringify(r2));
+        // Replica a mano la fórmula de v48_finalizar (12_omitidos_extras.sql):
+        // cuenta las filas de `sets` cuyo ejercicio NO está marcado omitido en
+        // el día — exactamente el criterio SQL, no una aproximación.
+        var dia = c.session.day;
+        var esperado = c.session.sets.filter(function(x){
+          var ex = dia.exercises.find(function(e){ return e.id===x.exerciseInstance; });
+          return !(ex && ex.omitido);
+        }).length;
+        var p = c.T.sessionProgress();
+        assert(p.total === esperado, "sessionProgress().total (" + p.total + ") debe coincidir con el criterio SQL (" + esperado + ")");
+        assert(p.total === 4, "\"b\"(1)+extra(3)=4 excluyendo \"a\" omitido, dio " + p.total);
+      });
+    });
+
+    test("A1 — V48: el banner de sesión activa (sessionResumeBannerHtml) muestra el progreso ya corregido", function(){
+      return conSesionNativaV513(setsVacios4y1(), function(c){
+        var r = c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        var html = c.T.sessionResumeBannerHtml();
+        var m = html.match(/(\d+)\/(\d+) series completadas/);
+        assert(m, "el banner debería mostrar \"X/Y series completadas\", dio: " + html.slice(0,300));
+        assert(m[2] === "4", "el banner no debe contar las series de \"b\" omitido en el total, dio " + m[0]);
+      });
+    });
+
+    /* -------- A2: persistRutina() fallando tras omitir/restaurar/agregar -------- */
+
+    // Limpia cualquier toast viejo del DOM antes de disparar la acción: el
+    // mismo elemento se reusa (showToast sólo cambia su texto), así que sin
+    // esto un toast de una prueba anterior podría dar un falso positivo.
+    function limpiarToast(D){ var t = D.querySelector(".toast"); if(t) t.remove(); }
+    function textoToast(D){ var t = D.querySelector(".toast"); return t ? t.textContent : ""; }
+
+    test("A2 — V47: persistRutina() fallando tras OMITIR avisa el error y no pierde el cambio local", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          limpiarToast(c.D);
+          var saveOriginal = c.T.rutinaSync.save;
+          c.T.rutinaSync.save = function(){ return Promise.resolve({ ok:false, code:"NETWORK_ERROR" }); };
+          var r = c.T.sesionOmitirEjercicioEnSesion("e1", true);
+          assert(r.ok === true, "la mutación local debe poder hacerse igual, dio " + JSON.stringify(r));
+          var guardado = await c.T.persistRutina();
+          c.T.rutinaSync.save = saveOriginal;
+          assert(guardado.ok === false, "persistRutina() debe reportar el fallo, dio " + JSON.stringify(guardado));
+          // Señal de error existente (persistRutina ya la muestra — no se
+          // inventa una nueva): sin copia local porque rutinaSync.save nunca
+          // llegó a escribir en caché en este doble.
+          assert(textoToast(c.D).indexOf("No se pudo guardar") !== -1,
+            "debe avisar que no se pudo guardar, dio: \"" + textoToast(c.D) + "\"");
+          assert(!/guardad[oa] correctamente|guardado$/.test(textoToast(c.D).toLowerCase()),
+            "el aviso no puede afirmar que el cambio quedó guardado");
+          // El estado local NO se pierde: la omisión sigue en memoria aunque
+          // el guardado remoto haya fallado.
+          assert((c.T.state.session.omitidos||[]).indexOf("e1") !== -1,
+            "el cambio local tiene que sobrevivir a un guardado fallido");
+        }
+      );
+    });
+
+    test("A2 — V47: persistRutina() fallando tras RESTAURAR avisa el error y no pierde el cambio local", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          var r0 = c.T.sesionOmitirEjercicioEnSesion("e1", true);
+          assert(r0.ok === true, "precondición: omitir debe poder hacerse");
+          await c.T.persistRutina(); // esta escritura sí "llega" (guardado real del doble)
+          limpiarToast(c.D);
+          var saveOriginal = c.T.rutinaSync.save;
+          c.T.rutinaSync.save = function(){ return Promise.resolve({ ok:false, code:"NETWORK_ERROR" }); };
+          var r = c.T.sesionOmitirEjercicioEnSesion("e1", false);
+          assert(r.ok === true, "restaurar siempre debe poder hacerse, dio " + JSON.stringify(r));
+          var guardado = await c.T.persistRutina();
+          c.T.rutinaSync.save = saveOriginal;
+          assert(guardado.ok === false, "dio " + JSON.stringify(guardado));
+          assert(textoToast(c.D).indexOf("No se pudo guardar") !== -1,
+            "debe avisar que no se pudo guardar, dio: \"" + textoToast(c.D) + "\"");
+          // El estado local refleja la restauración (ya no está en la lista
+          // de omitidos) aunque el guardado remoto haya fallado — es lo
+          // mismo que ya vale para cualquier otro cambio en memoria: no se
+          // revierte por un fallo de red, se reintenta en el próximo guardado.
+          assert((c.T.state.session.omitidos||[]).indexOf("e1") === -1,
+            "la restauración local tiene que reflejarse igual, con guardado fallido o no");
+        }
+      );
+    });
+
+    test("A2 — V47: persistRutina() fallando tras AGREGAR UN EXTRA avisa el error y no pierde el extra", function(){
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          limpiarToast(c.D);
+          var saveOriginal = c.T.rutinaSync.save;
+          c.T.rutinaSync.save = function(){ return Promise.resolve({ ok:false, code:"NETWORK_ERROR" }); };
+          var prep = c.T.sesionPrepararExtra("Face pull", "2", "12", function(){ return "extra-fallo-a2"; });
+          var r = c.T.sesionAgregarExtraEnSesion(prep.ejercicio);
+          assert(r.ok === true, "agregar el extra en memoria debe poder hacerse igual, dio " + JSON.stringify(r));
+          var guardado = await c.T.persistRutina();
+          c.T.rutinaSync.save = saveOriginal;
+          assert(guardado.ok === false, "dio " + JSON.stringify(guardado));
+          assert(textoToast(c.D).indexOf("No se pudo guardar") !== -1,
+            "debe avisar que no se pudo guardar, dio: \"" + textoToast(c.D) + "\"");
+          assert(!/guardad[oa] correctamente|guardado$/.test(textoToast(c.D).toLowerCase()),
+            "el aviso no puede afirmar que el extra quedó guardado");
+          assert(c.T.state.session.extras.some(function(ex){ return ex.id==="extra-fallo-a2"; }),
+            "el extra tiene que sobrevivir en memoria aunque el guardado remoto haya fallado");
+          assert(c.T.state.session.sets["extra-fallo-a2"] && c.T.state.session.sets["extra-fallo-a2"].length===2,
+            "sus series también deben seguir ahí, listas para el próximo guardado");
+        }
+      );
+    });
+
+    test("A2 — V47: con guardado local exitoso pero sin confirmación remota, el aviso distingue ese caso (no afirma éxito total)", function(){
+      // rutinaSync.save real para V47 no tiene un "ok:false,localSaved:true"
+      // (eso es exclusivo del camino NATIVE_LOCAL_ONLY de V48) — pero el
+      // mismo persistRutina() sí contempla result.localSaved en general
+      // (ver su función). Esta prueba fija ese comportamiento con un doble
+      // que sí lo reporta, para que una futura implementación de guardado
+      // local V47 (fuera de alcance de este bloque) no lo rompa en silencio.
+      return conSesionLegadaPersistenteV515(
+        { e1:[false,false,false], e2:[false,false,false] }, { e1:[null,null,null], e2:[null,null,null] },
+        async function(c){
+          limpiarToast(c.D);
+          var saveOriginal = c.T.rutinaSync.save;
+          c.T.rutinaSync.save = function(){ return Promise.resolve({ ok:false, code:"NETWORK_ERROR", localSaved:true }); };
+          var r = c.T.sesionOmitirEjercicioEnSesion("e2", true);
+          assert(r.ok === true, "dio " + JSON.stringify(r));
+          var guardado = await c.T.persistRutina();
+          c.T.rutinaSync.save = saveOriginal;
+          assert(guardado.ok === false, "dio " + JSON.stringify(guardado));
+          assert(textoToast(c.D).indexOf("guardado en este dispositivo") !== -1,
+            "con copia local pero sin confirmar, el aviso debe distinguirlo del fallo total, dio: \"" + textoToast(c.D) + "\"");
+        }
+      );
+    });
+
+    group("V51.3 bloque 6 (hotfix) — persistencia local inmediata V48 de omitidos/extras");
+
+    // Bug reportado en staging: omitir un ejercicio en una sesión V48 se
+    // perdía al recargar (F5), mientras que un extra con una serie
+    // registrada sí sobrevivía. Causa: los tres manejadores de Omitir/
+    // Restaurar/Agregar extra mutaban nativa.day/sets sólo en memoria y
+    // saltaban el guardado local para V48 ("if(!nativeSession())
+    // await persistRutina()"), asumiendo que sincronizarEstructuraNativa
+    // (bloque 3) ya cubría la persistencia — pero esa función sólo corre al
+    // finalizar (requestNativeFinish), nunca en el momento de omitir/agregar.
+    // El extra sobrevivía sólo porque, en la prueba manual, registrar una
+    // serie sobre él SÍ dispara borradorV48.cambio() (persistRutina), que de
+    // arrastre guarda el day ya mutado.
+    //
+    // Ninguna de estas pruebas busca la línea corregida como texto: todas
+    // dejan que el stub de rutinaSync.save de conSyncV48 registre lo
+    // guardado, descartan la sesión en memoria (simulando F5) y recargan con
+    // loadProfileData() — el mismo camino que un reload real. Sin guardado
+    // previo, el stub de rutinaSync.load no detecta ningún conflicto con el
+    // servidor y loadProfileData() recarga el día SIN el cambio: así se
+    // reproduce el bug si el guardado no ocurrió.
+    //
+    // Aviso honesto sobre alcance (verificado invirtiendo el fix y
+    // reejecutando la suite): las dos pruebas de OMITIR/RESTAURAR que siguen
+    // llaman la secuencia "mutar + (nativeSession()?cambio():persistRutina())"
+    // escrita en el propio test, NO el onclick real de mountSession — ese
+    // onclick vive dentro de un cierre anónimo, adentro del
+    // `if(SESION_OMITIR_HABILITADO)` que mantiene el panel invisible, y no
+    // hay ningún punto exportado para invocarlo sin prender el flag (que
+    // debe seguir en false). Por eso estas dos SÍ validan que la secuencia de
+    // guardado+recarga es correcta, pero NO detectarían que alguien borre
+    // esa línea de dentro del onclick real en los próximos cambios. Las dos
+    // pruebas de AGREGAR EXTRA que siguen después no tienen esta limitación:
+    // openSesionExtraModal() está exportado y no depende del flag, así que
+    // disparan saveBtn.onclick() real — confirmado haciendo fallar esas dos
+    // (no las de omitir/restaurar) al revertir la línea 5680 y volver a
+    // correr la suite.
+
+    test("hotfix — V48: OMITIR — la secuencia mutar+guardar sobrevive a la recarga (no cubre el onclick real, ver aviso arriba)", function(){
+      return conSyncV48(async function(c){
+        var r = c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(r.ok === true, "dio " + JSON.stringify(r));
+        // Misma secuencia que el manejador real de mountSession (ver el fix).
+        await (c.T.nativeSession() ? c.T.borradorV48.cambio() : c.T.persistRutina());
+
+        // "Recarga": se descarta la sesión en memoria y se recarga desde el
+        // backend simulado — SIN construir el conflicto a mano (eso probaría
+        // sólo el merge, no si el guardado ocurrió de verdad).
+        c.T.state.session = null; c.T.state.unresolvedSession = null;
+        await c.T.loadProfileData();
+
+        var s = c.T.nativeSession();
+        assert(s, "debería recuperar una sesión V48 activa tras la recarga");
+        var ex = s.day.exercises.find(function(e){ return e.id==="b"; });
+        assert(ex && ex.omitido === true, "\"b\" debe seguir omitido tras F5, dio " + JSON.stringify(ex));
+      });
+    });
+
+    test("hotfix — V48: RESTAURAR — la secuencia mutar+guardar sobrevive a la recarga (no cubre el onclick real, ver aviso arriba)", function(){
+      return conSyncV48(async function(c){
+        var r1 = c.T.sesionOmitirEjercicioEnSesion("b", true);
+        assert(r1.ok === true, "precondición (omitir) dio " + JSON.stringify(r1));
+        await (c.T.nativeSession() ? c.T.borradorV48.cambio() : c.T.persistRutina());
+
+        var r2 = c.T.sesionOmitirEjercicioEnSesion("b", false);
+        assert(r2.ok === true, "restaurar dio " + JSON.stringify(r2));
+        await (c.T.nativeSession() ? c.T.borradorV48.cambio() : c.T.persistRutina());
+
+        c.T.state.session = null; c.T.state.unresolvedSession = null;
+        await c.T.loadProfileData();
+
+        var s = c.T.nativeSession();
+        assert(s, "debería recuperar una sesión V48 activa tras la recarga");
+        var ex = s.day.exercises.find(function(e){ return e.id==="b"; });
+        assert(ex && ex.omitido === false, "\"b\" restaurado no debe volver a aparecer omitido tras F5, dio " + JSON.stringify(ex));
+      });
+    });
+
+    // Estas dos pruebas de "agregar extra" pasan por el modal REAL
+    // (openSesionExtraModal, exportado y NO bloqueado por
+    // SESION_OMITIR_HABILITADO) y disparan saveBtn.onclick() tal cual lo
+    // haría un click real — así ejecutan literalmente la línea 5680
+    // corregida, no una copia suya. Una regresión futura en ESE guardado
+    // las haría fallar de verdad.
+    test("hotfix — V48: agregar un extra (modal real) SIN completar ninguna serie persiste de inmediato y sobrevive a la recarga", function(){
+      return conSyncV48(async function(c){
+        try {
+          c.T.openSesionExtraModal();
+          var modal = c.D.querySelector(".modal-back");
+          assert(modal, "el modal de agregar extra debería estar abierto");
+          modal.querySelector("#sesion-extra-name").value = "Face pull hotfix";
+          modal.querySelector("#sesion-extra-series").value = "2";
+          modal.querySelector("#sesion-extra-reps").value = "12";
+          var saveBtn = modal.querySelector('[data-act="save"]');
+          await saveBtn.onclick(); // el handler real: mutar + (nativeSession()?cambio():persistRutina()) + cerrar
+
+          c.T.state.session = null; c.T.state.unresolvedSession = null;
+          await c.T.loadProfileData();
+
+          var s = c.T.nativeSession();
+          assert(s, "debería recuperar una sesión V48 activa tras la recarga");
+          var ex = s.day.exercises.find(function(e){ return e.nombre==="Face pull hotfix"; });
+          assert(ex && ex.extra === true && ex.omitido === false, "el extra debe seguir en el día recuperado, sin series, dio " + JSON.stringify(ex));
+          var seriesPlan = s.sets.filter(function(x){ return x.exerciseInstance===ex.id; });
+          assert(seriesPlan.length === 2, "sus 2 series planificadas (sin completar) también deben sobrevivir, dio " + seriesPlan.length);
+          assert(seriesPlan.every(function(x){ return x.completed===false; }), "ninguna serie del extra se completó en este escenario");
+        } finally {
+          var viejo = c.D.querySelector(".modal-back"); if(viejo) viejo.remove();
+        }
+      });
+    });
+
+    test("hotfix — V48: un extra (modal real) CON una serie registrada conserva sus datos intactos tras la recarga (sin regresión)", function(){
+      return conSyncV48(async function(c){
+        try {
+          c.T.openSesionExtraModal();
+          var modal = c.D.querySelector(".modal-back");
+          assert(modal, "el modal de agregar extra debería estar abierto");
+          modal.querySelector("#sesion-extra-name").value = "Face pull hotfix set";
+          modal.querySelector("#sesion-extra-series").value = "1";
+          modal.querySelector("#sesion-extra-reps").value = "12";
+          var saveBtn = modal.querySelector('[data-act="save"]');
+          await saveBtn.onclick();
+
+          var creado = c.T.nativeSession().day.exercises.find(function(e){ return e.nombre==="Face pull hotfix set"; });
+          assert(creado, "el extra recién agregado debería estar en el día");
+          var exId = creado.id;
+
+          var VFS = frame.contentWindow.VodaFitSession;
+          VFS.edit(c.T.nativeSession(), exId, 1, "peso", "10");
+          VFS.edit(c.T.nativeSession(), exId, 1, "reps", "10");
+          var aceptado = VFS.toggle(c.T.nativeSession(), exId, 1, true);
+          assert(aceptado === true, "completar la serie del extra con datos válidos debe aceptarse");
+
+          // Mismo guardado que dispara el onChange real de VodaFitSession.bind
+          // (ver mountSession) al tildar una serie — este camino nunca tuvo el bug.
+          await c.T.borradorV48.cambio();
+
+          c.T.state.session = null; c.T.state.unresolvedSession = null;
+          await c.T.loadProfileData();
+
+          var s = c.T.nativeSession();
+          assert(s, "debería recuperar una sesión V48 activa tras la recarga");
+          var ex = s.day.exercises.find(function(e){ return e.id===exId; });
+          assert(ex && ex.extra === true, "el extra debe seguir en el día recuperado");
+          var fila = s.sets.find(function(x){ return x.exerciseInstance===exId && x.setNumber===1; });
+          assert(fila && fila.completed === true && fila.peso === 10 && fila.reps === 10,
+            "la serie de 10kg×10 debe sobrevivir completa e intacta, dio " + JSON.stringify(fila));
+        } finally {
+          var viejo = c.D.querySelector(".modal-back"); if(viejo) viejo.remove();
+        }
+      });
+    });
+
+    group("V51.3 — reproducción controlada de LOCAL_CONFLICT (VodaFitPersistence.createSync real)");
+
+    // Objetivo: demostrar con la lógica REAL de createSync (ningún resultado
+    // de error se devuelve a mano) bajo qué secuencia aparece LOCAL_CONFLICT
+    // con una sola pestaña, y si la corrección propuesta (trasladar el
+    // rastreo de promesas a persistRutina()) alcanza para evitarlo.
+    //
+    // El cache de abajo reimplementa el MISMO contrato que v48-persistence.js
+    // (get/put con expectedVersion, conflicts) pero en memoria y con
+    // resolución MANUAL de put() — así el test controla el orden exacto de
+    // los eventos sin depender del timing real de IndexedDB ni tocarla.
+    //
+    // Aviso explícito (pedido): un cache simulado con timing manual NO es lo
+    // mismo que una recarga real del navegador. Las pruebas de más abajo lo
+    // distinguen en dos grupos separados: una que SÍ corresponde a algo que
+    // ocurre dentro de una sola instancia de JS (sin recarga), y otra que
+    // modela — sin pretender replicar los mecanismos internos de unload del
+    // navegador — lo mínimo indispensable de una recarga real: una SEGUNDA
+    // instancia de createSync que comparte el mismo almacenamiento con la
+    // primera, porque eso es lo único que sí sabemos que es cierto de una
+    // recarga (misma IndexedDB, instancia de JS nueva).
+
+    function fakeRepository(){
+      return {
+        async read(ownerId){ return { data:{sesionActiva:null}, revision:0, clienteV48:true, schemaReady:true }; },
+        // Mismo código que el wrapper real de `write` en index.html para una
+        // sesión nativa: nunca llega a Supabase, siempre NATIVE_LOCAL_ONLY.
+        async write(userId,data,base,isCurrent){ return { ok:false, code:"NATIVE_LOCAL_ONLY" }; }
+      };
+    }
+    // cache en memoria, MISMO contrato que v48-persistence.js:89-121 (get/put
+    // con expectedVersion, conflicts por ownerId) pero con put() resuelto a
+    // mano vía _flushOnePut(), para poder intercalar eventos con precisión.
+    function fakeCache(){
+      var stored = null, conflictsStore = [], colaPuts = [];
+      function clon(x){ return x==null ? x : JSON.parse(JSON.stringify(x)); }
+      return {
+        async get(ownerId){ return (stored && stored.ownerId===ownerId) ? clon(stored) : null; },
+        put(row, expectedVersion){
+          var resolver;
+          var p = new Promise(function(res){ resolver = res; });
+          colaPuts.push({ resolver: resolver, row: clon(row), expectedVersion: expectedVersion });
+          return p;
+        },
+        async conflicts(ownerId){ return conflictsStore.filter(function(c){ return c.ownerId===ownerId; }); },
+        // --- controles exclusivos del test, no existen en el cache real ---
+        _pendientes: function(){ return colaPuts.length; },
+        _flushOnePut: function(){
+          var item = colaPuts.shift();
+          if(!item) return null;
+          var actual = stored, version = actual ? actual.localVersion : 0;
+          var resultado;
+          if(version !== item.expectedVersion){
+            conflictsStore.push({ ...item.row, id:"conflict-"+Math.random().toString(36).slice(2), ownerId:item.row.ownerId });
+            resultado = { conflict:true, backupSaved:true, localVersion:version };
+          } else {
+            stored = { ...item.row, version:1, localVersion:version+1 };
+            resultado = clon(stored);
+          }
+          item.resolver(resultado);
+          return resultado;
+        }
+      };
+    }
+
+    test("real createSync: un save() y un load() normales, sin interleaving, NUNCA dan LOCAL_CONFLICT (control negativo)", function(){
+      return (async function(){
+        var VFP = frame.contentWindow.VodaFitPersistence;
+        var cache = fakeCache();
+        var sync = VFP.createSync(fakeRepository(), cache);
+        await sync.load("owner-control");
+        var p = sync.save({ sesionActiva:{ schemaVersion:48, day:{exercises:[]} } });
+        await Promise.resolve(); await Promise.resolve(); // deja que la tarea llegue a su await cache.put(...)
+        cache._flushOnePut(); // deja que termine ANTES de cualquier otro load()
+        var r = await p;
+        // El repositorio nativo real nunca confirma contra el servidor acá
+        // (ver fakeRepository.write): NATIVE_LOCAL_ONLY + localSaved:true ES
+        // el "guardó bien" real a nivel createSync — persistRutina() es quien,
+        // afuera, lo reinterpreta como éxito ante el usuario.
+        assert(r.code === "NATIVE_LOCAL_ONLY" && r.localSaved === true,
+          "sin interleaving, debe guardar bien localmente, dio " + JSON.stringify(r));
+        assert(cache._pendientes() === 0, "no debe quedar ningún put sin resolver");
+      })();
+    });
+
+    test("ESCENARIO 1 (misma instancia, SIN recarga): load() durante un save() pendiente deja localVersion desactualizado -> LOCAL_CONFLICT real", function(){
+      return (async function(){
+        var VFP = frame.contentWindow.VodaFitPersistence;
+        var cache = fakeCache();
+        var sync = VFP.createSync(fakeRepository(), cache);
+
+        await sync.load("owner-1");
+        var p1 = sync.save({ sesionActiva:{ schemaVersion:48, day:{exercises:[{id:"a"}]} } });
+        await Promise.resolve(); await Promise.resolve(); // deja que la tarea llegue a su propio await cache.put(...)
+        assert(cache._pendientes() === 1, "el primer save debería estar esperando su put, sin resolver todavía");
+
+        // Un load() SEGUNDO en la misma instancia, mientras el primer save
+        // sigue sin resolver: lee la versión vieja (0), exactamente como
+        // describe el código real (v48-persistence.js:168).
+        await sync.load("owner-1");
+
+        // Ahora sí se deja terminar el primer save (simula que esa escritura
+        // vieja termina de aterrizar DESPUÉS del load nuevo).
+        cache._flushOnePut();
+        var r1 = await p1;
+        // Hallazgo adicional, no un defecto del test: el repositorio real
+        // (igual que el wrapper de `write` en index.html) nunca confirma una
+        // sesión nativa contra el servidor acá — createSync.save() devuelve
+        // {ok:false, code:"NATIVE_LOCAL_ONLY", localSaved:true} tal cual (es
+        // persistRutina(), afuera, quien lo reinterpreta como éxito). Además,
+        // como `active` ya es el ctx del load() nuevo, createSync puede
+        // devolver ACCOUNT_CHANGED en su lugar — pero la escritura en el
+        // cache YA SE APLICÓ igual (current(ctx) sólo decide qué le contesta
+        // a quien llamó, no si el put se ejecuta). Por eso el choque de más
+        // abajo es real: el storage compartido ya cambió bajo los pies del
+        // contexto nuevo, sin que nadie se entere todavía.
+        assert((r1.code === "NATIVE_LOCAL_ONLY" && r1.localSaved === true) || r1.code === "ACCOUNT_CHANGED",
+          "el primer save debe o bien guardar localmente, o bien avisar que su contexto quedó obsoleto, dio " + JSON.stringify(r1));
+        assert(cache._pendientes() === 0, "la escritura vieja debe haber aterrizado en el cache compartido igual");
+
+        // El siguiente save bajo el contexto NUEVO usa la versión que leyó
+        // ese load (0), pero el cache ya tiene 1 -> choque real, no fabricado.
+        var p2 = sync.save({ sesionActiva:{ schemaVersion:48, day:{exercises:[{id:"a"},{id:"b"}]} } });
+        await Promise.resolve(); await Promise.resolve();
+        cache._flushOnePut();
+        var r2 = await p2;
+        assert(r2.ok === false && r2.code === "LOCAL_CONFLICT",
+          "el segundo save debe chocar de verdad contra la lógica real de createSync, dio " + JSON.stringify(r2));
+      })();
+    });
+
+    test("ESCENARIO 1, corregido CON EL FLUJO REAL: persistRutina()+borradorV48.esperar() de la app (no un modelo externo) evitan el LOCAL_CONFLICT", function(){
+      // A diferencia del test anterior, ACÁ se llama a T.persistRutina() y a
+      // T.borradorV48.esperar() de verdad — las funciones reales de
+      // index.html, ya con la corrección aplicada. Lo ÚNICO sustituido es
+      // rutinaSync.save/load/getContext, para que delegen en un
+      // createSync() real con cache de timing controlado (mismo patrón que
+      // conSyncV48 usa en otros grupos de este archivo para no tocar
+      // IndexedDB real) — así se prueba la integración real, no una copia
+      // de su lógica escrita en el test.
+      return (async function(){
+        var T = frame.contentWindow.__appTest, VFP = frame.contentWindow.VodaFitPersistence;
+        var cache = fakeCache();
+        var innerSync = VFP.createSync(fakeRepository(), cache);
+        var owner = "owner-real-fix-" + Math.random().toString(36).slice(2) + Date.now();
+        var prev = {
+          profile:T.state.profile, rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence,
+          session:T.state.session, unresolvedSession:T.state.unresolvedSession,
+          rutinaSlots:T.state.rutinaSlots, activeSlot:T.state.activeSlot, rutina:T.state.rutina,
+          save:T.rutinaSync.save, load:T.rutinaSync.load, getContext:T.rutinaSync.getContext
+        };
+        T.rutinaSync.save = function(data){ return innerSync.save(data); };
+        T.rutinaSync.load = function(ownerId){ return innerSync.load(ownerId); };
+        T.rutinaSync.getContext = function(){ return innerSync.getContext(); };
+        try {
+          T.state.profile = { id:owner, name:"Test", edad:30, sexo:"m" };
+          T.state.rutinaRaw = {};
+          T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+          T.state.activeSlot = "personalizada";
+          T.state.rutina = T.state.rutinaSlots.personalizada;
+          T.state.unresolvedSession = null;
+          T.state.session = { schemaVersion:48, day:{exercises:[{id:"a"}]} };
+
+          await T.rutinaSync.load(owner); // primer load, real
+          var p1 = T.persistRutina(); // llamada DIRECTA real (no vía cambio()) — el caso que antes NO quedaba rastreado
+          await Promise.resolve(); await Promise.resolve();
+          assert(cache._pendientes() === 1, "precondición: la escritura real de persistRutina() sigue sin resolver");
+
+          // Acá está la corrección real: loadProfileData() en la app llama
+          // borradorV48.esperar() antes de su propio rutinaSync.load() — se
+          // replica ese orden EXACTO acá, con las funciones reales.
+          cache._flushOnePut();
+          await T.borradorV48.esperar();
+
+          await T.rutinaSync.load(owner); // segundo load real, ya con la versión al día
+          T.state.session = { schemaVersion:48, day:{exercises:[{id:"a"},{id:"b"}]} };
+          var p2 = T.persistRutina();
+          await Promise.resolve(); await Promise.resolve();
+          cache._flushOnePut();
+          var r2 = await p2;
+          assert(r2.code !== "LOCAL_CONFLICT",
+            "con la corrección real aplicada, persistRutina() no debería chocar, dio " + JSON.stringify(r2));
+          assert(r2.code === "NATIVE_LOCAL_ONLY" && r2.localSaved === true,
+            "debe guardar localmente como siempre, dio " + JSON.stringify(r2));
+        } finally {
+          T.state.profile=prev.profile; T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence;
+          T.state.session=prev.session; T.state.unresolvedSession=prev.unresolvedSession;
+          T.state.rutinaSlots=prev.rutinaSlots; T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina;
+          T.rutinaSync.save=prev.save; T.rutinaSync.load=prev.load; T.rutinaSync.getContext=prev.getContext;
+        }
+      })();
+    });
+
+    test("llamada DIRECTA a persistRutina() (sin pasar por borradorV48.cambio()) también queda rastreada por esperar()", function(){
+      // Cubre el requisito explícito: verificar que las escrituras directas
+      // (como las de sincronizarEstructuraNativa/finalizeNativeSession/
+      // requestNativeCancel) también quedan rastreadas, no sólo las de cambio().
+      return (async function(){
+        var T = frame.contentWindow.__appTest;
+        var prev = { profile:T.state.profile, rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence, session:T.state.session,
+          unresolvedSession:T.state.unresolvedSession, rutinaSlots:T.state.rutinaSlots,
+          activeSlot:T.state.activeSlot, rutina:T.state.rutina,
+          save:T.rutinaSync.save, load:T.rutinaSync.load, getContext:T.rutinaSync.getContext };
+        var resolverManual;
+        T.rutinaSync.save = function(){ return new Promise(function(res){ resolverManual=res; }); };
+        T.rutinaSync.getContext = function(){ return { base:{ revision:1, data:{}, clienteV48:false, schemaReady:true } }; };
+        try {
+          T.state.profile = { id:"owner-directo-"+Date.now(), name:"Test" };
+          T.state.rutinaRaw = {}; T.state.session = null; T.state.unresolvedSession = null;
+          T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+          T.state.activeSlot = "personalizada"; T.state.rutina = T.state.rutinaSlots.personalizada;
+
+          var antes = T.borradorV48.esperar();
+          var pDirecta = T.persistRutina(); // llamada directa, NO cambio()
+          await Promise.resolve();
+          var despues = T.borradorV48.esperar();
+          assert(despues !== antes, "esperar() debe reflejar la llamada directa a persistRutina(), no sólo las de cambio()");
+          resolverManual({ ok:true, envelope:{ data:{}, revision:1, clienteV48:false, schemaReady:true } });
+          await pDirecta;
+        } finally {
+          T.state.profile=prev.profile; T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence; T.state.session=prev.session;
+          T.state.unresolvedSession=prev.unresolvedSession; T.state.rutinaSlots=prev.rutinaSlots;
+          T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina;
+          T.rutinaSync.save=prev.save; T.rutinaSync.load=prev.load; T.rutinaSync.getContext=prev.getContext;
+        }
+      })();
+    });
+
+    test("sin bloqueos ni espera circular: borradorV48.esperar() resuelve por su cuenta, sin que persistRutina() dependa de esperar()", function(){
+      return (async function(){
+        var T = frame.contentWindow.__appTest;
+        // Si hubiera una dependencia circular, esperar la escritura con un
+        // timeout corto se quedaría colgado. Se corre con una carrera contra
+        // un timeout propio del test (no toca nada de producción) para
+        // demostrar que SIEMPRE termina.
+        var prev = { profile:T.state.profile, rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence, session:T.state.session,
+          unresolvedSession:T.state.unresolvedSession, rutinaSlots:T.state.rutinaSlots,
+          activeSlot:T.state.activeSlot, rutina:T.state.rutina, save:T.rutinaSync.save };
+        T.rutinaSync.save = function(data){ return Promise.resolve({ ok:true, envelope:{ data:data, revision:1, clienteV48:false, schemaReady:true } }); };
+        try {
+          T.state.profile = { id:"owner-sin-ciclo-"+Date.now(), name:"Test" };
+          T.state.rutinaRaw = {}; T.state.session = null; T.state.unresolvedSession = null;
+          T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+          T.state.activeSlot = "personalizada"; T.state.rutina = T.state.rutinaSlots.personalizada;
+
+          await T.persistRutina();
+          var colgado = Symbol("colgado");
+          var resultado = await Promise.race([
+            T.borradorV48.esperar(),
+            new Promise(function(res){ setTimeout(function(){ res(colgado); }, 2000); })
+          ]);
+          assert(resultado !== colgado, "borradorV48.esperar() no debe quedar colgado esperándose a sí mismo");
+        } finally {
+          T.state.profile=prev.profile; T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence; T.state.session=prev.session;
+          T.state.unresolvedSession=prev.unresolvedSession; T.state.rutinaSlots=prev.rutinaSlots;
+          T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina; T.rutinaSync.save=prev.save;
+        }
+      })();
+    });
+
+    test("orden de persistencia: dos persistRutina() consecutivas sin recarga en el medio siguen guardando en el orden invocado (sin regresión de serialización)", function(){
+      return (async function(){
+        var T = frame.contentWindow.__appTest;
+        var recibidos = [];
+        var prev = { profile:T.state.profile, rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence, session:T.state.session,
+          unresolvedSession:T.state.unresolvedSession, rutinaSlots:T.state.rutinaSlots,
+          activeSlot:T.state.activeSlot, rutina:T.state.rutina, save:T.rutinaSync.save };
+        T.rutinaSync.save = function(data){
+          recibidos.push(data.marca);
+          return Promise.resolve({ ok:true, envelope:{ data:data, revision:recibidos.length, clienteV48:false, schemaReady:true } });
+        };
+        try {
+          T.state.profile = { id:"owner-orden-"+Date.now(), name:"Test" };
+          T.state.session = null; T.state.unresolvedSession = null;
+          T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+          T.state.activeSlot = "personalizada"; T.state.rutina = T.state.rutinaSlots.personalizada;
+
+          T.state.rutinaRaw = { marca:"A" };
+          var pA = T.borradorV48.cambio();
+          T.state.rutinaRaw = { marca:"B" };
+          var pB = T.borradorV48.cambio();
+          await pA; await pB;
+          assert(recibidos.join(",") === "A,B", "las escrituras deben llegar al guardado real en el orden en que se invocaron, dio " + recibidos.join(","));
+        } finally {
+          T.state.profile=prev.profile; T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence; T.state.session=prev.session;
+          T.state.unresolvedSession=prev.unresolvedSession; T.state.rutinaSlots=prev.rutinaSlots;
+          T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina; T.rutinaSync.save=prev.save;
+        }
+      })();
+    });
+
+    group("V51.3 (diagnóstico) — ultimoCierreNativoFallido");
+
+    // Fixture mínimo de sesión nativa válida (mismo shape que sesionNativaV512),
+    // propio de este grupo para no acoplarlo a V51.2.
+    //
+    // finalizeNativeSession() llama a rutinaCache.get(owner) SIN pasar por
+    // ningún stub (no está expuesto en __appTest) — una lectura de IndexedDB
+    // real que resuelve por EVENTO, no por microtask. Es la misma "grieta"
+    // documentada junto a conSyncV48: en ese hueco, la OTRA copia de la
+    // suite (el harness la corre duplicada) puede correr uno de estos mismos
+    // tres tests y reasignar T.rutinaSync.save por su cuenta, pisando lo que
+    // esta función instaló. Reasignar la función en cada test (como hacían
+    // los otros harenesses de este archivo) es seguro SOLO porque ninguno de
+    // ellos atraviesa ese punto real de IndexedDB; éste sí.
+    //
+    // La solución: un único despachador, instalado UNA sola vez para los tres
+    // tests de este grupo (nunca reasignado de nuevo), que busca el resultado
+    // por sessionId en un registro compartido. Cada test sólo agrega/quita su
+    // propia entrada — nunca pisa la función en sí — así que no importa en
+    // qué orden o solapamiento corran estos tres tests entre sí.
+    var registroGuardadosFinalizar = {};
+    var despachadorFinalizarInstalado = false;
+    function asegurarDespachadorFinalizar(T){
+      if(despachadorFinalizarInstalado) return;
+      despachadorFinalizarInstalado = true;
+      var original = T.rutinaSync.save;
+      T.rutinaSync.save = function(data){
+        var sid = data && data.sesionActiva && data.sesionActiva.sessionId;
+        if(sid && Object.prototype.hasOwnProperty.call(registroGuardadosFinalizar, sid))
+          return Promise.resolve(registroGuardadosFinalizar[sid]);
+        return original.apply(this, arguments);
+      };
+    }
+    function diaDiagnostico512(sessionId, sets){
+      return {
+        schemaVersion:48, sessionId:sessionId,
+        slot:"personalizada", startedAt: Date.now()-60000, timezone:"America/Argentina/Buenos_Aires",
+        day:{ id:"d-diag", nombre:"Día diagnóstico", exercises:[
+          { id:"a", nombre:"Press de banca con barra", series:"3", reps:"10" }
+        ]},
+        sets: sets, references:{}, lifecycle:null
+      };
+    }
+    async function conSesionNativaParaFinalizar(savedFalso, fn){
+      var T = frame.contentWindow.__appTest;
+      asegurarDespachadorFinalizar(T);
+      var sufijo = Math.random().toString(36).slice(2)+Date.now();
+      var owner = "owner-diag-finalizar-"+sufijo;
+      var sessionId = "22222222-3333-4444-5555-"+sufijo.padEnd(12,"0").slice(0,12);
+      var prev = { profile:T.state.profile, session:T.state.session, unresolvedSession:T.state.unresolvedSession };
+      registroGuardadosFinalizar[sessionId] = savedFalso;
+      try {
+        T.state.profile = { id:owner, name:"Test", edad:30, sexo:"m" };
+        T.state.unresolvedSession = null;
+        T.state.session = diaDiagnostico512(sessionId, [
+          { exerciseInstance:"a", setNumber:1, completed:false, peso:null, reps:null },
+          { exerciseInstance:"a", setNumber:2, completed:false, peso:null, reps:null },
+          { exerciseInstance:"a", setNumber:3, completed:false, peso:null, reps:null }
+        ]);
+        return await fn({ T:T, owner:owner, day:T.state.session.day });
+      } finally {
+        T.state.profile=prev.profile; T.state.session=prev.session; T.state.unresolvedSession=prev.unresolvedSession;
+        delete registroGuardadosFinalizar[sessionId];
+      }
+    }
+
+    test("diagnóstico — se registra ultimoCierreNativoFallido cuando el cierre nativo falla, y sobrevive a que state.persistence se reemplace después", function(){
+      // Se combinan en UN solo test los dos chequeos que necesitan el
+      // finalizeSession() real (y, con él, la llamada real a
+      // rutinaCache.get() sin stub — ver comentario de
+      // conSesionNativaParaFinalizar): cada llamada real a IndexedDB en esta
+      // suite (que además corre duplicada) cuesta tiempo de sobra; medido,
+      // separarlos en dos tests llevó la corrida completa de ~13s a ~7min.
+      // Unificarlos no afloja ninguna aserción, sólo evita repetir el mismo
+      // setup costoso para verificar dos propiedades independientes del
+      // MISMO resultado ya obtenido.
+      return conSesionNativaParaFinalizar(
+        { ok:false, code:"NATIVE_LOCAL_ONLY", localSaved:false, localError:new Error("Guardado local fallido (simulado)") },
+        async function(c){
+          var resultado = await c.T.finalizeSession(c.day);
+          assert(resultado && resultado.ok===false, "finalizeSession debe devolver el mismo fallo, dio " + JSON.stringify(resultado));
+          var diag = c.T.ultimoCierreNativoFallido;
+          assert(diag, "ultimoCierreNativoFallido debería quedar registrado tras el fallo");
+          assert(diag.code === "NATIVE_LOCAL_ONLY", "code debe reflejar el resultado real, dio " + diag.code);
+          assert(diag.localSaved === false, "localSaved debe reflejar el resultado real, dio " + diag.localSaved);
+          assert(diag.localErrorMessage === "Guardado local fallido (simulado)",
+            "debe guardar sólo el MENSAJE del error, no el objeto completo, dio " + JSON.stringify(diag.localErrorMessage));
+          assert(diag.durableClose === false, "durableClose debe quedar registrado (falso en este escenario), dio " + diag.durableClose);
+          assert(!("envelope" in diag) && !("sesionActiva" in diag) && !("profile" in diag),
+            "el diagnóstico no debe incluir envelope/sesionActiva/profile — ni ejercicios, series, pesos ni datos de cuenta");
+
+          // Segunda propiedad sobre el MISMO resultado: no depende de
+          // state.persistence — sobrevive a que esa propiedad se reemplace
+          // por completo (lo que loadProfileData() real hace en index.html:4795).
+          var prevPersistence = c.T.state.persistence;
+          c.T.state.persistence = { data:{}, revision:1, clienteV48:true, schemaReady:true };
+          try {
+            assert(c.T.ultimoCierreNativoFallido === diag,
+              "ultimoCierreNativoFallido no debe depender de state.persistence ni perderse cuando éste cambia");
+          } finally {
+            c.T.state.persistence = prevPersistence;
+          }
+        }
+      );
+    });
+
+    test("diagnóstico — NO cambia lo que devuelve persistRutina() (sólo lo observa después de decidido)", function(){
+      // Deliberadamente NO pasa por finalizeSession()/rutinaCache real (ver
+      // el comentario de conSesionNativaParaFinalizar sobre esa grieta):
+      // alcanza con probar la propiedad sobre persistRutina() directo, en el
+      // mismo estilo ya usado para "orden de persistencia"/"sin bloqueos" más
+      // arriba — sin tocar IndexedDB real, determinístico.
+      return (async function(){
+        var T = frame.contentWindow.__appTest;
+        var prev = { profile:T.state.profile, rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence,
+          session:T.state.session, unresolvedSession:T.state.unresolvedSession, rutinaSlots:T.state.rutinaSlots,
+          activeSlot:T.state.activeSlot, rutina:T.state.rutina, save:T.rutinaSync.save };
+        T.rutinaSync.save = function(){ return Promise.resolve({ ok:false, code:"LOCAL_CONFLICT", localSaved:true }); };
+        try {
+          T.state.profile = { id:"owner-diag-directo-"+Date.now(), name:"Test" };
+          T.state.rutinaRaw = {}; T.state.session = null; T.state.unresolvedSession = null;
+          T.state.rutinaSlots = { personalizada:{days:[]}, automatica:{days:[]}, enfocada:{days:[]} };
+          T.state.activeSlot = "personalizada"; T.state.rutina = T.state.rutinaSlots.personalizada;
+
+          var resultado = await T.persistRutina();
+          assert(resultado.ok === false && resultado.code === "LOCAL_CONFLICT" && resultado.localSaved === true,
+            "persistRutina() debe devolver exactamente lo que dio rutinaSync.save, sin que la instrumentación lo altere, dio " + JSON.stringify(resultado));
+        } finally {
+          T.state.profile=prev.profile; T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence;
+          T.state.session=prev.session; T.state.unresolvedSession=prev.unresolvedSession;
+          T.state.rutinaSlots=prev.rutinaSlots; T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina;
+          T.rutinaSync.save=prev.save;
+        }
+      })();
+    });
+
+    test("ESCENARIO 2 (NO es una recarga real; modela sólo lo imprescindible que SÍ es cierto de una recarga: misma IndexedDB, instancia de JS nueva): persiste el conflicto AUNQUE persistRutina() rastree sus promesas", function(){
+      return (async function(){
+        var VFP = frame.contentWindow.VodaFitPersistence;
+        var cache = fakeCache(); // una sola "IndexedDB", compartida por las dos instancias de abajo
+        var syncPaginaVieja = VFP.createSync(fakeRepository(), cache);
+        var syncPaginaNueva = VFP.createSync(fakeRepository(), cache); // "otra pestaña/recarga": JS nuevo, pero MISMO cache persistente
+
+        await syncPaginaVieja.load("owner-3");
+        var pViejo = syncPaginaVieja.save({ sesionActiva:{ schemaVersion:48, day:{exercises:[{id:"a"}]} } });
+        await Promise.resolve(); await Promise.resolve();
+        assert(cache._pendientes() === 1, "precondición: la escritura de la página vieja sigue sin resolver");
+
+        // La "página nueva" (otra instancia de createSync, SIN relación de
+        // memoria con la vieja — ningún rastreo de promesas puede conectarlas,
+        // porque viven en objetos JS completamente distintos) carga mientras
+        // la escritura vieja todavía no aterrizó.
+        await syncPaginaNueva.load("owner-3");
+
+        // Recién ahora termina de aterrizar la escritura vieja (lo que SÍ
+        // puede pasar de verdad: una transacción de IndexedDB ya enviada
+        // puede seguir viva un instante después de que la página empiece a
+        // descargarse).
+        cache._flushOnePut();
+        await pViejo;
+
+        // El siguiente guardado de la página NUEVA no tiene ninguna promesa
+        // de la vieja que pueda esperar — son instancias distintas — así que
+        // el choque ocurre SIN IMPORTAR qué tan bien rastree sus propias
+        // promesas internamente.
+        var pNuevo = syncPaginaNueva.save({ sesionActiva:{ schemaVersion:48, day:{exercises:[{id:"a"},{id:"b"}]} } });
+        await Promise.resolve(); await Promise.resolve();
+        cache._flushOnePut();
+        var r = await pNuevo;
+        assert(r.ok === false && r.code === "LOCAL_CONFLICT",
+          "el conflicto ocurre igual entre dos instancias, dio " + JSON.stringify(r));
+      })();
+    });
+
+    test("trasladar el rastreo a persistRutina() no genera espera circular con borradorV48.esperar() (estático, sobre el código real)", function(){
+      assert(APP_SRC, "no se pudo traer index.html");
+      var cuerpo = APP_SRC.slice(APP_SRC.indexOf("async function persistRutina("), APP_SRC.indexOf("async function persistRutina(")+2000);
+      assert(!/borradorV48\s*\.\s*esperar\s*\(/.test(cuerpo),
+        "persistRutina() no debe depender de borradorV48.esperar() dentro de su propio cuerpo " +
+        "(si lo hiciera, encolar su propia promesa ANTES de depender de esperar() crearía un ciclo: " +
+        "esperar() nunca podría resolver porque esperaría a la misma llamada que la está esperando a ella)");
     });
 
     runNext();

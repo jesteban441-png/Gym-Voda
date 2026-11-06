@@ -44,6 +44,21 @@ async function context(){
   return ctx;
 }
 async function open(ctx){const p=await ctx.newPage();await p.goto(origin);await p.waitForFunction(()=>window.__appTest?.state.booted && navigator.serviceWorker.controller);return p;}
+// El cliente V48 legado puede autodisparar una navegación propia justo
+// después de quedar "booted" (carrera diagnosticada en el escenario V48→V49:
+// open() ya esperó booted+controller, pero esa recarga propia puede seguir
+// en vuelo y destruir el contexto del PRIMER evaluate siguiente). Reintenta
+// UNA sola vez, y sólo para ese error de navegación puntual — nunca para
+// timeouts, errores de lógica ni nada que pueda duplicar un efecto. Antes
+// de reintentar espera la MISMA condición que open() ya usa.
+async function evaluateStable(p,fn){
+  try{ return await p.evaluate(fn); }
+  catch(error){
+    if(!/Execution context was destroyed/.test(error.message)) throw error;
+    await p.waitForFunction(()=>window.__appTest?.state.booted && navigator.serviceWorker.controller);
+    return await p.evaluate(fn);
+  }
+}
 async function waitRelease(p,release){try{await p.waitForFunction(r=>window.__appTest?.updates?.status().release===r,release,{timeout:20000});}catch(error){console.error(await p.evaluate(async()=>({status:window.__appTest?.updates?.status(),waiting:(await navigator.serviceWorker.getRegistration())?.waiting?.state,caches:await caches.keys(),profile:__appTest.state.profile,raw:__appTest.state.rutinaRaw,row:await VodaFitPersistence.createCache().get('fixture')})));throw error;}}
 async function check(p){await p.evaluate(()=>window.__appTest.updates.check());}
 async function waiting(p){
@@ -192,7 +207,7 @@ async function main(){
   await test('V48 → V49: unknown old client never force-reloaded; close/reopen works',async()=>{
     deployed=v48;const ctx=await context();
     try{
-      const old=await open(ctx);await old.evaluate(()=>{__appTest.state.session={dayId:'active',sets:{}};});
+      const old=await open(ctx);await evaluateStable(old,()=>{__appTest.state.session={dayId:'active',sets:{}};});
       deployed=v49;await old.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration()).update();});await waiting(old);
       const modern=await open(ctx);await waitRelease(modern,'49.1');await check(modern);await sleep(4000);
       assert.equal(await old.evaluate(()=>__appTest.state.session.dayId),'active');
