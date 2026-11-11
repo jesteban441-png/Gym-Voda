@@ -220,6 +220,51 @@
       };
       const result=tail.then(task,task); tail=result.catch(()=>{}); return result;
     }
+    // Acknowledge ONLY a successful native-session RPC, not an arbitrary conflict.
+    // Keep the latest local draft (including edits queued during the request).
+    // SQL canonicalizes series order/shape; do not change the global equality rule.
+    function confirmSession(ownerId,expectedBase,sent,envelope){
+      const ctx=active,base=clone(expectedBase),packet=clone(sent),remote=clone(envelope);
+      const task=async()=>{
+        if(!ctx || !current(ctx) || ctx.ownerId!==ownerId)return failure('ACCOUNT_CHANGED');
+        if(ctx.blocked)return failure(ctx.blocked);
+        if(!equal(ctx.base,base))return failure('REVISION_CONFLICT');
+        const previous=base.data?.sesionActiva,confirmed=remote.data?.sesionActiva;
+        if(!base.clienteV48 || !base.schemaReady || previous?.schemaVersion!==48 ||
+          previous.sessionId!==packet.sessionId || confirmed?.sessionId!==packet.sessionId ||
+          remote.clienteV48!==true || remote.terminal || !Number.isSafeInteger(remote.revision) || remote.revision<base.revision)
+          return failure('INVALID_RESPONSE');
+        let expected;
+        try {
+          const series=packet.sets.map(({exerciseInstance,setNumber,peso,reps,completed})=>
+            ({exerciseInstance,setNumber,peso,reps,completed})).sort((a,b)=>
+              a.exerciseInstance<b.exerciseInstance?-1:a.exerciseInstance>b.exerciseInstance?1:a.setNumber-b.setNumber);
+          const references=Object.fromEntries(Object.entries(packet.references).map(([id,r])=>[id,
+            {accepted:r.accepted,sets:r.sets.map(({setNumber,peso,reps})=>({setNumber,peso,reps})).sort((a,b)=>a.setNumber-b.setNumber)}]));
+          expected={...clone(base.data),sesionActiva:{...clone(previous),day:packet.day,sets:series,references}};
+        }catch(error){return failure('INVALID_RESPONSE',error);}
+        if(!equal(remote.data,expected) || (remote.revision===base.revision && !equal(remote.data,base.data)))
+          return failure('INVALID_RESPONSE');
+        try {
+          const row=await cache.get(ownerId);
+          const branches=cache.conflicts?await cache.conflicts(ownerId):[];
+          if(!current(ctx))return failure('ACCOUNT_CHANGED');
+          if(branches.length || !row || row.localVersion!==ctx.localVersion)return failure('LOCAL_CONFLICT');
+          if(!equal(row.base,base))return failure('REVISION_CONFLICT');
+          if(row.draft.sesionActiva?.sessionId!==packet.sessionId || row.draft.__v48TerminalRequest || row.draft.sesionActiva.lifecycle?.status==='pending_finalization')
+            return failure('SESSION_CHANGED');
+          const draft=clone(row.draft);
+          draft.sesionActiva._nativeDiaConfirmado=clone(confirmed.day);
+          const nextBase={...remote,schemaReady:true};
+          const saved=await cache.put({...row,base:nextBase,draft,pending:!equal(draft,nextBase.data),updatedAt:Date.now()},ctx.localVersion);
+          if(!current(ctx))return failure('ACCOUNT_CHANGED');
+          if(saved.conflict){ctx.blocked='LOCAL_CONFLICT';return failure('LOCAL_CONFLICT');}
+          ctx.base=clone(nextBase);ctx.localVersion=saved.localVersion;
+          return {ok:true,envelope:clone(nextBase),localSaved:true};
+        }catch(error){return failure('LOCAL_STORAGE_ERROR',error);}
+      };
+      const result=tail.then(task,task);tail=result.catch(()=>{});return result;
+    }
     /* V50.1 — salida del conflicto local (E1).
        Hasta V50.4, una vez que `blocked` quedaba puesto no había forma de
        salir: `load()` lo volvía a poner en cada arranque mientras hubiera una
@@ -274,7 +319,7 @@
       };
       const result=tail.then(task,task); tail=result.catch(()=>{}); return result;
     }
-    return {load,save,resolve,detach,getContext:()=>active ? clone(active) : null};
+    return {load,save,confirmSession,resolve,detach,getContext:()=>active ? clone(active) : null};
   }
 
   function createSessionDraft(day,{sessionId=root.crypto.randomUUID(),slot,startedAt=Date.now(),timezone=Intl.DateTimeFormat().resolvedOptions().timeZone}={}){

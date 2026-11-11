@@ -10836,9 +10836,9 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       finally { T.state.session = prev.session; T.state.unresolvedSession = prev.unresolved; }
     }
 
-    test("SESION_OMITIR_HABILITADO está en false: el panel no se muestra al usuario final todavía", function(){
-      assert(A.SESION_OMITIR_HABILITADO === false,
-        "el bloque 1 no debe habilitarse hasta completar la sincronización V48 (bloque 3) y la persistencia V47 (bloque 5)");
+    test("Activación autorizada: SESION_OMITIR_HABILITADO está en true", function(){
+      assert(A.SESION_OMITIR_HABILITADO === true,
+        "V51.3 preparada para activación; sincronización V48 y persistencia V47 implementadas");
     });
 
     test("V48 — sesionOmitirEstadoActual detecta el bloqueo por progreso y no por otra cosa", function(){
@@ -10937,21 +10937,21 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         "el botón de agregar extra debe seguir disponible aunque la sesión no tenga ejercicios todavía");
     });
 
-    test("screenSession()/mountSession() NO muestran el panel mientras SESION_OMITIR_HABILITADO sea false", function(){
+    test("screenSession()/mountSession() muestran el panel con la activación autorizada", function(){
       return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
         var html = c.T.screenSession(c.day);
-        assert(html.indexOf("data-sesion-omitir-panel") === -1,
-          "el panel de omitir/restaurar no debe aparecer en la pantalla de sesión todavía");
-        assert(html.indexOf("data-sesion-omitir=") === -1 && html.indexOf("data-sesion-restaurar=") === -1,
-          "tampoco deben aparecer los botones individuales");
+        assert(html.indexOf("data-sesion-omitir-panel") !== -1,
+          "el panel de omitir/restaurar debe aparecer");
+        assert(html.indexOf("data-sesion-omitir=") !== -1 && html.indexOf("data-sesion-restaurar=") === -1,
+          "deben aparecer botones Omitir; no Restaurar sin omisiones");
       });
     });
 
-    test("screenSession()/mountSession() tampoco muestran el panel en una sesión nativa V48", function(){
+    test("screenSession()/mountSession() muestran el panel también en una sesión nativa V48", function(){
       return conSesionNativaV513(setsVacios4y1(), function(c){
         var html = c.T.screenSession(c.session.day);
-        assert(html.indexOf("data-sesion-omitir-panel") === -1,
-          "tampoco debe aparecer en la sesión nativa mientras el flag esté en false");
+        assert(html.indexOf("data-sesion-omitir-panel") !== -1,
+          "debe aparecer en la sesión nativa con el flag en true");
       });
     });
 
@@ -11110,13 +11110,13 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(html.indexOf('data-sesion-restaurar="x1"') !== -1, "un extra omitido se restaura con el MISMO botón que cualquier otro");
     });
 
-    test("screenSession() no muestra el botón de agregar extra mientras el flag esté en false", function(){
+    test("screenSession() muestra el botón de agregar extra con el flag en true", function(){
       return conSesionLegadaV513({ e1:[false,false,false], e2:[false,false,false] }, null, function(c){
         var html = c.T.screenSession(c.day);
-        assert(html.indexOf("data-sesion-agregar-extra") === -1, "no debe verse todavía, ni en V47...");
+        assert(html.indexOf("data-sesion-agregar-extra") !== -1, "debe verse en V47...");
         return conSesionNativaV513(setsVacios4y1(), function(c2){
           var html2 = c2.T.screenSession(c2.session.day);
-          assert(html2.indexOf("data-sesion-agregar-extra") === -1, "...ni en V48");
+          assert(html2.indexOf("data-sesion-agregar-extra") !== -1, "...y en V48");
         });
       });
     });
@@ -11183,7 +11183,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         profile:T.state.profile, rutinaSlots:T.state.rutinaSlots, activeSlot:T.state.activeSlot, rutina:T.state.rutina,
         rutinaRaw:T.state.rutinaRaw, persistence:T.state.persistence, session:T.state.session, unresolvedSession:T.state.unresolvedSession,
         readRutina:S.readRutina, listPesoCorporal:S.listPesoCorporal, listRegistros:S.listRegistros, listEntrenos:S.listEntrenos, nativeRpc:S.nativeRpc,
-        rutinaSyncSave:T.rutinaSync.save, rutinaSyncLoad:T.rutinaSync.load, rutinaSyncGetContext:T.rutinaSync.getContext,
+        rutinaSyncConfirm:T.rutinaSync.confirmSession, rutinaSyncSave:T.rutinaSync.save, rutinaSyncLoad:T.rutinaSync.load, rutinaSyncGetContext:T.rutinaSync.getContext,
         nativeReconcilerRecover:T.nativeReconciler.recover, nativeLifecycleRecover:T.nativeLifecycle.recover
       };
       // Id único por invocación: nativeReconciler/nativeLifecycle SÍ usan
@@ -11217,6 +11217,14 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         return copia;
       }
       T.rutinaSync.getContext = function(){ return { base:{ revision:baseRevisionConocida, data:clon(docData), clienteV48:true, schemaReady:true } }; };
+      // The memory transport uses an explicit acknowledgement, just like the real queue.
+      // Real queue/CAS/IndexedDB coverage lives in tests-v513-activation-runner.cjs.
+      T.rutinaSync.confirmSession = async function(pid, base, sent, envelope){
+        if(pid!==owner || base.revision!==baseRevisionConocida) return {ok:false,code:"REVISION_CONFLICT"};
+        baseRevisionConocida=envelope.revision;
+        ultimoDraftGuardado.sesionActiva._nativeDiaConfirmado=clon(envelope.data.sesionActiva.day);
+        return {ok:true,envelope:envelope,localSaved:true};
+      };
       // Una sesionActiva V48 nunca llega al camino de rutina (ver el wrapper
       // real de `write` en index.html): sólo queda local. Mismo código de
       // retorno que usaría el real para que persistRutina() lo trate igual.
@@ -11305,7 +11313,7 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         T.state.profile=prev.profile; T.state.rutinaSlots=prev.rutinaSlots; T.state.activeSlot=prev.activeSlot; T.state.rutina=prev.rutina;
         T.state.rutinaRaw=prev.rutinaRaw; T.state.persistence=prev.persistence; T.state.session=prev.session; T.state.unresolvedSession=prev.unresolvedSession;
         S.readRutina=prev.readRutina; S.listPesoCorporal=prev.listPesoCorporal; S.listRegistros=prev.listRegistros; S.listEntrenos=prev.listEntrenos; S.nativeRpc=prev.nativeRpc;
-        T.rutinaSync.save=prev.rutinaSyncSave; T.rutinaSync.load=prev.rutinaSyncLoad; T.rutinaSync.getContext=prev.rutinaSyncGetContext;
+        T.rutinaSync.confirmSession=prev.rutinaSyncConfirm; T.rutinaSync.save=prev.rutinaSyncSave; T.rutinaSync.load=prev.rutinaSyncLoad; T.rutinaSync.getContext=prev.rutinaSyncGetContext;
         T.nativeReconciler.recover=prev.nativeReconcilerRecover; T.nativeLifecycle.recover=prev.nativeLifecycleRecover;
       }
     }
@@ -11318,8 +11326,8 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
       assert(linea.indexOf('"v48_guardar_sesion"') !== -1, "v48_guardar_sesion debe estar en la allowlist");
     });
 
-    test("SESION_OMITIR_HABILITADO sigue en false: el bloque 3 no habilita nada al usuario final", function(){
-      assert(A.SESION_OMITIR_HABILITADO === false, "sigue deshabilitado, como pide la condición 6 del bloque 3");
+    test("Activación V51.3: flag habilitado con sincronización V48 disponible", function(){
+      assert(A.SESION_OMITIR_HABILITADO === true, "la preparación autorizada habilita V51.3");
     });
 
     test("nativeEstructuraPendiente() es false recién iniciada la sesión, y true después de omitir", function(){
@@ -11576,7 +11584,8 @@ Abrilo con un servidor estático local (<code>file://</code> bloquea el acceso a
         try { r = await c.T.sincronizarEstructuraNativa(); }
         finally { c.T.Store.nativeRpc = nativeRpcOriginal; }
         if(cambioPromise) await cambioPromise;
-        assert(r.ok === true, "dio " + JSON.stringify(r));
+        // Concurrent edits survive; this attempt must not continue to finalization.
+        assert(r.ok === false && r.code === "LOCAL_CHANGES_PENDING", "dio " + JSON.stringify(r));
         assert(payloadEnviado, "la RPC debió llamarse");
         var serieEnPayload = payloadEnviado.p_series.find(function(x){ return x.exerciseInstance==="a" && x.setNumber===1; });
         assert(serieEnPayload.peso !== 999,

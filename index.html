@@ -789,7 +789,7 @@
 
 <script src="./vendor/supabase-js-2.118.0/supabase.js?h=bee24fc29228ed5a370f76a2ba1ca3c399549edad2fef23453c80148856a49af" integrity="sha384-UagCvVPT5XXA0Hx+nJYUAGBFseHT9zBgpJMSebsAxl9lciTwbT+39j5VfRjdP5Tp sha384-tmpgmcXGo7hB00jjx4npEYkP3lFx3y6Y/P5NH8FMxDPP4EAYAoDgFSHUyCVIftZC" crossorigin="anonymous"></script>
 <script src="./vendor/jspdf-2.5.1/jspdf.umd.min.js?h=98ccf17aa10c20bb1301762618fcc9b6ab3a4e7f26b6071d64d0b41154df3875" integrity="sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk sha384-yHOtnsGdlMTUp9Ms8VHzgbg6kxjCkt9HlQw72Z3A21SnFoZBmDAFwpCP/SNcfWvz" crossorigin="anonymous"></script>
-<script src="./v48-persistence.js?v=49.1&h=ef2f59d8e98a29a83a99738fcf6799b0ce38cef50ff30d29f81251785b0600c9" integrity="sha384-hAsnoxK+xmZJ8TOSdJM9YQDBAjeE0+KbTQvG+Omvn9ZEaWiVeZnBjG18kZ/+dWcJ sha384-vHYPLmrmdG1N21nhvOeLfVy8mRQv5+E5NANKe6I9/PmOqki6y9pLQWAac7knZQTH" crossorigin="anonymous"></script>
+<script src="./v48-persistence.js?v=49.1&h=6773488444d4c0e760d5014251155bd547528a0deed07c8687e5b669935744fe" integrity="sha384-EyfQQoeJBf96araKK8v8B09nVLfgNpg/YVgJXzi5eWMyPe+mjQoLtTyTvhI8srNU sha384-wf1FYh7YbrJV48NVf7sDXTZV2LBB995JKXBneuv/vWjfZpNmrrkHrqWD/++LSHG2" crossorigin="anonymous"></script>
 <script src="./v48-session.js?v=49.1&h=c0cb63a9013a2226e5ffc8438904d56b1bee5e25a4e6e0d6068225a8784f4449" integrity="sha384-kYUzQ1Y5eGSzhSa0lsy1G2OmmpwTObIIATaWsZD/v2t6GrpsG+wg/Eb+8KJfxDAA sha384-J9/l1N85JdbQej8i0OUdp7JRADIF4GEXaCviR/Awt5qIoD6G4LNprPJEKAcpPK1y" crossorigin="anonymous"></script>
 <script src="./v48-lifecycle.js?v=49.1&h=06eaaa5a989b3dbff6caea74f45452fa410ce78b02870ee834dad1b93df44732" integrity="sha384-G13PU3YMZjI9RB0XLqOuKm540s3pM9Ct+e5JazC7mNPfVYquH04Y0JOBZrj+mdxK sha384-tm9/oeOalAYGt3XmgwzN+L9j/s+UzO6FQ0WsFO3fCrQxrLmlzes4gzsqQQbhfHlY" crossorigin="anonymous"></script>
 <script src="./v48-reconcile.js?v=49.1&h=f1c7f62880851713f9ad8ca47ed4a3fe1ecc1f82153b42aa7365c4f2b6a55c82" integrity="sha384-VtceFs/X2r2e1oGzv2YkFTvJUA4UI/Nc9doDyXqz0YcTbODsKLQOUIwLe/a1kNy8 sha384-OOar9SdHQiRERtoL+W+l0X8OND/KlwyPMVmURlP5qTSF8ICmqX9VIeQIzwZB10HC" crossorigin="anonymous"></script>
@@ -5462,7 +5462,7 @@
   // persistencia) o que rompe al finalizar (V48, si el día del servidor no
   // se actualiza). No se prende por URL, localStorage ni detección alguna
   // — mismo criterio que `capabilities` en v48-persistence.js.
-  const SESION_OMITIR_HABILITADO = false;
+  const SESION_OMITIR_HABILITADO = true;
 
   // Vista + mapa de bloqueos de la sesión ACTUAL (nativa o legado). Un solo
   // lugar que decide cuál de los dos sistemas está activo, para que el
@@ -8725,15 +8725,10 @@
   //     — EXACTAMENTE la misma fuente que ya usan requestNativeCancel y
   //     finalizeNativeSession para v48_cancelar/v48_finalizar. No hay una
   //     segunda forma de rastrear la revisión.
-  //   - v48-persistence.js NO expone ningún setter para `ctx.base`: la única
-  //     forma pública de refrescarlo es rutinaSync.load() (que v48-persistence.js
-  //     sí expone), y loadProfileData() ya la llama. Por eso, al confirmar el
-  //     push, se reconcilia con loadProfileData()+render() — el MISMO camino
-  //     que applyNativeTerminalResult usa después de cancelar/finalizar — en
-  //     vez de inventar una actualización parcial que dejaría rutinaSync
-  //     desincronizado para la siguiente operación (cancelar o finalizar
-  //     mandarían una revisión vieja y chocarían con un 40001 que no es un
-  //     conflicto real).
+  //   - confirmSession registra la respuesta de la RPC en la cola existente:
+  //     actualiza base/revisión y localVersion con CAS, conservando el borrador.
+  //     No se recarga el perfil aquí: podría comparar contra la base anterior
+  //     o reemplazar ediciones hechas mientras viajaba la petición.
   //   - v48_guardar_sesion exige los 5 argumentos juntos (día + sets +
   //     referencias): no hay una variante "solo el día". Por eso el push
   //     manda SIEMPRE el estado completo del borrador (s.sets/s.references
@@ -8810,17 +8805,28 @@
       // reconciliar nada — igual que nativeReconciler, nunca se auto-resuelve
       // un conflicto en silencio.
       if(!result.ok) return result;
-      try { await loadProfileData(); }
-      catch(error){ return {ok:true,applied:true,reloadError:true}; }
-      if(generation!==authLoadGeneration || state.profile?.id!==owner) return {ok:true,applied:true,stale:true};
-      // loadProfileData() reconstruye la sesión nativa desde cero (objeto
-      // NUEVO) — el snapshot anterior, propiedad del objeto viejo, no viaja
-      // solo. El día que acaba de confirmar el servidor es, por definición,
-      // el nuevo "último confirmado".
-      const confirmada=nativeSession();
-      if(confirmada) confirmada._nativeDiaConfirmado=JSON.parse(JSON.stringify(confirmada.day));
+      // Confirm the RPC in the existing persistence queue BEFORE any reload.
+      // Do not replace the live session: edits made during the request belong to it.
+      await borradorV48.esperar();
+      if(generation!==authLoadGeneration || state.profile?.id!==owner || nativeSession()!==s)
+        return {ok:false,code:"SESSION_CHANGED"};
+      const acknowledged=await rutinaSync.confirmSession(owner,base,
+        {sessionId:s.sessionId,day:diaEnviado,sets:seriesEnviadas,references:referenciasEnviadas},result.envelope);
+      if(!acknowledged.ok)return acknowledged;
+      if(generation!==authLoadGeneration || state.profile?.id!==owner || nativeSession()!==s)
+        return {ok:false,code:"SESSION_CHANGED"};
+      s._nativeDiaConfirmado=deepClone(acknowledged.envelope.data.sesionActiva.day);
+      // Save the newest in-memory state against the confirmed base/localVersion.
+      // This also preserves edits queued while the acknowledgement was writing.
+      const saved=await persistRutina();
+      if(!saved.ok)return {ok:false,code:"LOCAL_SAVE_FAILED"};
+      if(generation!==authLoadGeneration || state.profile?.id!==owner || nativeSession()!==s)
+        return {ok:false,code:"SESSION_CHANGED"};
+      const changed=!VodaFitPersistence.equal(s.day,diaEnviado)
+        || !VodaFitPersistence.equal(s.sets,seriesEnviadas)
+        || !VodaFitPersistence.equal(s.references,referenciasEnviadas);
       render();
-      return {ok:true,applied:true};
+      return changed?{ok:false,applied:true,code:"LOCAL_CHANGES_PENDING"}:{ok:true,applied:true};
     })();
     estructuraV48Promesa=p;
     p.finally(()=>{ if(estructuraV48Promesa===p) estructuraV48Promesa=null; });
@@ -12568,7 +12574,7 @@
   }
   /* V49 update coordinator. State is ephemeral; existing draft/journal formats stay intact. */
   const APP_RELEASE = "49.1";
-  const APP_BUILD = "16954673d643ec0314c958815d74c9b72492412658fdeb2f898ce823b2446015";
+  const APP_BUILD = "8456eec04ec6d32e5fa51619cb8cdd7297ee8ede5527cc4885dc8363506f7a8e";
   const updates = (()=>{
     let registration=null, pending=null, lock=null, lockTimer=null, refreshing=false, checking=false;
     let busy=0, saveFailure=false, lastInteraction=0;
